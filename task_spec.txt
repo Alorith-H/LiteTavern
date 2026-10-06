@@ -19,6 +19,7 @@ http、shared_preferences、path_provider、file_picker、archive、flutter_mark
 **不要**引入 sqflite / 数据库类包 / google_fonts / 网络字体。
 
 ## Android 构建环境（重要，中国网络）
+- flutter SDK 路径：每条 flutter 命令前先 `export PATH="/c/Users/28351/Desktop/Project/flutter/bin:$PATH"`（否则 command not found）
 - 构建命令前必须：`export FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn`
 - `android/settings.gradle.kts` 和 `android/build.gradle.kts` 的 repositories 加华为云镜像（放最前）：
   `maven { url = uri("https://repo.huaweicloud.com/repository/maven") }`
