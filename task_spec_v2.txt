@@ -1,0 +1,68 @@
+# 轻酒馆 v0.2.0 — 迭代规格（在 v0.1 基础上增量修改，不要重写已有结构）
+
+## 本次需求（按此顺序实现）
+
+### 1. 小米 MiMo 供应商预设
+- 设置页"模型服务"预设 chips 增加 **小米 MiMo**：base URL `https://api.xiaomimimo.com/v1`，模型 `mimo-v2.6-flash`
+- 放在预设列表最前面
+
+### 2. 聊天 token 消耗显示（精确优先，估算兜底）
+- **请求**：body 加 `"stream_options": {"include_usage": true}`
+  - 若 provider 因该字段报 400：去掉 stream_options 重试一次（代码里处理，不弹错误给用户）
+- **解析**：SSE 流中收集带 `usage` 字段的 chunk（通常在 [DONE] 前最后一个），取 `prompt_tokens` / `completion_tokens`
+- **估算兜底**：provider 没返回 usage 时本地估算：`ceil(中文字符数*0.6 + 其余字符数*0.25)`，估算值显示时加"约"字
+- `ChatMessage` 模型加 `promptTokens`/`completionTokens`（int?，可空，随消息 JSON 持久化）
+- **UI 两处**：
+  a) 每条 AI 回复气泡下方灰色小字（11sp）：`输入 1,234 · 输出 89 tokens`，估算时 `约输入 …`；用户消息不显示
+  b) 聊天页右上菜单加"**聊天统计**"弹窗：消息条数、累计输入 tokens、累计输出 tokens、当前发送上下文估算 tokens
+- 估算值在弹窗里标"（估算）"
+
+### 3. 角色卡链接下载（App 内下载并导入）
+- 首页 FAB 点击改为弹出底部弹窗（BottomSheet）两项：**从文件导入**（现有逻辑原样迁入）/ **从链接下载**
+- 链接下载：弹窗输入 http/https URL → 确认后下载（`http` 包，跟随重定向，超时 30s，最大 50MB 流式限制）
+- 内容自动识别：
+  - 前 8 字节 = PNG 魔数 → 走现有 PNG 卡解析
+  - 否则尝试 UTF-8 解码 + JSON parse → 走现有 V1/V2/V3 JSON 解析
+  - 都不是 → 中文错误"链接内容不是有效的角色卡（支持 .png / .json）"
+- 下载中显示进度转圈；失败提示具体原因（404 / 超时 / 解析失败）
+- 下载成功后与文件导入同样入库 + snackbar + 可直接进聊天
+
+### 4. 原版实用功能补充（保持简洁，只做这 4 个）
+a) **消息长按菜单**（现在只有复制）升级为三项：
+   - 复制（保留）
+   - **编辑**：弹窗编辑该条文本，保存写回存储并刷新 UI
+   - **重新生成**：仅当长按的是"最后一条 AI 消息"时显示 → 删除该条，把上一条 user 消息重新发给 API 生成
+b) **生成参数**（设置 → 模型服务分组内新增"生成参数"子块）：
+   - 温度 temperature：Slider 0–2，步长 0.05，默认 0.8
+   - top_p：Slider 0–1，步长 0.05，默认 1.0
+   - 最大回复长度 max_tokens：数字输入，默认 0 = 不限（0 时请求里不带该字段）
+   - 存 SharedPreferences，请求 body 带上
+c) **世界书激活查看**：聊天页右上菜单加"查看注入内容"：
+   - 弹窗展示**最近一次实际发送给 API 的 system 内容**（完整文本，可滚动）+ 一行"共激活 N 个世界词条目"
+   - 实现：PromptBuilder 生成 system 文本后存一份到内存/消息状态供查看
+   - 首次生成前显示"还没有发送过消息"
+d) **首页角色搜索**：顶栏下方放搜索框（Material `SearchBar` 或普通 TextField 均可），按角色 name/description 过滤，无结果时显示"没有匹配的角色"
+
+### 5. 独立世界书管理入口（v0.1 可能缺失，若已存在按此对齐）
+- 数据：`data/worlds/<id>.json`（导入的世界书原文件），挂载关系存 `data/worlds/mounts.json`：`{ "<charId>": ["<worldId>", ...] }`
+- **角色编辑页**加"世界书"分组：
+  - 已挂载列表：每行世界书 name + Switch 启用/禁用（disabled 状态存 mounts 同文件，如 `{charId: [{id, enabled}]}`，自行设计但要持久化）
+  - 内嵌 character_book 存在时显示只读行"卡内嵌世界书 · N 条"
+  - "导入世界书"按钮 → file_picker `.json` → 校验是 ST 世界书格式（有 entries）→ 存储 → 自动挂载到当前角色
+  - "从已导入中挂载"：列出未挂载的已导入世界书选择添加
+- **激活逻辑**：聊天时该角色挂载的**所有 enabled 世界书 + 卡内嵌** 一起进 WorldInfoEngine 激活；每条条目标注来源（供"查看注入内容"显示）
+
+## 不要动的部分
+- 已有页面结构、主题、存储布局、PNG/JSON 解析、引导流程保持现状
+- Android 构建配置（镜像/签名/label）已配好，**不要改 gradle 文件**
+- 不引入新依赖（http 已有，够用）；不加群聊/TTS/画图/分享菜单
+
+## 环境提醒
+- flutter 命令前：`export PATH="/c/Users/28351/Desktop/Project/flutter/bin:$PATH"`
+- 构建前：`export FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn`
+- 版本号：pubspec.yaml `version: 0.2.0+1`
+
+## 完成标准
+1. `flutter analyze` 0 issues
+2. `flutter build apk --debug` 成功（构建已缓存过，应比首次快）
+3. 输出：改动文件清单 + 每项需求的实现说明 + 已知简化点

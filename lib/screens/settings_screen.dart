@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../main.dart';
 import '../models/world_info.dart';
@@ -23,6 +24,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _keyCtrl;
   late final TextEditingController _modelCtrl;
   late final TextEditingController _nameCtrl;
+  late final TextEditingController _maxTokensCtrl;
+  late double _temperature;
+  late double _topP;
   bool _obscureKey = true;
   bool _testing = false;
 
@@ -36,6 +40,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _keyCtrl = TextEditingController(text: AppSettings.apiKey);
     _modelCtrl = TextEditingController(text: AppSettings.model);
     _nameCtrl = TextEditingController(text: AppSettings.userName);
+    _maxTokensCtrl = TextEditingController(text: '${AppSettings.maxTokens}');
+    _temperature = AppSettings.temperature.clamp(0.0, 2.0).toDouble();
+    _topP = AppSettings.topP.clamp(0.0, 1.0).toDouble();
     _loadWorldBooks();
   }
 
@@ -45,6 +52,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _keyCtrl.dispose();
     _modelCtrl.dispose();
     _nameCtrl.dispose();
+    _maxTokensCtrl.dispose();
     _api.dispose();
     super.dispose();
   }
@@ -251,6 +259,78 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         : const Icon(Icons.wifi_tethering),
                     label: Text(_testing ? '测试中…' : '测试连接'),
                   ),
+                  const SizedBox(height: 14),
+                  const Divider(height: 1),
+                  const SizedBox(height: 10),
+                  Text(
+                    '生成参数',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: scheme.primary,
+                    ),
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('温度 temperature', style: TextStyle(fontSize: 13)),
+                      Text(
+                        _temperature.toStringAsFixed(2),
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: scheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    value: _temperature,
+                    min: 0,
+                    max: 2,
+                    divisions: 40,
+                    label: _temperature.toStringAsFixed(2),
+                    onChanged: (v) {
+                      setState(() => _temperature = v);
+                      AppSettings.temperature = v;
+                    },
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Top P', style: TextStyle(fontSize: 13)),
+                      Text(
+                        _topP.toStringAsFixed(2),
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: scheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    value: _topP,
+                    min: 0,
+                    max: 1,
+                    divisions: 20,
+                    label: _topP.toStringAsFixed(2),
+                    onChanged: (v) {
+                      setState(() => _topP = v);
+                      AppSettings.topP = v;
+                    },
+                  ),
+                  const SizedBox(height: 4),
+                  TextField(
+                    controller: _maxTokensCtrl,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: const InputDecoration(
+                      labelText: '最大回复长度 max_tokens（0 = 不限）',
+                    ),
+                    onChanged: (v) =>
+                        AppSettings.maxTokens = int.tryParse(v) ?? 0,
+                  ),
                 ],
               ),
             ),
@@ -388,7 +468,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('版本 v0.1.0'),
+            Text('版本 v0.2.0'),
             SizedBox(height: 10),
             Text('简洁明了的 AI 角色扮演聊天 App，兼容 SillyTavern 角色卡与世界书。'),
           ],

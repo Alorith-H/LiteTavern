@@ -9,6 +9,8 @@ import '../services/api_client.dart';
 import '../services/macros.dart';
 import '../services/prompt_builder.dart';
 import '../services/storage.dart';
+import '../services/token_estimate.dart';
+import '../services/world_info_engine.dart';
 import '../widgets/common.dart';
 import 'character_edit_screen.dart';
 import 'settings_screen.dart';
@@ -37,6 +39,15 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _followScroll = true;
   int _genToken = 0;
   DateTime _lastSave = DateTime(0);
+
+  /// 最近一次实际发送给 API 的 system 内容（供"查看注入内容"）
+  String? _lastSystemText;
+
+  /// 最近一次激活的世界词条目（带来源）
+  List<ActivatedEntry> _lastActivated = [];
+
+  /// 最近一次发送的完整 messages（供停止后估算 tokens）
+  List<PromptMessage>? _lastPrompt;
 
   @override
   void initState() {
@@ -79,16 +90,8 @@ class _ChatScreenState extends State<ChatScreen> {
       Storage.saveConversation(card.id, msgs);
     }
 
-    // 世界书：卡内嵌 + 用户挂载的合并
-    final books = <WorldInfo>[];
-    if (card.characterBook != null) books.add(card.characterBook!);
-    final mountedIds = AppSettings.mountedWorldBookIds;
-    if (mountedIds.isNotEmpty) {
-      final all = await Storage.loadWorldBooks();
-      for (final (id, wb) in all) {
-        if (mountedIds.contains(id)) books.add(wb);
-      }
-    }
+    // 世界书：卡内嵌 + 该角色挂载且启用的合并
+    final books = await _loadWorldBooksFor(card);
 
     if (!mounted) return;
     setState(() {
@@ -98,6 +101,40 @@ class _ChatScreenState extends State<ChatScreen> {
       _loading = false;
     });
     _scrollToBottom();
+  }
+
+  /// 该角色参与激活的世界书：卡内嵌 + 挂载配置里 enabled 的。
+  /// 挂载配置不存在时回退到全局默认挂载（v0.1 行为）。
+  Future<List<WorldInfo>> _loadWorldBooksFor(CharacterCard card) async {
+    final books = <WorldInfo>[];
+    final embedded = card.characterBook;
+    if (embedded != null) {
+      // 给内嵌书一个稳定来源名（供"查看注入内容"标注）
+      books.add(embedded.name.trim().isEmpty
+          ? WorldInfo(
+              name: '卡内嵌世界书',
+              description: embedded.description,
+              entries: embedded.entries,
+            )
+          : embedded);
+    }
+    final explicit = await Storage.worldBookMountsFor(card.id);
+    final mounts = explicit ??
+        [
+          for (final id in AppSettings.mountedWorldBookIds)
+            (id: id, enabled: true),
+        ];
+    final enabledIds = {
+      for (final m in mounts)
+        if (m.enabled) m.id,
+    };
+    if (enabledIds.isNotEmpty) {
+      final all = await Storage.loadWorldBooks();
+      for (final (id, wb) in all) {
+        if (enabledIds.contains(id)) books.add(wb);
+      }
+    }
+    return books;
   }
 
   // ------------------------------------------------------------- 存储 --
@@ -207,18 +244,27 @@ class _ChatScreenState extends State<ChatScreen> {
     if (card == null) return;
     final token = ++_genToken;
 
-    final prompt = PromptBuilder.build(
+    final built = PromptBuilder.build(
       card: card,
       history: _messages,
       worldBooks: _worldBooks,
       userName: _macroUserName,
     );
+    _lastSystemText = built.systemText;
+    _lastActivated = built.activated;
+    _lastPrompt = built.messages;
+
+    int? exactPrompt;
+    int? exactCompletion;
 
     await _api.streamChat(
       baseUrl: AppSettings.baseUrl,
       apiKey: AppSettings.apiKey,
       model: AppSettings.model,
-      messages: prompt,
+      messages: built.messages,
+      temperature: AppSettings.temperature,
+      topP: AppSettings.topP,
+      maxTokens: AppSettings.maxTokens,
       onDelta: (delta) {
         if (!mounted || token != _genToken) return;
         setState(() {
@@ -229,6 +275,10 @@ class _ChatScreenState extends State<ChatScreen> {
         });
         _followBottom();
         _save();
+      },
+      onUsage: (p, c) {
+        exactPrompt = p;
+        exactCompletion = c;
       },
       onError: (error) {
         if (!mounted || token != _genToken) return;
@@ -242,16 +292,48 @@ class _ChatScreenState extends State<ChatScreen> {
     );
 
     if (!mounted || token != _genToken) return;
-    setState(() => _generating = false);
+    setState(() {
+      _generating = false;
+      _applyTokens(exactPrompt, exactCompletion);
+    });
     _save(force: true);
     _followBottom();
+  }
+
+  /// 给最后一条 AI 回复写入 token 数：优先 provider 的 usage，否则本地估算。
+  void _applyTokens(int? exactPrompt, int? exactCompletion) {
+    final prompt = _lastPrompt;
+    if (prompt == null) return;
+    final i = _messages.length - 1;
+    if (i < 0) return;
+    final m = _messages[i];
+    if (m.role != 'assistant' || m.error != null || m.promptTokens != null) {
+      return;
+    }
+    if (exactPrompt != null && exactCompletion != null) {
+      _messages[i] = m.copyWith(
+        promptTokens: exactPrompt,
+        completionTokens: exactCompletion,
+        tokensEstimated: false,
+      );
+    } else {
+      _messages[i] = m.copyWith(
+        promptTokens: estimateTokens(prompt.map((x) => x.content).join('\n')),
+        completionTokens: estimateTokens(m.content),
+        tokensEstimated: true,
+      );
+    }
   }
 
   void _stop() {
     _genToken++;
     _api.cancel();
     if (!mounted) return;
-    setState(() => _generating = false);
+    setState(() {
+      _generating = false;
+      // 停止时按已生成的部分文本估算
+      _applyTokens(null, null);
+    });
     _save(force: true);
   }
 
@@ -319,9 +401,14 @@ class _ChatScreenState extends State<ChatScreen> {
     );
     if (changed != true) return;
     final fresh = await Storage.loadCharacter(card.id);
-    if (fresh != null && mounted) {
-      setState(() => _card = fresh);
-    }
+    if (fresh == null || !mounted) return;
+    // 编辑页可能调整了世界书挂载，一并刷新
+    final books = await _loadWorldBooksFor(fresh);
+    if (!mounted) return;
+    setState(() {
+      _card = fresh;
+      _worldBooks = books;
+    });
   }
 
   Future<void> _clearConversation() async {
@@ -426,6 +513,22 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
             ListTile(
+              leading: const Icon(Icons.bar_chart_outlined),
+              title: const Text('聊天统计'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showChatStats();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.article_outlined),
+              title: const Text('查看注入内容'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showInjection();
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.refresh_outlined),
               title: const Text('重新生成最后回复'),
               enabled: canRegen,
@@ -448,6 +551,162 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  // ------------------------------------------------------- 统计与注入 --
+
+  /// 聊天统计：消息条数、累计输入/输出 tokens、当前发送上下文估算。
+  void _showChatStats() {
+    final total = _messages.length;
+    var inSum = 0;
+    var outSum = 0;
+    var hasUsage = false;
+    var approx = false;
+    for (final m in _messages) {
+      final p = m.promptTokens;
+      final c = m.completionTokens;
+      if (p == null || c == null) continue;
+      hasUsage = true;
+      inSum += p;
+      outSum += c;
+      if (m.tokensEstimated) approx = true;
+    }
+
+    var contextTokens = 0;
+    final card = _card;
+    if (card != null) {
+      final built = PromptBuilder.build(
+        card: card,
+        history: _messages,
+        worldBooks: _worldBooks,
+        userName: _macroUserName,
+      );
+      contextTokens =
+          estimateTokens(built.messages.map((m) => m.content).join('\n'));
+    }
+
+    final mark = approx ? '（估算）' : '';
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('聊天统计'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _statLine('消息条数', '$total'),
+            _statLine('累计输入 tokens',
+                hasUsage ? '${formatTokenCount(inSum)}$mark' : '0'),
+            _statLine('累计输出 tokens',
+                hasUsage ? '${formatTokenCount(outSum)}$mark' : '0'),
+            _statLine(
+                '当前发送上下文', '${formatTokenCount(contextTokens)} tokens（估算）'),
+          ],
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('好的'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statLine(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 14)),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 查看注入内容：最近一次实际发送的 system 全文 + 激活条目数/来源。
+  void _showInjection() {
+    final system = _lastSystemText;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        if (system == null) {
+          return AlertDialog(
+            title: const Text('查看注入内容'),
+            content: const Text('还没有发送过消息'),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('好的'),
+              ),
+            ],
+          );
+        }
+        final bySource = <String, int>{};
+        for (final a in _lastActivated) {
+          bySource.update(a.source, (v) => v + 1, ifAbsent: () => 1);
+        }
+        final sourceLine =
+            bySource.entries.map((e) => '${e.key} ${e.value} 条').join('、');
+        final scheme = Theme.of(ctx).colorScheme;
+        return AlertDialog(
+          title: const Text('查看注入内容'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '共激活 ${_lastActivated.length} 个世界词条目',
+                style: const TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+              if (sourceLine.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  '来源：$sourceLine',
+                  style: TextStyle(
+                      fontSize: 12, color: scheme.onSurfaceVariant),
+                ),
+              ],
+              const SizedBox(height: 10),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 320),
+                child: Container(
+                  width: double.maxFinite,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerHighest
+                        .withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: SingleChildScrollView(
+                    child: Text(
+                      system,
+                      style: const TextStyle(fontSize: 13, height: 1.5),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('好的'),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -596,17 +855,50 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
     );
 
+    // AI 回复气泡下方的 token 消耗小字（估算值加"约"）
+    String? tokenLine;
+    if (!isUser && m.promptTokens != null && m.completionTokens != null) {
+      final a = m.tokensEstimated ? '约' : '';
+      tokenLine = '$a输入 ${formatTokenCount(m.promptTokens!)}'
+          ' · $a输出 ${formatTokenCount(m.completionTokens!)} tokens';
+    }
+
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: GestureDetector(
-        onLongPress: m.content.isEmpty ? null : () => _showMessageActions(m),
-        child: bubble,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment:
+            isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          GestureDetector(
+            onLongPress:
+                m.content.isEmpty ? null : () => _showMessageActions(index),
+            child: bubble,
+          ),
+          if (tokenLine != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 2, left: 6, right: 6),
+              child: Text(
+                tokenLine,
+                style:
+                    TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+              ),
+            ),
+        ],
       ),
     );
   }
 
-  /// 长按消息 → 弹出"复制"。
-  void _showMessageActions(ChatMessage m) {
+  /// 长按消息 → 复制 / 编辑 / 重新生成（仅最后一条 AI 回复）。
+  void _showMessageActions(int index) {
+    if (index < 0 || index >= _messages.length) return;
+    final m = _messages[index];
+    if (m.content.isEmpty) return;
+    final canRegen = index == _messages.length - 1 &&
+        m.role == 'assistant' &&
+        !_generating &&
+        _messages.take(index).any((x) => x.role == 'user');
+
     showModalBottomSheet<void>(
       context: context,
       builder: (ctx) => SafeArea(
@@ -624,10 +916,64 @@ class _ChatScreenState extends State<ChatScreen> {
                 );
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('编辑'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _editMessage(index);
+              },
+            ),
+            if (canRegen)
+              ListTile(
+                leading: const Icon(Icons.refresh_outlined),
+                title: const Text('重新生成'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _regenerate();
+                },
+              ),
           ],
         ),
       ),
     );
+  }
+
+  /// 编辑某条消息文本，保存写回存储并刷新 UI。
+  Future<void> _editMessage(int index) async {
+    if (index < 0 || index >= _messages.length) return;
+    final ctrl = TextEditingController(text: _messages[index].content);
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('编辑消息'),
+        content: TextField(
+          controller: ctrl,
+          minLines: 3,
+          maxLines: 10,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: '消息内容'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    final text = ctrl.text;
+    ctrl.dispose();
+    if (saved != true || !mounted) return;
+    if (index < 0 || index >= _messages.length) return;
+    setState(() {
+      _messages[index] = _messages[index].copyWith(content: text);
+    });
+    _save(force: true);
   }
 
   Widget _buildInputBar(ColorScheme scheme) {

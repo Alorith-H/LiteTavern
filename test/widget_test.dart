@@ -7,6 +7,7 @@ import 'package:litetavern/models/character_card.dart';
 import 'package:litetavern/models/world_info.dart';
 import 'package:litetavern/services/card_parser.dart';
 import 'package:litetavern/services/prompt_builder.dart';
+import 'package:litetavern/services/token_estimate.dart';
 import 'package:litetavern/services/world_info_engine.dart';
 
 Uint8List _pngChunk(String type, List<int> data) {
@@ -117,7 +118,9 @@ void main() {
       userName: '你',
     );
     // insertion_order 升序：5 在 10 前；disabled 与未命中不出现
-    expect(result, ['第二', '第一']);
+    expect(result.map((e) => e.content).toList(), ['第二', '第一']);
+    // 来源标注为世界书名
+    expect(result.first.source, 'b');
   });
 
   test('世界书递归激活（3 层内）', () {
@@ -149,7 +152,7 @@ void main() {
       charName: '角色',
       userName: '你',
     );
-    expect(result, contains('递归命中'));
+    expect(result.map((e) => e.content), contains('递归命中'));
   });
 
   test('PNG tEXt chara 块解析', () {
@@ -195,7 +198,7 @@ void main() {
       ],
       worldBooks: const [],
       userName: '旅行者',
-    );
+    ).messages;
     expect(messages.first.role, 'system');
     expect(messages.first.content, contains('你是 小艾。'));
     expect(messages.first.content, contains('一个助手'));
@@ -203,5 +206,30 @@ void main() {
     expect(messages[1].role, 'assistant');
     expect(messages[1].content, '你好，旅行者');
     expect(messages[2].content, '讲个故事');
+  });
+
+  test('token 估算：中文 0.6、其余 0.25', () {
+    expect(estimateTokens(''), 0);
+    expect(estimateTokens('你好'), 2); // ceil(2 * 0.6) = 2
+    expect(estimateTokens('ab'), 1); // ceil(2 * 0.25) = 1
+    expect(estimateTokens('a你'), 1); // ceil(0.6 + 0.25) = 1
+  });
+
+  test('消息 token 字段随 JSON 持久化', () {
+    const m = ChatMessage(
+      role: 'assistant',
+      content: '回复',
+      timestamp: 1,
+      promptTokens: 123,
+      completionTokens: 45,
+      tokensEstimated: true,
+    );
+    final back = ChatMessage.fromJson(m.toJson());
+    expect(back.promptTokens, 123);
+    expect(back.completionTokens, 45);
+    expect(back.tokensEstimated, isTrue);
+    final old = ChatMessage.fromJson({'role': 'user', 'content': 'x', 'timestamp': 2});
+    expect(old.promptTokens, isNull);
+    expect(old.tokensEstimated, isFalse);
   });
 }

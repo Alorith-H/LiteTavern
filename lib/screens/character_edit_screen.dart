@@ -1,10 +1,15 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../models/character_card.dart';
+import '../models/world_info.dart';
 import '../services/storage.dart';
 import '../widgets/common.dart';
 
-/// 角色编辑页：编辑名字/简介/性格/场景/开场白，展示 alternate_greetings 与内嵌世界书。
+/// 角色编辑页：编辑名字/简介/性格/场景/开场白，管理世界书挂载。
 class CharacterEditScreen extends StatefulWidget {
   final String charId;
 
@@ -18,6 +23,12 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
   CharacterCard? _card;
   bool _loading = true;
   bool _saving = false;
+
+  /// 已导入的全部世界书 (id, 世界书)
+  List<(String, WorldInfo)> _worldBooks = [];
+
+  /// 本角色的挂载（含启用状态）
+  List<({String id, bool enabled})> _mounts = [];
 
   late final TextEditingController _nameCtrl;
   late final TextEditingController _descCtrl;
@@ -58,9 +69,21 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
     _personalityCtrl.text = card.personality;
     _scenarioCtrl.text = card.scenario;
     _firstMesCtrl.text = card.firstMes;
+
+    // 挂载：未单独配置时回退到全局默认（与聊天页一致）
+    final explicit = await Storage.worldBookMountsFor(card.id);
+    final mounts = explicit ??
+        [
+          for (final id in AppSettings.mountedWorldBookIds)
+            (id: id, enabled: true),
+        ];
+    final books = await Storage.loadWorldBooks();
+    if (!mounted) return;
     setState(() {
       _card = card;
       _loading = false;
+      _worldBooks = books;
+      _mounts = mounts;
     });
   }
 
@@ -85,6 +108,133 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
     await Storage.saveCharacter(updated);
     if (!mounted) return;
     Navigator.of(context).pop(true);
+  }
+
+  // ---------------------------------------------------------- 世界书 --
+
+  /// 已挂载行：(id, 名称, 条数, 是否启用)；已删除的世界书跳过。
+  List<(String, String, int, bool)> _mountedRows() {
+    final rows = <(String, String, int, bool)>[];
+    for (final m in _mounts) {
+      final hit = _worldBooks.where((b) => b.$1 == m.id);
+      if (hit.isEmpty) continue;
+      final book = hit.first.$2;
+      rows.add((
+        m.id,
+        book.name.trim().isEmpty ? '未命名世界书' : book.name.trim(),
+        book.entries.length,
+        m.enabled,
+      ));
+    }
+    return rows;
+  }
+
+  Future<void> _persistMounts() =>
+      Storage.saveWorldBookMounts(widget.charId, _mounts);
+
+  void _toggleMount(String id, bool enabled) {
+    setState(() {
+      _mounts = [
+        for (final m in _mounts)
+          m.id == id ? (id: m.id, enabled: enabled) : m,
+      ];
+    });
+    _persistMounts();
+  }
+
+  /// 导入世界书 JSON → 存储 → 自动挂载到当前角色。
+  Future<void> _importWorldBook() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final file = result.files.single;
+      final bytes = file.bytes ??
+          (file.path != null ? await File(file.path!).readAsBytes() : null);
+      if (bytes == null) throw const FormatException('读取失败');
+      final decoded = jsonDecode(utf8.decode(bytes, allowMalformed: true));
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('格式错误');
+      }
+      final book = WorldInfo.fromJson(decoded);
+      if (book.entries.isEmpty) throw const FormatException('没有条目');
+      final id = await Storage.saveWorldBook(book);
+      final all = await Storage.loadWorldBooks();
+      if (!mounted) return;
+      setState(() {
+        _worldBooks = all;
+        if (!_mounts.any((m) => m.id == id)) {
+          _mounts = [..._mounts, (id: id, enabled: true)];
+        }
+      });
+      await _persistMounts();
+      if (!mounted) return;
+      final name = book.name.trim().isEmpty ? '未命名世界书' : book.name.trim();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已导入并挂载「$name」（${book.entries.length} 条）')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('这不是有效的世界书文件')),
+      );
+    }
+  }
+
+  /// 从已导入的世界书里挑一本挂载到当前角色。
+  void _mountExisting() {
+    final available = _worldBooks
+        .where((b) => !_mounts.any((m) => m.id == b.$1))
+        .toList();
+    if (available.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('没有可挂载的世界书，可先在设置里导入')),
+      );
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) {
+        final scheme = Theme.of(ctx).colorScheme;
+        return SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+                child: Text(
+                  '从已导入的世界书中选择',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              for (final (id, book) in available)
+                ListTile(
+                  leading: const Icon(Icons.menu_book_outlined),
+                  title: Text(
+                    book.name.trim().isEmpty ? '未命名世界书' : book.name.trim(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text('${book.entries.length} 条'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    setState(
+                        () => _mounts = [..._mounts, (id: id, enabled: true)]);
+                    _persistMounts();
+                  },
+                ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -203,16 +353,48 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
                   ),
                 ),
             ],
-            if (bookCount > 0) ...[
-              const SizedBox(height: 12),
-              Card(
-                child: ListTile(
-                  leading: const Icon(Icons.menu_book_outlined),
-                  title: Text('内嵌世界书：$bookCount 条'),
-                  subtitle: const Text('随角色卡自动参与关键词匹配（只读）'),
-                ),
+            const SizedBox(height: 20),
+            _label('世界书'),
+            Card(
+              child: Column(
+                children: [
+                  if (bookCount > 0)
+                    ListTile(
+                      leading: const Icon(Icons.menu_book_outlined),
+                      title: Text('卡内嵌世界书 · $bookCount 条'),
+                      subtitle: const Text('随角色卡自动参与关键词匹配（只读）'),
+                    ),
+                  for (final row in _mountedRows())
+                    ListTile(
+                      leading: const Icon(Icons.public),
+                      title: Text(
+                        row.$2,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text('${row.$3} 条 · ${row.$4 ? '已启用' : '已禁用'}'),
+                      trailing: Switch(
+                        value: row.$4,
+                        onChanged: (v) => _toggleMount(row.$1, v),
+                      ),
+                    ),
+                  if (bookCount > 0 || _mountedRows().isNotEmpty)
+                    const Divider(height: 1),
+                  ListTile(
+                    leading:
+                        Icon(Icons.add_circle_outline, color: scheme.primary),
+                    title: const Text('导入世界书'),
+                    subtitle: const Text('选择 JSON 文件，导入后自动挂载到此角色'),
+                    onTap: _importWorldBook,
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.add_link),
+                    title: const Text('从已导入中挂载'),
+                    onTap: _mountExisting,
+                  ),
+                ],
               ),
-            ],
+            ),
           ],
         ),
       ),

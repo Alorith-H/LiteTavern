@@ -1,9 +1,11 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../models/character_card.dart';
+import '../services/card_downloader.dart';
 import '../services/card_parser.dart';
 import '../services/storage.dart';
 import '../widgets/common.dart';
@@ -23,6 +25,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   List<CharacterCard> _characters = [];
   bool _loading = true;
+  String _query = '';
 
   @override
   void initState() {
@@ -39,6 +42,16 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  List<CharacterCard> get _visibleCharacters {
+    final q = _query.trim().toLowerCase();
+    if (q.isEmpty) return _characters;
+    return _characters
+        .where((c) =>
+            c.name.toLowerCase().contains(q) ||
+            c.description.toLowerCase().contains(q))
+        .toList();
+  }
+
   Future<void> _openChat(CharacterCard card) async {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => ChatScreen(charId: card.id)),
@@ -47,6 +60,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _reload();
   }
 
+  /// 从文件选择导入（FAB 底部弹窗的"从文件导入"）。
   Future<void> _import() async {
     try {
       final result = await FilePicker.platform.pickFiles(
@@ -61,27 +75,52 @@ class _HomeScreenState extends State<HomeScreen> {
       if (bytes == null) {
         throw const FormatException('读取文件失败');
       }
-      final parsed = CardParser.parse(bytes, file.name);
-      final card = await Storage.saveCharacter(parsed.card);
-      if (parsed.pngBytes != null) {
-        await Storage.saveAvatar(card.id, parsed.pngBytes!);
-      }
-      await _reload();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('已导入角色「${card.name}」'),
-          action: SnackBarAction(
-            label: '去聊天',
-            onPressed: () => _openChat(card),
-          ),
-        ),
-      );
+      await _importBytes(bytes, file.name);
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('这不是有效的角色卡文件')),
       );
+    }
+  }
+
+  /// 解析 + 入库 + snackbar（文件导入与链接下载共用）。
+  Future<void> _importBytes(Uint8List bytes, String name) async {
+    final parsed = CardParser.parse(bytes, name);
+    final card = await Storage.saveCharacter(parsed.card);
+    if (parsed.pngBytes != null) {
+      await Storage.saveAvatar(card.id, parsed.pngBytes!);
+    }
+    await _reload();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('已导入角色「${card.name}」'),
+        action: SnackBarAction(
+          label: '去聊天',
+          onPressed: () => _openChat(card),
+        ),
+      ),
+    );
+  }
+
+  /// 从链接下载并导入。成功返回 null，失败返回可展示的中文原因。
+  Future<String?> _downloadFromUrl(String url) async {
+    try {
+      // 按内容识别（PNG 魔数 → PNG 卡，否则按 JSON 解析）
+      final bytes = await downloadCard(url);
+      await _importBytes(bytes, '');
+      return null;
+    } on CardDownloadException catch (e) {
+      return e.message;
+    } on FormatException catch (e) {
+      final msg = e.message;
+      if (msg == '这不是有效的角色卡文件') {
+        return '链接内容不是有效的角色卡（支持 .png / .json）';
+      }
+      return '解析失败：$msg';
+    } catch (e) {
+      return '下载失败：$e';
     }
   }
 
@@ -154,6 +193,45 @@ class _HomeScreenState extends State<HomeScreen> {
     return lines.first;
   }
 
+  /// FAB：底部弹窗选择"从文件导入 / 从链接下载"。
+  void _showImportSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.file_upload_outlined),
+              title: const Text('从文件导入'),
+              subtitle: const Text('选择本地 .png / .json 角色卡'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _import();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.link_outlined),
+              title: const Text('从链接下载'),
+              subtitle: const Text('输入 URL，下载 .png / .json 角色卡'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showDownloadDialog();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDownloadDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (_) => _LinkDownloadDialog(onDownload: _downloadFromUrl),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -176,72 +254,97 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _characters.isEmpty
-              ? _buildEmpty(scheme)
-              : RefreshIndicator(
-                  onRefresh: _reload,
-                  child: ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 88),
-                    itemCount: _characters.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 10),
-                    itemBuilder: (context, i) {
-                      final c = _characters[i];
-                      return Card(
-                        clipBehavior: Clip.antiAlias,
-                        child: InkWell(
-                          onTap: () => _openChat(c),
-                          onLongPress: () => _showActions(c),
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Row(
-                              children: [
-                                CharacterAvatar(
-                                  id: c.id,
-                                  name: c.name,
-                                  size: 52,
-                                ),
-                                const SizedBox(width: 14),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        c.name,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 16,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        _preview(c),
-                                        style: TextStyle(
-                                          color: scheme.onSurfaceVariant,
-                                          fontSize: 13,
-                                        ),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Icon(Icons.chevron_right,
-                                    color: scheme.outline),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    },
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: TextField(
+                    decoration: const InputDecoration(
+                      hintText: '搜索角色（名字 / 简介）',
+                      prefixIcon: Icon(Icons.search),
+                      isDense: true,
+                    ),
+                    onChanged: (v) => setState(() => _query = v),
                   ),
                 ),
+                Expanded(child: _buildList(scheme)),
+              ],
+            ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _import,
+        onPressed: _showImportSheet,
         icon: const Icon(Icons.file_upload_outlined),
         label: const Text('导入'),
+      ),
+    );
+  }
+
+  Widget _buildList(ColorScheme scheme) {
+    if (_characters.isEmpty) return _buildEmpty(scheme);
+    final list = _visibleCharacters;
+    if (list.isEmpty) {
+      return Center(
+        child: Text(
+          '没有匹配的角色',
+          style: TextStyle(fontSize: 15, color: scheme.onSurfaceVariant),
+        ),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _reload,
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 88),
+        itemCount: list.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 10),
+        itemBuilder: (context, i) {
+          final c = list[i];
+          return Card(
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: () => _openChat(c),
+              onLongPress: () => _showActions(c),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    CharacterAvatar(
+                      id: c.id,
+                      name: c.name,
+                      size: 52,
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            c.name,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 16,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _preview(c),
+                            style: TextStyle(
+                              color: scheme.onSurfaceVariant,
+                              fontSize: 13,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.chevron_right, color: scheme.outline),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -262,7 +365,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 24),
             FilledButton.icon(
-              onPressed: _import,
+              onPressed: _showImportSheet,
               icon: const Icon(Icons.file_upload_outlined),
               label: const Text('导入角色卡'),
             ),
@@ -279,6 +382,106 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// "从链接下载"弹窗：输入 URL，下载中显示转圈；失败在弹窗内显示原因。
+class _LinkDownloadDialog extends StatefulWidget {
+  /// 执行下载+导入；成功返回 null，失败返回可展示的中文原因。
+  final Future<String?> Function(String url) onDownload;
+
+  const _LinkDownloadDialog({required this.onDownload});
+
+  @override
+  State<_LinkDownloadDialog> createState() => _LinkDownloadDialogState();
+}
+
+class _LinkDownloadDialogState extends State<_LinkDownloadDialog> {
+  final _ctrl = TextEditingController();
+  bool _downloading = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _start() async {
+    final url = _ctrl.text.trim();
+    if (url.isEmpty) {
+      setState(() => _error = '请输入链接');
+      return;
+    }
+    setState(() {
+      _downloading = true;
+      _error = null;
+    });
+    final err = await widget.onDownload(url);
+    if (!mounted) return;
+    if (err == null) {
+      Navigator.of(context).pop();
+      return;
+    }
+    setState(() {
+      _downloading = false;
+      _error = err;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return AlertDialog(
+      title: const Text('从链接下载角色卡'),
+      content: _downloading
+          ? const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                ),
+                SizedBox(width: 14),
+                Text('下载中…'),
+              ],
+            )
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: _ctrl,
+                  keyboardType: TextInputType.url,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    hintText: 'https://example.com/card.png',
+                  ),
+                  onSubmitted: (_) => _start(),
+                ),
+                if (_error != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _error!,
+                    style: TextStyle(color: scheme.error, fontSize: 13),
+                  ),
+                ],
+              ],
+            ),
+      actions: _downloading
+          ? null
+          : [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: _start,
+                child: const Text('下载'),
+              ),
+            ],
     );
   }
 }

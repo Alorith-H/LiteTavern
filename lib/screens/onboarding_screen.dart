@@ -17,6 +17,7 @@ class ApiPreset {
 }
 
 const kApiPresets = <ApiPreset>[
+  ApiPreset('小米 MiMo', 'https://api.xiaomimimo.com/v1', 'mimo-v2.6-flash'),
   ApiPreset('DeepSeek', 'https://api.deepseek.com/v1', 'deepseek-chat'),
   ApiPreset('Kimi', 'https://api.moonshot.cn/v1', 'moonshot-v1-8k'),
   ApiPreset('智谱 GLM', 'https://open.bigmodel.cn/api/paas/v4', 'glm-4-air'),

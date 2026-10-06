@@ -10,16 +10,20 @@ class ApiClient {
   http.Client? _client;
   bool _cancelled = false;
 
-  /// 流式聊天。回调逐 chunk 收到 delta 文本。
+  /// 流式聊天。回调逐 chunk 收到 delta 文本；
+  /// provider 返回 usage 时（[DONE] 前最后一个 chunk）回调 [onUsage]。
   Future<void> streamChat({
     required String baseUrl,
     required String apiKey,
     required String model,
     required List<PromptMessage> messages,
     double temperature = 0.8,
+    double topP = 1.0,
+    int maxTokens = 0,
     required void Function(String delta) onDelta,
     required void Function(String error) onError,
     required void Function() onDone,
+    void Function(int promptTokens, int completionTokens)? onUsage,
   }) async {
     cancel();
     _cancelled = false;
@@ -28,19 +32,42 @@ class ApiClient {
 
     try {
       final uri = Uri.parse('${_trimSlash(baseUrl)}/chat/completions');
-      final request = http.Request('POST', uri);
-      request.headers['Content-Type'] = 'application/json';
-      request.headers['Authorization'] = 'Bearer $apiKey';
-      request.body = jsonEncode({
-        'model': model,
-        'messages': messages.map((m) => m.toJson()).toList(),
-        'stream': true,
-        'temperature': temperature,
-      });
 
-      final response = await client
-          .send(request)
-          .timeout(const Duration(seconds: 15));
+      Map<String, dynamic> buildBody(bool includeUsage) => {
+            'model': model,
+            'messages': messages.map((m) => m.toJson()).toList(),
+            'stream': true,
+            'temperature': temperature,
+            'top_p': topP,
+            if (maxTokens > 0) 'max_tokens': maxTokens,
+            if (includeUsage) 'stream_options': {'include_usage': true},
+          };
+
+      // 请求带 stream_options 收集 usage；若 provider 因该字段报 400，
+      // 去掉后静默重试一次（不弹错误给用户）。
+      var includeUsage = true;
+      late final http.StreamedResponse response;
+      while (true) {
+        final request = http.Request('POST', uri);
+        request.headers['Content-Type'] = 'application/json';
+        request.headers['Authorization'] = 'Bearer $apiKey';
+        request.body = jsonEncode(buildBody(includeUsage));
+        final r = await client
+            .send(request)
+            .timeout(const Duration(seconds: 15));
+        if (_cancelled) return;
+        if (r.statusCode == 400 && includeUsage) {
+          includeUsage = false;
+          try {
+            await r.stream.drain<void>();
+          } catch (_) {
+            // 丢弃报错响应体，直接重试
+          }
+          continue;
+        }
+        response = r;
+        break;
+      }
 
       if (response.statusCode != 200) {
         if (_cancelled) return;
@@ -48,6 +75,9 @@ class ApiClient {
         onError(humanError(response.statusCode, body));
         return;
       }
+
+      int? usagePrompt;
+      int? usageCompletion;
 
       final lines = response.stream
           .transform(utf8.decoder)
@@ -62,20 +92,37 @@ class ApiClient {
         }
         try {
           final json = jsonDecode(data);
-          final choices = json is Map ? json['choices'] : null;
-          if (choices is List && choices.isNotEmpty) {
-            final first = choices.first;
-            final delta = first is Map ? first['delta'] : null;
-            final content = delta is Map ? delta['content'] : null;
-            if (content is String && content.isNotEmpty) {
-              onDelta(content);
+          if (json is Map) {
+            // 收集带 usage 的 chunk（通常在 [DONE] 前最后一个）
+            final usage = json['usage'];
+            if (usage is Map) {
+              final p = usage['prompt_tokens'];
+              final c = usage['completion_tokens'];
+              if (p is num && c is num) {
+                usagePrompt = p.toInt();
+                usageCompletion = c.toInt();
+              }
+            }
+            final choices = json['choices'];
+            if (choices is List && choices.isNotEmpty) {
+              final first = choices.first;
+              final delta = first is Map ? first['delta'] : null;
+              final content = delta is Map ? delta['content'] : null;
+              if (content is String && content.isNotEmpty) {
+                onDelta(content);
+              }
             }
           }
         } catch (_) {
           // 忽略无法解析的行（如注释行、半包）
         }
       }
-      if (!_cancelled) onDone();
+      if (!_cancelled) {
+        if (usagePrompt != null && usageCompletion != null) {
+          onUsage?.call(usagePrompt, usageCompletion);
+        }
+        onDone();
+      }
     } on TimeoutException {
       if (!_cancelled) onError('连接超时（15 秒），请检查网络或 Base URL');
     } catch (e) {

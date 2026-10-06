@@ -14,6 +14,24 @@ class PromptMessage {
   Map<String, dynamic> toJson() => {'role': role, 'content': content};
 }
 
+/// PromptBuilder 的组装结果。
+class PromptBuildResult {
+  /// 发送给 API 的完整 messages（第一条是 system）
+  final List<PromptMessage> messages;
+
+  /// system 的完整文本（即 messages.first.content），供"查看注入内容"展示
+  final String systemText;
+
+  /// 本次激活的世界词条目（带来源标注），供统计/展示
+  final List<ActivatedEntry> activated;
+
+  const PromptBuildResult({
+    required this.messages,
+    required this.systemText,
+    required this.activated,
+  });
+}
+
 /// 组装 messages 数组。
 ///
 /// system（单条，按顺序拼接）：
@@ -26,7 +44,7 @@ class PromptMessage {
 class PromptBuilder {
   static const int maxHistory = 40;
 
-  static List<PromptMessage> build({
+  static PromptBuildResult build({
     required CharacterCard card,
     required List<ChatMessage> history,
     required List<WorldInfo> worldBooks,
@@ -34,13 +52,14 @@ class PromptBuilder {
   }) {
     final charName = card.name;
 
-    // 1. 世界书激活（引擎内部已做宏替换）
-    final wbTexts = WorldInfoEngine.activate(
+    // 1. 世界书激活（引擎内部已做宏替换，附带来源）
+    final activated = WorldInfoEngine.activate(
       books: worldBooks,
       messages: history,
       charName: charName,
       userName: userName,
     );
+    final wbTexts = activated.map((a) => a.content).toList();
 
     String macro(String s) =>
         applyMacros(s, charName: charName, userName: userName);
@@ -68,8 +87,9 @@ class PromptBuilder {
       sb.write('示例对话：\n$example');
     }
 
+    final systemText = sb.toString();
     final messages = <PromptMessage>[
-      PromptMessage(role: 'system', content: sb.toString()),
+      PromptMessage(role: 'system', content: systemText),
     ];
 
     // 2. first_mes 作为 assistant 开头
@@ -90,6 +110,10 @@ class PromptBuilder {
       messages.add(PromptMessage(role: m.role, content: macro(m.content)));
     }
 
-    return messages;
+    return PromptBuildResult(
+      messages: messages,
+      systemText: systemText,
+      activated: activated,
+    );
   }
 }

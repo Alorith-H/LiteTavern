@@ -98,6 +98,7 @@ class Storage {
     final dir = _charDir(id);
     if (await dir.exists()) await dir.delete(recursive: true);
     await deleteConversation(id);
+    await removeWorldBookMounts(id);
   }
 
   // ---------------------------------------------------------- 对话 --
@@ -155,6 +156,7 @@ class Storage {
           .split(Platform.pathSeparator)
           .last
           .replaceAll('.json', '');
+      if (id == 'mounts') continue; // 挂载关系文件，不是世界书
       try {
         final json =
             jsonDecode(await entity.readAsString()) as Map<String, dynamic>;
@@ -174,6 +176,81 @@ class Storage {
   static Future<void> deleteWorldBook(String id) async {
     final file = File('${_wbRoot.path}${Platform.pathSeparator}$id.json');
     if (await file.exists()) await file.delete();
+    await unmountWorldBook(id);
+  }
+
+  // --------------------------------------------------- 世界书挂载 --
+
+  /// 每角色挂载关系：`{ charId: [{id, enabled}] }`，存 worldbooks/mounts.json。
+  static File get _mountsFile =>
+      File('${_wbRoot.path}${Platform.pathSeparator}mounts.json');
+
+  static Future<Map<String, List<({String id, bool enabled})>>>
+      _readAllMounts() async {
+    if (!await _mountsFile.exists()) return {};
+    try {
+      final decoded = jsonDecode(await _mountsFile.readAsString());
+      if (decoded is! Map<String, dynamic>) return {};
+      final result = <String, List<({String id, bool enabled})>>{};
+      decoded.forEach((charId, v) {
+        if (v is! List) return;
+        final items = <({String id, bool enabled})>[];
+        for (final e in v) {
+          if (e is Map && e['id'] is String) {
+            items.add((id: e['id'] as String, enabled: e['enabled'] != false));
+          }
+        }
+        result[charId] = items;
+      });
+      return result;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  static Future<void> _writeAllMounts(
+      Map<String, List<({String id, bool enabled})>> all) async {
+    final data = <String, dynamic>{
+      for (final e in all.entries)
+        e.key: [
+          for (final m in e.value) {'id': m.id, 'enabled': m.enabled},
+        ],
+    };
+    await _mountsFile.writeAsString(jsonEncode(data), flush: true);
+  }
+
+  /// 该角色的挂载配置；null 表示从未配置过（调用方回退到全局默认挂载）。
+  static Future<List<({String id, bool enabled})>?> worldBookMountsFor(
+      String charId) async {
+    final all = await _readAllMounts();
+    return all[charId];
+  }
+
+  static Future<void> saveWorldBookMounts(
+      String charId, List<({String id, bool enabled})> mounts) async {
+    final all = await _readAllMounts();
+    all[charId] = mounts;
+    await _writeAllMounts(all);
+  }
+
+  static Future<void> removeWorldBookMounts(String charId) async {
+    final all = await _readAllMounts();
+    if (all.remove(charId) == null) return;
+    await _writeAllMounts(all);
+  }
+
+  /// 世界书被删除时，从所有角色的挂载里移除。
+  static Future<void> unmountWorldBook(String worldId) async {
+    final all = await _readAllMounts();
+    var changed = false;
+    for (final e in all.entries) {
+      final filtered = e.value.where((m) => m.id != worldId).toList();
+      if (filtered.length != e.value.length) {
+        all[e.key] = filtered;
+        changed = true;
+      }
+    }
+    if (changed) await _writeAllMounts(all);
   }
 }
 
@@ -212,11 +289,27 @@ class AppSettings {
   static bool get onboardingDone => _sp.getBool(_kOnboarding) ?? false;
   static set onboardingDone(bool v) => _sp.setBool(_kOnboarding, v);
 
-  /// 已挂载（启用）的用户世界书 id 列表
+  /// 已挂载（启用）的用户世界书 id 列表（角色未单独配置时的全局默认）
   static List<String> get mountedWorldBookIds =>
       _sp.getStringList(_kMountedWb) ?? const [];
   static set mountedWorldBookIds(List<String> v) =>
       _sp.setStringList(_kMountedWb, v);
+
+  static const _kTemperature = 'temperature';
+  static const _kTopP = 'top_p';
+  static const _kMaxTokens = 'max_tokens';
+
+  /// 生成温度，0–2，默认 0.8
+  static double get temperature => _sp.getDouble(_kTemperature) ?? 0.8;
+  static set temperature(double v) => _sp.setDouble(_kTemperature, v);
+
+  /// Top-p，0–1，默认 1.0
+  static double get topP => _sp.getDouble(_kTopP) ?? 1.0;
+  static set topP(double v) => _sp.setDouble(_kTopP, v);
+
+  /// 最大回复长度；0 = 不限（请求里不带该字段）
+  static int get maxTokens => _sp.getInt(_kMaxTokens) ?? 0;
+  static set maxTokens(int v) => _sp.setInt(_kMaxTokens, v);
 
   static bool get apiConfigured =>
       baseUrl.trim().isNotEmpty && apiKey.trim().isNotEmpty;
