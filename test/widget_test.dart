@@ -232,4 +232,61 @@ void main() {
     expect(old.promptTokens, isNull);
     expect(old.tokensEstimated, isFalse);
   });
+
+  test('变体字段 JSON 兼容与切换/编辑同步', () {
+    const m = ChatMessage(
+      role: 'assistant',
+      content: 'B',
+      timestamp: 1,
+      variants: ['A', 'B'],
+      variantIndex: 1,
+      variantUsage: [
+        VariantUsage(prompt: 10, completion: 5),
+        VariantUsage(prompt: 12, completion: 6, estimated: true),
+      ],
+    );
+    final back = ChatMessage.fromJson(m.toJson());
+    expect(back.variants, ['A', 'B']);
+    expect(back.variantIndex, 1);
+    expect(back.content, 'B');
+    expect(back.currentVariantUsage?.prompt, 12);
+    expect(back.currentVariantUsage?.estimated, isTrue);
+
+    // 切换变体 → 显示文本与 token 小字跟随
+    final sw = back.copyWith(variantIndex: 0);
+    expect(sw.content, 'A');
+    expect(sw.currentVariantUsage?.prompt, 10);
+
+    // 编辑当前变体 → variants 同步
+    final ed = sw.copyWith(content: 'A2');
+    expect(ed.content, 'A2');
+    expect(ed.variants, ['A2', 'B']);
+    expect(ed.variantIndex, 0);
+  });
+
+  test('旧数据无 variants → 空列表且 token 回退消息级', () {
+    final old = ChatMessage.fromJson({
+      'role': 'assistant',
+      'content': 'x',
+      'timestamp': 1,
+      'promptTokens': 5,
+      'completionTokens': 2,
+    });
+    expect(old.variants, isEmpty);
+    expect(old.variantUsage, isEmpty);
+    expect(old.currentVariantUsage?.prompt, 5);
+    expect(old.toJson().containsKey('variants'), isFalse);
+
+    // 收编：内容与变体不一致时（如中断恢复）文本并入新变体
+    final mid = ChatMessage.fromJson({
+      'role': 'assistant',
+      'content': 'new-partial',
+      'timestamp': 1,
+      'variants': ['old-reply'],
+      'variantIndex': 0,
+    });
+    expect(mid.variants, ['old-reply', 'new-partial']);
+    expect(mid.variantIndex, 1);
+    expect(mid.content, 'new-partial');
+  });
 }

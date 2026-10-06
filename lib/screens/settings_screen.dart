@@ -27,6 +27,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _maxTokensCtrl;
   late double _temperature;
   late double _topP;
+  late double _chatFontSize;
+  late int _historyLimit;
+  late bool _showTimestamps;
   bool _obscureKey = true;
   bool _testing = false;
 
@@ -43,6 +46,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _maxTokensCtrl = TextEditingController(text: '${AppSettings.maxTokens}');
     _temperature = AppSettings.temperature.clamp(0.0, 2.0).toDouble();
     _topP = AppSettings.topP.clamp(0.0, 1.0).toDouble();
+    _chatFontSize = AppSettings.chatFontSize;
+    _historyLimit = AppSettings.contextHistoryLimit;
+    _showTimestamps = AppSettings.showTimestamps;
     _loadWorldBooks();
   }
 
@@ -331,6 +337,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onChanged: (v) =>
                         AppSettings.maxTokens = int.tryParse(v) ?? 0,
                   ),
+                  const SizedBox(height: 14),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('上下文保留条数',
+                          style: TextStyle(fontSize: 13)),
+                      Text(
+                        '${_historyLimit.round()} 条',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: scheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    value: _historyLimit
+                        .clamp(10, 100)
+                        .toInt()
+                        .toDouble(),
+                    min: 10,
+                    max: 100,
+                    divisions: 18,
+                    label: '${_historyLimit.round()} 条',
+                    onChanged: (v) {
+                      setState(() => _historyLimit = v.round());
+                      AppSettings.contextHistoryLimit = v.round();
+                    },
+                  ),
                 ],
               ),
             ),
@@ -381,14 +417,64 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Card(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
-              child: TextField(
-                controller: _nameCtrl,
-                decoration: const InputDecoration(
-                  labelText: '我的名字（{{user}} 替换值）',
-                  hintText: '你',
-                ),
-                onChanged: (v) => AppSettings.userName =
-                    v.isEmpty ? '你' : v,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: _nameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: '我的名字（{{user}} 替换值）',
+                      hintText: '你',
+                    ),
+                    onChanged: (v) => AppSettings.userName =
+                        v.isEmpty ? '你' : v,
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('聊天气泡字号',
+                          style: TextStyle(fontSize: 13)),
+                      Text(
+                        '${_chatFontSize.round()}sp',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: scheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    value: _chatFontSize
+                        .round()
+                        .clamp(13, 20)
+                        .toDouble(),
+                    min: 13,
+                    max: 20,
+                    divisions: 7,
+                    label: '${_chatFontSize.round()}sp',
+                    onChanged: (v) {
+                      setState(() => _chatFontSize = v.roundToDouble());
+                      AppSettings.chatFontSize = v;
+                    },
+                  ),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text('消息时间戳',
+                            style: TextStyle(fontSize: 13)),
+                      ),
+                      Switch(
+                        value: _showTimestamps,
+                        onChanged: (v) {
+                          setState(() => _showTimestamps = v);
+                          AppSettings.showTimestamps = v;
+                        },
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ),
@@ -468,7 +554,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('版本 v0.2.0'),
+            Text('版本 v0.3.0'),
             SizedBox(height: 10),
             Text('简洁明了的 AI 角色扮演聊天 App，兼容 SillyTavern 角色卡与世界书。'),
           ],

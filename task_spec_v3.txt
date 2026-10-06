@@ -1,0 +1,68 @@
+# 轻酒馆 v0.3.0 — 迭代规格（增量修改，不重写已有结构）
+
+## 1. App 图标（素材我已生成，你只管接入）
+- `assets/icon/icon.png`（1024×1024：紫色渐变底 + 白色聊天气泡 + 负空间酒杯）**已存在**
+- `assets/icon/icon_fg.png`（透明背景版，备用）
+- 接入方式优先 **flutter_launcher_icons**（dev_dependencies）：
+  ```yaml
+  flutter_launcher_icons:
+    image_path: assets/icon/icon.png
+    adaptive_icon_foreground: assets/icon/icon.png
+    adaptive_icon_background: "#4C1D95"
+    android: true
+    windows: true   # 版本不支持就去掉
+  ```
+  然后 `dart run flutter_launcher_icons` 生成
+- 若该包拉不下来/生成失败 → 手动方案：用 PIL/任意脚本把 icon.png 缩成 48/72/96/144/192px 放入 `android/app/src/main/res/mipmap-*/ic_launcher.png`，自适应图标 XML 前景也用它
+- 确认 AndroidManifest `android:icon="@mipmap/ic_launcher"` 保持
+- **不要**把 icon 声明进 flutter assets（除非应用内要用），图标只是生成输入
+
+## 2. 流式输出中可自由滑动（用户报告的严重体验问题）
+现象：**AI 输出过程中屏幕不能滑动，必须等输出结束**。要求修复：
+a) 排查并移除生成期间任何触摸/滚动锁定（`NeverScrollableScrollPhysics`、`IgnorePointer`、`AbsorbPointer`、手势拦截等）——聊天列表任何时候都应可滚动
+b) 自动跟随规则：只有当用户滚动位置在**底部 120px 以内**才自动跟到底；检测到用户已上滑离开底部 → 本段生成期间**不再强制回滚**；用户手动滚回底部后恢复跟随
+c) 输出中滑动必须流畅（性能）：
+   - 流式更新**按帧合并**：一帧内多个 token 只触发一次 setState（`SchedulerBinding.instance.addPostFrameCallback` 合并，或 ≥33ms 节流），禁止每个 token 全列表 rebuild
+   - **缓存已完成消息的 widget**：非末条消息的气泡（含 markdown 渲染结果）构建后存入列表缓存，仅消息集变化时失效；流式期间只有最后一条 AI 气泡随数据更新
+d) 生成中输入框保持可用（发送按钮变停止按钮即可，不要禁用整条输入栏）
+
+## 3. 回复变体左右滑动切换（原版 swipe variants，标志性功能）
+- 消息模型加 `variants: List<String>`（当前显示文本 + 变体历史；旧数据无此字段 → 空列表）
+- **重新生成改为追加变体**：不再删除旧回复，生成结果 append 到 variants，当前视图切到新变体
+- 最后一条 AI 消息支持**横向滑动**切换变体：手势判定 `|dx| > |dy|` 才响应横滑（否则让给竖向列表滚动）；只有 1 个变体时横滑无视觉响应
+- 变体数 >1 时气泡底部显示小圆点指示器（可点按切换）
+- 编辑消息 = 编辑当前显示的那个变体
+- token 小字跟随当前变体；聊天统计把**所有变体**的消耗都计入累计（真实花销）
+- 存储 JSON 带 variants，向后兼容
+
+## 4. 继续生成（原版 Continue）
+- 右上菜单"继续生成"：仅当最后一条是 AI 消息且未在生成时显示
+- 实现：现有 messages 末尾附加指令（system 提示：「接着上一条回复的最后一个字继续输出，不要重复、不要重新开头」）发请求，**流式把结果追加到该条 AI 消息文本末尾**（同一条消息，不是新消息）
+- token 统计、停止、滚动行为与普通生成一致
+
+## 5. 字号调节（设置 → 聊天分组）
+- Slider 13–20sp，默认 15，步进 1；存 SharedPreferences
+- 影响聊天气泡内文本字号，返回聊天页立即生效
+
+## 6. 上下文保留条数（设置 → 模型服务分组）
+- Slider 10–100 条，默认 40，步进 5；存 SharedPreferences
+- PromptBuilder 用它替换硬编码的 40
+
+## 7. 消息时间戳开关（设置 → 聊天分组，Switch，默认关）
+- 开启后：AI 消息 token 小字行改为 `10-07 00:43 · 输入 1,234 · 输出 89`；用户消息气泡下方显示 10sp 灰色时间
+- 消息模型已有 timestamp 就用，没有则写入时补
+
+## 禁止事项
+- 不改 gradle 配置；不动已有页面整体结构；已有功能（v0.2 的统计/注入查看/世界书挂载等）不回退
+- 新依赖只允许 flutter_launcher_icons（dev tool）
+- 不做群聊/TTS/画图/分享导入
+
+## 环境（同前）
+- flutter 命令前 `export PATH="/c/Users/28351/Desktop/Project/flutter/bin:$PATH"`
+- 构建前 `export FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn`
+- `version: 0.3.0+1`
+
+## 完成标准
+1. `flutter analyze` 0 issues
+2. `flutter build apk --debug` 成功
+3. 输出：改动文件清单 + 每项实现说明 + 已知简化点

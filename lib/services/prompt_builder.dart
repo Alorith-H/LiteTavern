@@ -2,6 +2,7 @@ import '../models/chat_message.dart';
 import '../models/character_card.dart';
 import '../models/world_info.dart';
 import 'macros.dart';
+import 'storage.dart';
 import 'world_info_engine.dart';
 
 /// 一条待发送给 API 的消息。
@@ -40,8 +41,9 @@ class PromptBuildResult {
 ///   3. card.system_prompt（非空）
 ///   4. mes_example（非空，前面加 `示例对话：`）
 /// 历史：first_mes 作为 assistant 开头，之后 user/assistant 交替；
-/// 最多取最近 40 条历史（system 永远全量）。
+/// 最多取最近 [historyLimit] 条历史（system 永远全量）。
 class PromptBuilder {
+  /// 兜底默认值（正常走 AppSettings.contextHistoryLimit）
   static const int maxHistory = 40;
 
   static PromptBuildResult build({
@@ -49,7 +51,12 @@ class PromptBuilder {
     required List<ChatMessage> history,
     required List<WorldInfo> worldBooks,
     required String userName,
+    int? historyLimit,
   }) {
+    // 上下文保留条数来自设置；SharedPreferences 未初始化（如单元测试）时回退默认 40
+    var limit = historyLimit ??
+        (AppSettings.initialized ? AppSettings.contextHistoryLimit : maxHistory);
+    limit = limit.clamp(10, 100).toInt();
     final charName = card.name;
 
     // 1. 世界书激活（引擎内部已做宏替换，附带来源）
@@ -101,10 +108,10 @@ class PromptBuilder {
       messages.add(PromptMessage(role: 'assistant', content: firstMes));
     }
 
-    // 3. 历史：宏替换后渲染，跳过空内容（如生成中的占位消息），最多最近 40 条
+    // 3. 历史：宏替换后渲染，跳过空内容（如生成中的占位消息），最多最近 limit 条
     var hist = history.where((m) => m.content.trim().isNotEmpty).toList();
-    if (hist.length > maxHistory) {
-      hist = hist.sublist(hist.length - maxHistory);
+    if (hist.length > limit) {
+      hist = hist.sublist(hist.length - limit);
     }
     for (final m in hist) {
       messages.add(PromptMessage(role: m.role, content: macro(m.content)));

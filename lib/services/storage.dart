@@ -257,10 +257,15 @@ class Storage {
 /// 应用设置（shared_preferences）。
 class AppSettings {
   static late SharedPreferences _sp;
+  static bool _ready = false;
 
   static Future<void> init() async {
     _sp = await SharedPreferences.getInstance();
+    _ready = true;
   }
+
+  /// 设置是否已加载（未初始化时读取默认值，供纯逻辑模块兜底）
+  static bool get initialized => _ready;
 
   static const _kBaseUrl = 'api_base_url';
   static const _kApiKey = 'api_key';
@@ -294,6 +299,26 @@ class AppSettings {
       _sp.getStringList(_kMountedWb) ?? const [];
   static set mountedWorldBookIds(List<String> v) =>
       _sp.setStringList(_kMountedWb, v);
+
+  static const _kChatFontSize = 'chat_font_size';
+  static const _kHistoryLimit = 'context_history_limit';
+  static const _kShowTimestamps = 'show_timestamps';
+
+  /// 聊天气泡字号（sp），13–20，默认 15（读取时钳制为整数步进值）
+  static double get chatFontSize {
+    final v = _sp.getDouble(_kChatFontSize) ?? 15;
+    return v.roundToDouble().clamp(13, 20).toDouble();
+  }
+
+  static set chatFontSize(double v) => _sp.setDouble(_kChatFontSize, v);
+
+  /// 上下文保留的历史条数，10–100，默认 40
+  static int get contextHistoryLimit => _sp.getInt(_kHistoryLimit) ?? 40;
+  static set contextHistoryLimit(int v) => _sp.setInt(_kHistoryLimit, v);
+
+  /// 消息时间戳显示开关，默认关
+  static bool get showTimestamps => _sp.getBool(_kShowTimestamps) ?? false;
+  static set showTimestamps(bool v) => _sp.setBool(_kShowTimestamps, v);
 
   static const _kTemperature = 'temperature';
   static const _kTopP = 'top_p';

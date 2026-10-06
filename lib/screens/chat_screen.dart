@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
@@ -14,6 +16,16 @@ import '../services/world_info_engine.dart';
 import '../widgets/common.dart';
 import 'character_edit_screen.dart';
 import 'settings_screen.dart';
+
+/// 继续生成时附加在 messages 末尾的 system 指令。
+const String kContinueInstruction =
+    '接着上一条回复的最后一个字继续输出，不要重复、不要重新开头';
+
+/// 自动跟随阈值：滚动位置在底部 120px 以内才自动跟到底。
+const double _kFollowThreshold = 120;
+
+/// 流式刷新最小间隔（ms）：一帧内多个 token 合并成一次 setState。
+const int _kStreamFlushMs = 33;
 
 /// 聊天页（核心页面）。
 class ChatScreen extends StatefulWidget {
@@ -37,8 +49,27 @@ class _ChatScreenState extends State<ChatScreen> {
 
   bool _generating = false;
   bool _followScroll = true;
+
+  /// 用户手指正按在列表上拖动：期间冻结跟随判定，绝不与手势抢位置
+  bool _userDragging = false;
   int _genToken = 0;
   DateTime _lastSave = DateTime(0);
+
+  /// 流式文本缓冲：≥33ms 才落一次 setState，禁止每个 token 全列表 rebuild
+  String _streamBuf = '';
+  Timer? _flushTimer;
+  DateTime _lastFlush = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// 本次生成的记账状态
+  bool _isContinueGen = false; // 是否"继续生成"（追加到同一变体）
+  int _genStartLen = 0; // 生成开始时 content 长度（估算只算新增部分）
+  bool _tokensApplied = false; // 本次生成的 token 是否已写入（防重复累计）
+
+  /// 已完成消息的 widget 缓存（含 markdown 渲染结果）。
+  /// key 是消息对象本身：内容/身份一变即自然失效；列表结构变化时整体清空。
+  final Map<ChatMessage, Widget> _msgCache = {};
+  int _cacheLen = -1;
+  Object? _cacheToken;
 
   /// 最近一次实际发送给 API 的 system 内容（供"查看注入内容"）
   String? _lastSystemText;
@@ -58,6 +89,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    _flushTimer?.cancel();
     _api.dispose();
     _scrollCtrl.removeListener(_onScroll);
     _scrollCtrl.dispose();
@@ -99,6 +131,8 @@ class _ChatScreenState extends State<ChatScreen> {
       _messages = msgs;
       _worldBooks = books;
       _loading = false;
+      _msgCache.clear();
+      _cacheLen = -1;
     });
     _scrollToBottom();
   }
@@ -156,15 +190,30 @@ class _ChatScreenState extends State<ChatScreen> {
   // ----------------------------------------------------------- 滚动 --
 
   void _onScroll() {
+    if (_userDragging) return; // 拖动中不改变跟随状态
     if (!_scrollCtrl.hasClients) return;
     final pos = _scrollCtrl.position;
-    _followScroll = pos.pixels >= pos.maxScrollExtent - 140;
+    _followScroll = pos.pixels >= pos.maxScrollExtent - _kFollowThreshold;
+  }
+
+  /// 滚动通知：用户手指一拖动就停止跟随（绝不与手势抢位置）；
+  /// 松手（或惯性滚动结束）时按"底部 120px 内"重新判定，
+  /// 手动滚回底部即恢复跟随。
+  bool _onScrollNotification(ScrollNotification n) {
+    if (n is ScrollStartNotification && n.dragDetails != null) {
+      _userDragging = true;
+      _followScroll = false;
+    } else if (n is ScrollEndNotification) {
+      _userDragging = false;
+      _onScroll();
+    }
+    return false;
   }
 
   void _followBottom() {
     if (!_followScroll || !_scrollCtrl.hasClients) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollCtrl.hasClients) return;
+      if (!_followScroll || !_scrollCtrl.hasClients) return;
       _scrollCtrl.jumpTo(_scrollCtrl.position.maxScrollExtent);
     });
   }
@@ -207,6 +256,10 @@ class _ChatScreenState extends State<ChatScreen> {
         ..add(ChatMessage(role: 'assistant', content: '', timestamp: now));
       _generating = true;
       _followScroll = true;
+      _isContinueGen = false;
+      _genStartLen = 0;
+      _streamBuf = '';
+      _msgCache.clear();
     });
     _inputCtrl.clear();
     _save(force: true);
@@ -239,10 +292,47 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  /// 流式 delta 入缓冲：距上次刷新 ≥33ms 立即刷，否则合并到一个定时器里刷。
+  void _enqueueDelta(String delta) {
+    _streamBuf += delta;
+    final since = DateTime.now().difference(_lastFlush).inMilliseconds;
+    if (since >= _kStreamFlushMs) {
+      _flushStream();
+    } else {
+      _flushTimer ??= Timer(
+        Duration(milliseconds: _kStreamFlushMs - since),
+        _flushStream,
+      );
+    }
+  }
+
+  /// 把缓冲文本写进最后一条 AI 消息并刷新一次 UI（一帧多 token 只 setState 一次）。
+  void _flushStream() {
+    _flushTimer?.cancel();
+    _flushTimer = null;
+    _lastFlush = DateTime.now();
+    if (_streamBuf.isEmpty) return;
+    if (!mounted) {
+      _streamBuf = '';
+      return;
+    }
+    final buf = _streamBuf;
+    _streamBuf = '';
+    setState(() {
+      final i = _messages.length - 1;
+      if (i < 0 || _messages[i].role != 'assistant') return;
+      final m = _messages[i];
+      _messages[i] = m.copyWith(content: m.content + buf);
+    });
+    _followBottom();
+    _save();
+  }
+
   Future<void> _generate() async {
     final card = _card;
     if (card == null) return;
     final token = ++_genToken;
+    _tokensApplied = false;
 
     final built = PromptBuilder.build(
       card: card,
@@ -252,7 +342,16 @@ class _ChatScreenState extends State<ChatScreen> {
     );
     _lastSystemText = built.systemText;
     _lastActivated = built.activated;
-    _lastPrompt = built.messages;
+
+    // 继续生成：在现有 messages 末尾附加 system 指令，结果追加到同一消息
+    final toSend = List<PromptMessage>.of(built.messages);
+    if (_isContinueGen) {
+      toSend.add(const PromptMessage(
+        role: 'system',
+        content: kContinueInstruction,
+      ));
+    }
+    _lastPrompt = toSend;
 
     int? exactPrompt;
     int? exactCompletion;
@@ -261,20 +360,13 @@ class _ChatScreenState extends State<ChatScreen> {
       baseUrl: AppSettings.baseUrl,
       apiKey: AppSettings.apiKey,
       model: AppSettings.model,
-      messages: built.messages,
+      messages: toSend,
       temperature: AppSettings.temperature,
       topP: AppSettings.topP,
       maxTokens: AppSettings.maxTokens,
       onDelta: (delta) {
         if (!mounted || token != _genToken) return;
-        setState(() {
-          final i = _messages.length - 1;
-          if (i < 0 || _messages[i].role != 'assistant') return;
-          final last = _messages[i];
-          _messages[i] = last.copyWith(content: last.content + delta);
-        });
-        _followBottom();
-        _save();
+        _enqueueDelta(delta);
       },
       onUsage: (p, c) {
         exactPrompt = p;
@@ -282,6 +374,8 @@ class _ChatScreenState extends State<ChatScreen> {
       },
       onError: (error) {
         if (!mounted || token != _genToken) return;
+        // 先并入已收到的文本，再标记错误
+        _flushStream();
         setState(() {
           final i = _messages.length - 1;
           if (i < 0 || _messages[i].role != 'assistant') return;
@@ -291,6 +385,7 @@ class _ChatScreenState extends State<ChatScreen> {
       onDone: () {},
     );
 
+    _flushStream();
     if (!mounted || token != _genToken) return;
     setState(() {
       _generating = false;
@@ -298,36 +393,82 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     _save(force: true);
     _followBottom();
+    _isContinueGen = false;
   }
 
-  /// 给最后一条 AI 回复写入 token 数：优先 provider 的 usage，否则本地估算。
+  /// 写入本次生成的 token：
+  /// 每变体槽位记这一笔（继续生成则在同一槽位累加），
+  /// 消息级字段累计所有变体 = 真实花销（聊天统计直接用）。
   void _applyTokens(int? exactPrompt, int? exactCompletion) {
-    final prompt = _lastPrompt;
-    if (prompt == null) return;
+    if (_tokensApplied) return;
+    final sent = _lastPrompt;
+    if (sent == null) return;
     final i = _messages.length - 1;
     if (i < 0) return;
     final m = _messages[i];
-    if (m.role != 'assistant' || m.error != null || m.promptTokens != null) {
-      return;
-    }
+    if (m.role != 'assistant' || m.error != null) return;
+    _tokensApplied = true;
+
+    int p;
+    int c;
+    bool est;
     if (exactPrompt != null && exactCompletion != null) {
-      _messages[i] = m.copyWith(
-        promptTokens: exactPrompt,
-        completionTokens: exactCompletion,
-        tokensEstimated: false,
+      p = exactPrompt;
+      c = exactCompletion;
+      est = false;
+    } else {
+      p = estimateTokens(sent.map((x) => x.content).join('\n'));
+      final start = _genStartLen.clamp(0, m.content.length).toInt();
+      c = estimateTokens(m.content.substring(start));
+      est = true;
+    }
+
+    // 首次生成：把显示文本收编为唯一变体；
+    // 旧数据的已有 token 记为其槽位初值（继续生成时接得上）
+    final v = List<String>.of(m.variants.isEmpty ? [m.content] : m.variants);
+    var u = List<VariantUsage>.of(m.variantUsage);
+    while (u.length < v.length) {
+      u.add(VariantUsage.empty);
+    }
+    if (u.length > v.length) u = u.sublist(0, v.length);
+    if (m.variants.isEmpty &&
+        m.promptTokens != null &&
+        m.completionTokens != null) {
+      u[0] = VariantUsage(
+        prompt: m.promptTokens,
+        completion: m.completionTokens,
+        estimated: m.tokensEstimated,
+      );
+    }
+    final idx = m.variantIndex.clamp(0, v.length - 1).toInt();
+
+    final cur = u[idx];
+    final VariantUsage slot;
+    if (_isContinueGen && cur.hasTokens) {
+      slot = VariantUsage(
+        prompt: (cur.prompt ?? 0) + p,
+        completion: (cur.completion ?? 0) + c,
+        estimated: cur.estimated || est,
       );
     } else {
-      _messages[i] = m.copyWith(
-        promptTokens: estimateTokens(prompt.map((x) => x.content).join('\n')),
-        completionTokens: estimateTokens(m.content),
-        tokensEstimated: true,
-      );
+      slot = VariantUsage(prompt: p, completion: c, estimated: est);
     }
+    u[idx] = slot;
+
+    _messages[i] = m.copyWith(
+      variants: v,
+      variantUsage: u,
+      promptTokens: (m.promptTokens ?? 0) + p,
+      completionTokens: (m.completionTokens ?? 0) + c,
+      tokensEstimated: m.tokensEstimated || est,
+    );
   }
 
   void _stop() {
     _genToken++;
     _api.cancel();
+    // 并入停止前已到达的文本，保证不丢字
+    _flushStream();
     if (!mounted) return;
     setState(() {
       _generating = false;
@@ -335,49 +476,126 @@ class _ChatScreenState extends State<ChatScreen> {
       _applyTokens(null, null);
     });
     _save(force: true);
+    _isContinueGen = false;
   }
 
-  /// 重新生成：去掉末尾 assistant 占位/回复，再生成。
+  /// 为最后一条 AI 消息准备一个空变体槽位：
+  /// - 旧数据（无 variants）先把现有文本收编为第一个变体
+  /// - 清掉空变体（失败/占位尝试不是回复，避免空白气泡堆积；
+  ///   对应消耗已计入消息级累计，统计不丢）
+  /// - 追加新变体，视图切过去；旧回复不删除
+  ChatMessage _prepVariantSlot(ChatMessage m) {
+    var v = List<String>.of(m.variants);
+    var u = List<VariantUsage>.of(m.variantUsage);
+    if (v.isEmpty) {
+      v = [m.content];
+      u = [
+        if (m.promptTokens != null && m.completionTokens != null)
+          VariantUsage(
+            prompt: m.promptTokens,
+            completion: m.completionTokens,
+            estimated: m.tokensEstimated,
+          )
+        else
+          VariantUsage.empty,
+      ];
+    }
+    while (u.length < v.length) {
+      u.add(VariantUsage.empty);
+    }
+    if (u.length > v.length) u = u.sublist(0, v.length);
+
+    final nv = <String>[];
+    final nu = <VariantUsage>[];
+    for (var i = 0; i < v.length; i++) {
+      if (v[i].isEmpty) continue;
+      nv.add(v[i]);
+      nu.add(u[i]);
+    }
+    nv.add('');
+    nu.add(VariantUsage.empty);
+    return m.copyWith(
+      content: '',
+      variants: nv,
+      variantUsage: nu,
+      variantIndex: nv.length - 1,
+      error: null,
+    );
+  }
+
+  /// 重新生成 = 追加变体（不删除旧回复，生成完自动切到新变体）。
   Future<void> _regenerate() async {
     if (_generating || _card == null) return;
     if (!_canConfigure) {
       _promptConfigureApi();
       return;
     }
+    if (_messages.isEmpty || _messages.last.role != 'assistant') return;
     setState(() {
-      if (_messages.isNotEmpty && _messages.last.role == 'assistant') {
-        _messages.removeLast();
-      }
-      _messages.add(ChatMessage(
-        role: 'assistant',
-        content: '',
-        timestamp: DateTime.now().millisecondsSinceEpoch,
-      ));
+      _messages[_messages.length - 1] = _prepVariantSlot(_messages.last);
       _generating = true;
       _followScroll = true;
+      _isContinueGen = false;
+      _genStartLen = 0;
+      _streamBuf = '';
+      _msgCache.clear();
     });
     _save(force: true);
     _followBottom();
     await _generate();
   }
 
-  /// 失败气泡里的重试：移除失败的 assistant 回复，重新生成。
+  /// 失败气泡里的重试。
   Future<void> _retry(ChatMessage failed) async {
     if (_generating || _card == null) return;
     if (!_canConfigure) {
       _promptConfigureApi();
       return;
     }
-    setState(() {
-      final idx = _messages.lastIndexWhere((m) =>
-          m.role == 'assistant' &&
-          m.timestamp == failed.timestamp &&
-          m.content == failed.content);
-      if (idx >= 0) {
-        _messages.removeAt(idx);
-      } else if (_messages.isNotEmpty && _messages.last.role == 'assistant') {
-        _messages.removeLast();
+    final idx = _messages.indexOf(failed);
+    if (idx < 0) return;
+
+    if (idx == _messages.length - 1) {
+      // 末条失败：复用空变体槽或追加新变体，原地重试
+      setState(() {
+        _messages[idx] = _prepVariantSlot(_messages[idx]);
+        _generating = true;
+        _followScroll = true;
+        _isContinueGen = false;
+        _genStartLen = 0;
+        _streamBuf = '';
+        _msgCache.clear();
+      });
+      _save(force: true);
+      _followBottom();
+      await _generate();
+      return;
+    }
+
+    // 中间的失败消息无法原地重生成（流式目标固定为末条）：
+    // 有非空变体 → 切回最后的非空变体并清除错误（copyWith 默认清 error）；
+    // 否则是空失败占位 → 移除后在末尾重新生成（v0.2 行为）
+    final v = failed.variants;
+    var good = -1;
+    for (var i = v.length - 1; i >= 0; i--) {
+      if (v[i].isNotEmpty) {
+        good = i;
+        break;
       }
+    }
+    if (good >= 0 || failed.content.isNotEmpty) {
+      setState(() {
+        _messages[idx] = good >= 0
+            ? failed.copyWith(variantIndex: good)
+            : failed.copyWith();
+      });
+      _msgCache.clear();
+      _save(force: true);
+      return;
+    }
+
+    setState(() {
+      _messages.removeAt(idx);
       _messages.add(ChatMessage(
         role: 'assistant',
         content: '',
@@ -385,10 +603,50 @@ class _ChatScreenState extends State<ChatScreen> {
       ));
       _generating = true;
       _followScroll = true;
+      _isContinueGen = false;
+      _genStartLen = 0;
+      _streamBuf = '';
+      _msgCache.clear();
     });
     _save(force: true);
     _followBottom();
     await _generate();
+  }
+
+  /// 继续生成：在同一条 AI 消息末尾流式追加文本。
+  Future<void> _continueGeneration() async {
+    if (_generating || _card == null) return;
+    if (_messages.isEmpty || _messages.last.role != 'assistant') return;
+    final last = _messages.last;
+    if (last.content.isEmpty || last.error != null) return;
+    if (!_canConfigure) {
+      _promptConfigureApi();
+      return;
+    }
+    setState(() {
+      _isContinueGen = true;
+      _genStartLen = last.content.length;
+      _generating = true;
+      _followScroll = true;
+      _streamBuf = '';
+    });
+    _save(force: true);
+    _scrollToBottom();
+    await _generate();
+  }
+
+  /// 切换某条消息的当前变体（气泡横滑 / 圆点点按）。
+  void _switchVariant(ChatMessage m, int index) {
+    if (_generating) return;
+    final idx = _messages.indexOf(m);
+    if (idx < 0) return;
+    final cur = _messages[idx];
+    if (index < 0 || index >= cur.variants.length) return;
+    if (index == cur.variantIndex) return;
+    setState(() {
+      _messages[idx] = cur.copyWith(variantIndex: index);
+    });
+    _save(force: true);
   }
 
   // ------------------------------------------------------------- 菜单 --
@@ -442,6 +700,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 timestamp: DateTime.now().millisecondsSinceEpoch,
               ),
             ];
+      _msgCache.clear();
+      _cacheLen = -1;
     });
     _save(force: true);
     _scrollToBottom();
@@ -479,6 +739,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         );
       }
+      _msgCache.clear();
     });
     _save(force: true);
     _scrollToBottom();
@@ -490,6 +751,12 @@ class _ChatScreenState extends State<ChatScreen> {
     final canRegen = !_generating &&
         _messages.isNotEmpty &&
         _messages.any((m) => m.role == 'user');
+    final last = _messages.isEmpty ? null : _messages.last;
+    final canContinue = !_generating &&
+        last != null &&
+        last.role == 'assistant' &&
+        last.content.isNotEmpty &&
+        last.error == null;
     showModalBottomSheet<void>(
       context: context,
       builder: (ctx) => SafeArea(
@@ -529,6 +796,17 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
             ListTile(
+              leading: const Icon(Icons.forward_outlined),
+              title: const Text('继续生成'),
+              enabled: canContinue,
+              onTap: canContinue
+                  ? () {
+                      Navigator.pop(ctx);
+                      _continueGeneration();
+                    }
+                  : null,
+            ),
+            ListTile(
               leading: const Icon(Icons.refresh_outlined),
               title: const Text('重新生成最后回复'),
               enabled: canRegen,
@@ -557,6 +835,7 @@ class _ChatScreenState extends State<ChatScreen> {
   // ------------------------------------------------------- 统计与注入 --
 
   /// 聊天统计：消息条数、累计输入/输出 tokens、当前发送上下文估算。
+  /// 累计值已含该消息所有变体的消耗（真实花销）。
   void _showChatStats() {
     final total = _messages.length;
     var inSum = 0;
@@ -724,6 +1003,24 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
 
+    // 主题 / 宽度 / 字号 / 时间戳开关变化 → 气泡缓存整体失效
+    final cacheToken = (
+      Theme.of(context).brightness,
+      MediaQuery.sizeOf(context).width,
+      AppSettings.chatFontSize,
+      AppSettings.showTimestamps,
+    );
+    if (cacheToken != _cacheToken) {
+      _cacheToken = cacheToken;
+      _msgCache.clear();
+      _cacheLen = -1;
+    }
+    // 消息集（长度）变化 → 缓存整体失效
+    if (_messages.length != _cacheLen) {
+      _cacheLen = _messages.length;
+      _msgCache.clear();
+    }
+
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
@@ -756,12 +1053,26 @@ class _ChatScreenState extends State<ChatScreen> {
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,
               onTap: () => FocusScope.of(context).unfocus(),
-              child: ListView.builder(
-                controller: _scrollCtrl,
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                itemCount: _messages.length,
-                itemBuilder: (context, i) =>
-                    _buildMessage(scheme, _messages[i], i),
+              child: NotificationListener<ScrollNotification>(
+                onNotification: _onScrollNotification,
+                child: ListView.builder(
+                  controller: _scrollCtrl,
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                  itemCount: _messages.length,
+                  itemBuilder: (context, i) {
+                    final m = _messages[i];
+                    // 流式期间只有末条 AI 气泡随数据更新，不进缓存
+                    final streaming = _generating &&
+                        i == _messages.length - 1 &&
+                        m.role == 'assistant';
+                    if (streaming) return _buildMessage(scheme, m, i);
+                    final cached = _msgCache[m];
+                    if (cached != null) return cached;
+                    final w = _buildMessage(scheme, m, i);
+                    _msgCache[m] = w;
+                    return w;
+                  },
+                ),
               ),
             ),
           ),
@@ -775,8 +1086,10 @@ class _ChatScreenState extends State<ChatScreen> {
     final isUser = m.role == 'user';
     final isLast = index == _messages.length - 1;
     final thinking = isLast && _generating && m.content.isEmpty;
+    final fontSize = AppSettings.chatFontSize;
+    final showTs = AppSettings.showTimestamps;
 
-    final bubble = Container(
+    Widget bubble = Container(
       margin: const EdgeInsets.symmetric(vertical: 5),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       constraints: BoxConstraints(
@@ -817,7 +1130,7 @@ class _ChatScreenState extends State<ChatScreen> {
               styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context))
                   .copyWith(
                 p: TextStyle(
-                  fontSize: 15,
+                  fontSize: fontSize,
                   height: 1.5,
                   color: isUser
                       ? scheme.onPrimaryContainer
@@ -851,16 +1164,39 @@ class _ChatScreenState extends State<ChatScreen> {
               ],
             ),
           ],
+          if (!isUser && m.variants.length > 1) _buildVariantDots(scheme, m),
         ],
       ),
     );
 
-    // AI 回复气泡下方的 token 消耗小字（估算值加"约"）
-    String? tokenLine;
-    if (!isUser && m.promptTokens != null && m.completionTokens != null) {
-      final a = m.tokensEstimated ? '约' : '';
-      tokenLine = '$a输入 ${formatTokenCount(m.promptTokens!)}'
-          ' · $a输出 ${formatTokenCount(m.completionTokens!)} tokens';
+    // 长按 → 消息操作；最后一条 AI 消息再套横滑切换变体
+    bubble = GestureDetector(
+      onLongPress:
+          m.content.isEmpty ? null : () => _showMessageActions(m),
+      child: bubble,
+    );
+    if (!isUser && isLast) {
+      bubble = _SwipeVariantWrap(
+        enabled: !_generating && m.variants.length > 1,
+        onSwipe: (dir) => _switchVariant(m, m.variantIndex + dir),
+        child: bubble,
+      );
+    }
+
+    // AI：token/时间小字行；用户：时间戳开关下的时间行
+    String? infoLine;
+    if (!isUser) {
+      final usage = m.currentVariantUsage;
+      if (usage != null) {
+        final a = usage.estimated ? '约' : '';
+        final pin = formatTokenCount(usage.prompt!);
+        final cout = formatTokenCount(usage.completion!);
+        infoLine = showTs
+            ? '${_formatTime(m.timestamp)} · $a输入 $pin · $a输出 $cout'
+            : '$a输入 $pin · $a输出 $cout tokens';
+      } else if (showTs) {
+        infoLine = _formatTime(m.timestamp);
+      }
     }
 
     return Align(
@@ -870,18 +1206,25 @@ class _ChatScreenState extends State<ChatScreen> {
         crossAxisAlignment:
             isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
-          GestureDetector(
-            onLongPress:
-                m.content.isEmpty ? null : () => _showMessageActions(index),
-            child: bubble,
-          ),
-          if (tokenLine != null)
+          bubble,
+          if (infoLine != null)
             Padding(
               padding: const EdgeInsets.only(top: 2, left: 6, right: 6),
               child: Text(
-                tokenLine,
+                infoLine,
                 style:
                     TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+              ),
+            ),
+          if (isUser && showTs)
+            Padding(
+              padding: const EdgeInsets.only(top: 2, right: 6),
+              child: Text(
+                _formatTime(m.timestamp),
+                style: TextStyle(
+                  fontSize: 10,
+                  color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
+                ),
               ),
             ),
         ],
@@ -889,11 +1232,49 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  /// 变体圆点指示器（可点按切换），变体数 >1 时显示在气泡底部。
+  Widget _buildVariantDots(ColorScheme scheme, ChatMessage m) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 7),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < m.variants.length; i++)
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _generating ? null : () => _switchVariant(m, i),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                child: Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: i == m.variantIndex
+                        ? scheme.primary
+                        : scheme.outlineVariant.withValues(alpha: 0.7),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// `10-07 00:43`
+  String _formatTime(int ms) {
+    final d = DateTime.fromMillisecondsSinceEpoch(ms);
+    String p2(int n) => n.toString().padLeft(2, '0');
+    return '${p2(d.month)}-${p2(d.day)} ${p2(d.hour)}:${p2(d.minute)}';
+  }
+
   /// 长按消息 → 复制 / 编辑 / 重新生成（仅最后一条 AI 回复）。
-  void _showMessageActions(int index) {
-    if (index < 0 || index >= _messages.length) return;
-    final m = _messages[index];
+  void _showMessageActions(ChatMessage m) {
     if (m.content.isEmpty) return;
+    final index = _messages.indexOf(m);
+    if (index < 0) return;
     final canRegen = index == _messages.length - 1 &&
         m.role == 'assistant' &&
         !_generating &&
@@ -921,7 +1302,7 @@ class _ChatScreenState extends State<ChatScreen> {
               title: const Text('编辑'),
               onTap: () {
                 Navigator.pop(ctx);
-                _editMessage(index);
+                _editMessage(m);
               },
             ),
             if (canRegen)
@@ -939,10 +1320,9 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  /// 编辑某条消息文本，保存写回存储并刷新 UI。
-  Future<void> _editMessage(int index) async {
-    if (index < 0 || index >= _messages.length) return;
-    final ctrl = TextEditingController(text: _messages[index].content);
+  /// 编辑某条消息当前显示的变体，保存写回存储并刷新 UI。
+  Future<void> _editMessage(ChatMessage m) async {
+    final ctrl = TextEditingController(text: m.content);
     final saved = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -969,9 +1349,11 @@ class _ChatScreenState extends State<ChatScreen> {
     final text = ctrl.text;
     ctrl.dispose();
     if (saved != true || !mounted) return;
-    if (index < 0 || index >= _messages.length) return;
+    // 对话框期间消息可能已被流式替换，此时放弃本次编辑
+    final idx = _messages.indexOf(m);
+    if (idx < 0) return;
     setState(() {
-      _messages[index] = _messages[index].copyWith(content: text);
+      _messages[idx] = _messages[idx].copyWith(content: text);
     });
     _save(force: true);
   }
@@ -1029,6 +1411,106 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 最后一条 AI 消息的横滑容器：横滑（|dx| 占优）切换变体，松手回弹。
+/// enabled=false（只有 1 个变体 / 正在生成）时横滑无视觉响应，
+/// 竖向列表滚动不受影响（手势竞技场按主方向判定）。
+class _SwipeVariantWrap extends StatefulWidget {
+  const _SwipeVariantWrap({
+    required this.enabled,
+    required this.onSwipe,
+    required this.child,
+  });
+
+  final bool enabled;
+
+  /// +1 = 下一个变体（左滑），-1 = 上一个变体（右滑）
+  final void Function(int direction) onSwipe;
+
+  final Widget child;
+
+  @override
+  State<_SwipeVariantWrap> createState() => _SwipeVariantWrapState();
+}
+
+class _SwipeVariantWrapState extends State<_SwipeVariantWrap>
+    with SingleTickerProviderStateMixin {
+  static const _threshold = 60.0;
+
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 180),
+  );
+  Animation<double>? _anim;
+  double _dx = 0;
+
+  @override
+  void dispose() {
+    _anim = null;
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _onTick() {
+    final a = _anim;
+    if (a == null || !mounted) return;
+    setState(() => _dx = a.value);
+  }
+
+  void _stopAnim() {
+    _anim?.removeListener(_onTick);
+    _anim = null;
+    _ctrl.stop();
+  }
+
+  void _springBack() {
+    final start = _dx;
+    if (start == 0) return;
+    _stopAnim();
+    final anim = Tween<double>(begin: start, end: 0).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic),
+    );
+    _anim = anim;
+    anim.addListener(_onTick);
+    _ctrl.forward(from: 0).whenComplete(() {
+      anim.removeListener(_onTick);
+      if (identical(_anim, anim)) _anim = null;
+      if (mounted) setState(() => _dx = 0);
+    });
+  }
+
+  void _onUpdate(DragUpdateDetails d) {
+    if (!widget.enabled) return;
+    // 新手势打断回弹动画，以当前位置继续
+    if (_anim != null) {
+      final v = _anim!.value;
+      _stopAnim();
+      _dx = v;
+    }
+    setState(() => _dx += d.delta.dx);
+  }
+
+  void _onEnd(DragEndDetails d) {
+    if (_dx <= -_threshold) {
+      widget.onSwipe(1); // 左滑 → 下一个变体
+    } else if (_dx >= _threshold) {
+      widget.onSwipe(-1); // 右滑 → 上一个变体
+    }
+    _springBack();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onHorizontalDragUpdate: _onUpdate,
+      onHorizontalDragEnd: _onEnd,
+      child: Transform.translate(
+        offset: Offset(_dx, 0),
+        child: widget.child,
       ),
     );
   }
