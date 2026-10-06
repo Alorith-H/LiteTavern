@@ -1,0 +1,165 @@
+# 轻酒馆 (LiteTavern) — 开发任务规格
+
+## 产品定位
+一个**简洁明了、带新手教程**的手机 AI 角色扮演聊天 App（Android 优先，Flutter 跨平台）。
+对标 SillyTavern（酒馆），但大幅简化：兼容酒馆的角色卡和世界书格式，去掉原版的复杂配置面板。
+中文 UI。项目名：LiteTavern，包名：com.alorith.litetavern，App 显示名：**轻酒馆**。
+
+## 硬性要求（验收标准）
+1. `flutter analyze` 0 errors（warnings 尽量清零）
+2. `flutter build apk --debug` 编译通过
+3. 能导入 SillyTavern V1/V2/V3 角色卡（.json 和 .png）并开聊
+4. 能导入 SillyTavern 世界书 JSON 并在聊天中按关键词自动注入
+5. OpenAI 兼容 API 流式聊天（token 逐字输出）
+6. 首次启动有 3 步新手引导；设置里可重看
+7. 界面简洁、交互跟手（无卡顿、无白屏）
+
+## 依赖（pubspec.yaml）
+http、shared_preferences、path_provider、file_picker、archive、flutter_markdown。
+**不要**引入 sqflite / 数据库类包 / google_fonts / 网络字体。
+
+## Android 构建环境（重要，中国网络）
+- 构建命令前必须：`export FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn`
+- `android/settings.gradle.kts` 和 `android/build.gradle.kts` 的 repositories 加华为云镜像（放最前）：
+  `maven { url = uri("https://repo.huaweicloud.com/repository/maven") }`
+- `android/app/build.gradle.kts`：`ndkVersion = "27.0.12077973"`，lint 块加 `abortOnError = false; checkReleaseBuilds = false`
+- AndroidManifest.xml 确认有 `<uses-permission android:name="android.permission.INTERNET"/>`
+- android:label 改为 `轻酒馆`
+
+## 存储设计（不用数据库，纯 JSON 文件）
+- 数据目录（`getApplicationDocumentsDirectory()`）：
+  - `characters/<id>/card.json` — 解析归一化后的角色卡
+  - `characters/<id>/avatar.png` — 导入 PNG 卡时原图当头像；JSON 卡无头像用名字首字圆形占位
+  - `conversations/<charId>.json` — 该角色的完整消息数组
+- 设置存 shared_preferences（API 配置、用户名、主题等）
+- id 用时间戳字符串
+
+## 数据格式解析（核心兼容性）
+
+### 角色卡 PNG
+PNG 结构：8 字节签名 `89 50 4E 47 0D 0A 1A 0A`，之后循环读 chunk：length(4B大端) + type(4B) + data + CRC(4B)。
+- 找 `tEXt` chunk：keyword 为 `chara` 的，value 是 base64 编码的 V2/V3 JSON → 解码解析
+- 找 `zTXt` chunk：同 keyword `chara`，value 是 zlib 压缩的 base64 文本 → 用 archive 包 inflate
+- keyword `ccv3`：V3 spec，value 同样是 base64 JSON
+- 只需要扫 tEXt/zTXt/iTXt 和 tRNS 之前的 chunk 即可，遇到 IDAT 可继续跳过（length 已知），到 IEND 停止。用 `Uint8List` 手工解析，不依赖图片库。
+
+### 角色卡 JSON（统一归一化到内部模型 CharacterCard）
+- 有 `spec` 字段且以 `chara_card` 开头（V2/V3）→ 数据在 `data` 对象里
+- 无 `spec` 但有 `name`+`description` → V1，数据在顶层
+- 归一化字段：name, description, personality, scenario, first_mes, mes_example, system_prompt, alternate_greetings[], tags[], creator, character_book（内嵌世界书，可能为 null）
+- 兼容容错：字段缺失用空字符串/空数组，不要崩
+
+### 世界书 JSON（SillyTavern World Info 格式）
+- 顶层：`{ name, description?, entries }`；entries 是**对象**（key 为 id 字符串）或**数组**，两种都要兼容
+- 条目字段（容错读取）：`key`（字符串数组，别名 `keys`）、`keysecondary`、`content`、`insertion_order`（别名 `insert_order`，默认 0）、`disabled`（默认 false）、`probability`、`useProbability`、`depth`、`position`（0=系统提示词注入 / 1=聊天中深度注入 / 2=角色设定后注入，MVP 简化：全部注入系统提示，按 insertion_order 升序排列）、`recursive`、`scanDepth`（默认 50）、`groupWeight`
+- **激活逻辑**：
+  1. 取最近 scanDepth 条消息的全部文本（小写化）
+  2. 条目任一 `key`（不区分大小写，contains 匹配，中文直接子串匹配）出现在文本中 → 初步命中
+  3. 若 `keysecondary` 非空：还需至少一个 secondary key 也命中，才最终激活
+  4. `disabled=true` 跳过；`probability`/`useProbability`（useProbability 为 true 时按百分比随机，测试可跳过随机直接注入——实现它，用 Random）
+  5. `recursive=true` 的条目：把已激活条目的 content 也作为匹配文本，再跑一轮（最多迭代 3 层）
+  6. 命中条目按 insertion_order 升序，content 用 `{{char}}/{{user}}` 宏替换后拼接
+- 世界书可以来自：独立导入的 .json 文件，或角色卡内嵌 `character_book`（优先级：卡内嵌 + 用户挂载的都激活，内容合并）
+
+### 宏替换（所有卡片字段和世界书内容渲染时执行）
+- `{{char}}` / `<BOT>` → 角色名；`{{user}}` → 用户名（设置里可改，默认 `你`）
+- `<START>` → 换行分隔（示例对话里常见）
+- mes_example 原样放入（模型自己能理解格式）
+
+## 提示词组装（PromptBuilder）
+发给 API 的 messages 数组：
+1. **system**（单条，包含全部静态内容，按顺序拼接）：
+   - 世界书激活条目（按 insertion_order）
+   - `你是 {角色名}。` + description + personality + scenario（非空才拼）
+   - card.system_prompt（非空）
+   - mes_example（非空，前面加 `示例对话：`）
+2. **历史消息**：first_mes 作为 assistant 开头，之后 user/assistant 交替，从对话记录渲染（宏替换后）
+3. **上下文裁剪**：最多取最近 40 条历史（system 永远全量），保证不超长
+4. 发送前把所有 role=assistant 的消息里可能残留的未闭合内容原样发送（不处理）
+
+## API 客户端（ApiClient）
+- POST `{baseUrl}/chat/completions`，header：`Authorization: Bearer <key>`，body：`{model, messages, stream: true, temperature}`
+- **流式解析**：用 http 包 `send()` + `response.stream.transform(utf8.decoder)`，按行切，匹配 `data: ` 前缀，`data: [DONE]` 结束，逐 chunk JSON 解析 `choices[0].delta.content` 回调给 UI
+- 错误处理：非 200 读 body 给出中文可读错误（401=key 错误、404=地址错、超时=网络问题）
+- **支持取消**：UI 点"停止"→ 关闭底层请求（用可取消的方式，如存下 `http.Client` 调 close()，已收到的文本保留为该条消息内容）
+- 超时：连接 15s，流式读取无超时（长回复正常）
+- 设置里有"测试连接"按钮：发一条 `hi`，成功显示模型名
+
+### API 预设（设置页 chips 一键填入）
+- DeepSeek：`https://api.deepseek.com/v1`，模型 `deepseek-chat`
+- Kimi：`https://api.moonshot.cn/v1`，模型 `moonshot-v1-8k`
+- 智谱 GLM：`https://open.bigmodel.cn/api/paas/v4`，模型 `glm-4-air`
+- Ollama（局域网）：`http://192.168.x.x:11434/v1`，模型 `qwen2.5:7b`（用户手改地址）
+- 也允许自定义 base URL / key / 模型名三个输入框
+
+## 页面结构（5 个页面，Material 3，亮暗跟随系统）
+
+### 1. 新手引导 OnboardingScreen（首启全屏，可跳过，设置里可重看）
+三页 PageView，底部圆点指示器：
+- 页1 欢迎：App 图标（酒杯 emoji 🍷 或 Icons.local_bar）+ "轻酒馆" + 一句话介绍"导入角色卡，和喜欢的角色聊天"
+- 页2 配模型：说明文字"选择你用的服务商，填入 API Key" → 服务商预设 chips → 三个输入框 → "测试连接"按钮 → 成功勾✅
+- 页3 导入角色：说明"角色卡可以在 chub.ai、类脑 AI 等网站下载，格式 .png 或 .json" → "从文件导入"按钮（直接调 file_picker，成功就进首页）→ "跳过，先进去看看"
+- 全部完成后写 shared_preferences `onboarding_done=true`
+
+### 2. 首页 HomeScreen（角色列表）
+- 顶栏：标题"轻酒馆"，右侧设置图标
+- 角色卡片列表：左头像（PNG 卡用原图裁圆，无头像用首字圆形占位+随机柔和色），右名字+首行简介预览；点按进聊天；长按弹菜单（编辑 / 删除（确认框））
+- 空状态：居中插画式图标+文案"还没有角色，点右下角导入角色卡" + 大按钮
+- 右下 FAB："导入" → file_picker（`.png,.json`）→ 解析 → 存储 → snackbar 成功 → 可直接进聊天
+- 导入解析失败：中文错误提示（"这不是有效的角色卡文件"）
+
+### 3. 聊天页 ChatScreen（核心页面）
+- 顶栏：头像 + 角色名；菜单：清空对话（确认）、编辑角色、重新生成最后回复、换开场白（alternate_greetings 轮换，无则菜单项隐藏）
+- 消息列表：用户在右（主题色气泡）、角色在左（卡片色气泡）；markdown 渲染（flutter_markdown，支持 *斜体* 动作文本）；**长按消息 → 弹出"复制"**
+- 开场：进入时若无记录，把 first_mes 作为角色第一条消息写入（不调 API）
+- 输入区：多行 TextField（自增高，最多 5 行）+ 圆形发送按钮；发送后**立即**上屏 user 气泡 + 显示"思考中…"占位
+- 流式输出：逐字追加到最后一条 assistant 消息，自动滚底（仅当用户在底部附近时跟随，用户上滑看历史则停止跟随）
+- 生成中：发送按钮变**停止按钮**（红色），点停止保留已生成文本
+- 生成失败：气泡内红字错误 + "重试"按钮
+- 每次回复完成后立即写入 conversation JSON（流式过程中每 500ms 节流写一次也行）
+- 丝滑要求：发送 0 延迟上屏，UI 更新用局部 setState，存储异步不 await 阻塞首帧
+
+### 4. 角色编辑页 CharacterEditScreen
+只读展示+可编辑：名字、简介、性格、场景、开场白（含 alternate_greetings 列表展示）；顶部显示头像；保存按钮（写 card.json 返回 true）。世界书条目数显示（若有内嵌 character_book，显示"内嵌世界书：N 条"，只读）。
+
+### 5. 设置页 SettingsScreen
+分组卡片：
+- **模型服务**：预设 chips（点击填充下面三个框）→ base URL / API Key（密文显示+眼睛切换）/ 模型名 → "测试连接"按钮（成功/失败 toast）
+- **聊天**：我的名字（{{user}} 替换值，默认"你"）
+- **通用**：主题（跟随系统/浅色/深色 三选一）
+- **帮助**：重看新手引导（回 Onboarding）、关于（版本 v0.1.0 + 一句话）
+
+## 首页进入聊天前检查
+未配置 API（URL 或 key 为空）时进聊天仍允许（能看开场白），点发送时弹提示"先去设置里配置模型服务"并可跳转设置。
+
+## 代码结构
+```
+lib/
+├── main.dart                 # 主题、路由、首启判断
+├── models/
+│   ├── character_card.dart   # 归一化卡模型 + fromV1/V2/V3
+│   ├── world_info.dart       # 世界书条目模型
+│   └── chat_message.dart     # 消息模型 (role, content, timestamp)
+├── services/
+│   ├── card_parser.dart      # PNG chunk 解析 + JSON 解析 → CharacterCard
+│   ├── world_info_engine.dart# 关键词激活逻辑
+│   ├── prompt_builder.dart   # 组装 messages
+│   ├── api_client.dart       # OpenAI 兼容流式客户端
+│   └── storage.dart          # 文件读写（角色/对话/设置）
+├── screens/
+│   ├── onboarding_screen.dart
+│   ├── home_screen.dart
+│   ├── chat_screen.dart
+│   ├── character_edit_screen.dart
+│   └── settings_screen.dart
+└── widgets/
+    └── ...（气泡、头像等复用组件，超过 2 个重复再抽）
+```
+
+## 主题
+Material 3、`ColorScheme.fromSeed`（酒红/紫调 seed，如 `Color(0xFF8E4585)` 或更稳的 indigo），亮暗跟随系统，圆角 14。中文用系统默认字体即可。
+
+## 完成后
+1. `flutter analyze` 清零
+2. `export FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn && flutter build apk --debug` 成功，报告 APK 路径
+3. 最后输出：实现的功能清单 + 已知简化点（如世界书 position 全部注入系统提示）
