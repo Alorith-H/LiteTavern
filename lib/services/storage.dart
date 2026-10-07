@@ -173,6 +173,12 @@ class Storage {
     return result;
   }
 
+  /// 更新已存在世界书的内容（写回原 id 文件）。
+  static Future<void> updateWorldBook(String id, WorldInfo book) async {
+    final file = File('${_wbRoot.path}${Platform.pathSeparator}$id.json');
+    await file.writeAsString(jsonEncode(book.toSTJson()), flush: true);
+  }
+
   static Future<void> deleteWorldBook(String id) async {
     final file = File('${_wbRoot.path}${Platform.pathSeparator}$id.json');
     if (await file.exists()) await file.delete();
@@ -290,6 +296,18 @@ class AppSettings {
   /// 'system' | 'light' | 'dark'
   static String get themeMode => _sp.getString(_kTheme) ?? 'system';
   static set themeMode(String v) => _sp.setString(_kTheme, v);
+
+  /// 主题色 seed（0xFFRRGGBB），默认紫
+  static int get themeSeed => _sp.getInt(_kThemeSeed) ?? 0xFF8E4585;
+  static set themeSeed(int v) => _sp.setInt(_kThemeSeed, v);
+  static const _kThemeSeed = 'theme_seed';
+
+  /// 快捷回复文本列表；从未管理过时给预置两条，
+  /// 主动删到空后存空列表（聊天页据此隐藏快捷回复排）。
+  static List<String> get quickReplies =>
+      _sp.getStringList(_kQuickReplies) ?? const ['继续', '换个说法'];
+  static set quickReplies(List<String> v) => _sp.setStringList(_kQuickReplies, v);
+  static const _kQuickReplies = 'quick_replies';
 
   static bool get onboardingDone => _sp.getBool(_kOnboarding) ?? false;
   static set onboardingDone(bool v) => _sp.setBool(_kOnboarding, v);

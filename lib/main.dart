@@ -8,6 +8,10 @@ import 'services/storage.dart';
 final ValueNotifier<ThemeMode> themeModeNotifier =
     ValueNotifier(ThemeMode.system);
 
+/// 主题色（seed）全局通知（设置页修改后即时生效，无需重启）。
+final ValueNotifier<Color> themeSeedNotifier =
+    ValueNotifier(const Color(0xFF8E4585));
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Storage.init();
@@ -17,33 +21,48 @@ Future<void> main() async {
     'dark' => ThemeMode.dark,
     _ => ThemeMode.system,
   };
+  themeSeedNotifier.value = Color(AppSettings.themeSeed);
   runApp(const LiteTavernApp());
 }
 
 class LiteTavernApp extends StatelessWidget {
   const LiteTavernApp({super.key});
 
+  /// 主题对象缓存：seed × 亮度只构建一次，主题切换不重复 new ThemeData。
+  static final Map<(Color, Brightness), ThemeData> _themeCache = {};
+
   @override
   Widget build(BuildContext context) {
-    final seed = const Color(0xFF8E4585);
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: themeModeNotifier,
       builder: (context, mode, _) {
-        return MaterialApp(
-          title: '轻酒馆',
-          debugShowCheckedModeBanner: false,
-          theme: _buildTheme(seed, Brightness.light),
-          darkTheme: _buildTheme(seed, Brightness.dark),
-          themeMode: mode,
-          home: AppSettings.onboardingDone
-              ? const HomeScreen()
-              : const OnboardingScreen(),
+        return ValueListenableBuilder<Color>(
+          valueListenable: themeSeedNotifier,
+          builder: (context, seed, _) {
+            return MaterialApp(
+              title: 'LiteTavern',
+              debugShowCheckedModeBanner: false,
+              theme: _themeFor(seed, Brightness.light),
+              darkTheme: _themeFor(seed, Brightness.dark),
+              themeMode: mode,
+              home: AppSettings.onboardingDone
+                  ? const HomeScreen()
+                  : const OnboardingScreen(),
+            );
+          },
         );
       },
     );
   }
 
-  ThemeData _buildTheme(Color seed, Brightness brightness) {
+  static ThemeData _themeFor(Color seed, Brightness brightness) {
+    return _themeCache.putIfAbsent(
+      (seed, brightness),
+      () => _buildTheme(seed, brightness),
+    );
+  }
+
+  static ThemeData _buildTheme(Color seed, Brightness brightness) {
     final scheme =
         ColorScheme.fromSeed(seedColor: seed, brightness: brightness);
     return ThemeData(

@@ -29,9 +29,10 @@ bool _isCjkChar(int r) {
       r >= 0x20000; // 扩展 B 及以上
 }
 
+/// 千分位正则（顶层只编译一次，避免每次调用 new）
+final _groupRe = RegExp(r'\B(?=(\d{3})+(?!\d))');
+
 /// 千分位格式化：1234567 → "1,234,567"。
 String formatTokenCount(int n) {
-  return n
-      .toString()
-      .replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (m) => ',');
+  return n.toString().replaceAllMapped(_groupRe, (m) => ',');
 }

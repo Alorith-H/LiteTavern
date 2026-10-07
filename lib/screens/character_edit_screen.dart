@@ -8,6 +8,7 @@ import '../models/character_card.dart';
 import '../models/world_info.dart';
 import '../services/storage.dart';
 import '../widgets/common.dart';
+import 'world_book_entries_screen.dart';
 
 /// 角色编辑页：编辑名字/简介/性格/场景/开场白，管理世界书挂载。
 class CharacterEditScreen extends StatefulWidget {
@@ -132,6 +133,30 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
   Future<void> _persistMounts() =>
       Storage.saveWorldBookMounts(widget.charId, _mounts);
 
+  /// 条目页返回后刷新世界书列表（条数可能变化）。
+  Future<void> _reloadWorldBooks() async {
+    final books = await Storage.loadWorldBooks();
+    if (mounted) setState(() => _worldBooks = books);
+  }
+
+  /// 点击已挂载的用户导入世界书行 → 条目列表页。
+  Future<void> _openEntries(String id) async {
+    final hit = _worldBooks.where((b) => b.$1 == id);
+    if (hit.isEmpty) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => WorldBookEntriesScreen(bookId: id, book: hit.first.$2),
+      ),
+    );
+    await _reloadWorldBooks();
+  }
+
+  void _embeddedBookTap() {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(const SnackBar(content: Text('卡内嵌世界书不可编辑')));
+  }
+
   void _toggleMount(String id, bool enabled) {
     setState(() {
       _mounts = [
@@ -250,6 +275,7 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
     }
 
     final bookCount = card.characterBook?.entries.length ?? 0;
+    final mountedRows = _mountedRows(); // 每帧只算一次
 
     return Scaffold(
       appBar: AppBar(
@@ -363,8 +389,9 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
                       leading: const Icon(Icons.menu_book_outlined),
                       title: Text('卡内嵌世界书 · $bookCount 条'),
                       subtitle: const Text('随角色卡自动参与关键词匹配（只读）'),
+                      onTap: _embeddedBookTap,
                     ),
-                  for (final row in _mountedRows())
+                  for (final row in mountedRows)
                     ListTile(
                       leading: const Icon(Icons.public),
                       title: Text(
@@ -377,8 +404,10 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
                         value: row.$4,
                         onChanged: (v) => _toggleMount(row.$1, v),
                       ),
+                      // 点行进入条目列表页（开关在右侧单独处理）
+                      onTap: () => _openEntries(row.$1),
                     ),
-                  if (bookCount > 0 || _mountedRows().isNotEmpty)
+                  if (bookCount > 0 || mountedRows.isNotEmpty)
                     const Divider(height: 1),
                   ListTile(
                     leading:

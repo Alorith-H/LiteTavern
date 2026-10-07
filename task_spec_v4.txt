@@ -1,0 +1,69 @@
+# 轻酒馆 v0.4.0 — 迭代规格（增量，不重写）
+
+## 1. 图标更新（素材已换好）
+- `assets/icon/icon.png` 和 `assets/icon/icon_fg.png` 已更新为用户指定的新图案（白色线条杯 + 波浪线，紫渐变底），**不要改素材**
+- 只需重跑 `dart run flutter_launcher_icons` 重新生成 mipmap（pubspec 配置已存在）
+- flutter_launcher_icons 不支持 windows 配置（0.14.x 会报错）——保持移除状态
+
+## 2. 进入聊天自动滚到底
+- 现象：打开对话停在中间。要求：进入聊天页**首帧布局完成后**一次性 `jumpTo(maxScrollExtent)`（`WidgetsBinding.addPostFrameCallback`，只执行一次，加"已定位"标志）
+- 不得破坏 v0.3 的流式跟随规则；只影响进入瞬间
+- 消息不足一屏时自然不滚
+
+## 3. 主题自由更改（设置 → 新分组「外观」）
+- **主题模式**：跟随系统 / 浅色 / 深色（三选一，若设置里已有就挪进本分组）
+- **主题色**：12 色圆点选择器（3列或4列网格，选中态描边）：
+  `#2196F3` 蓝、`#4CAF50` 绿、`#9C27B0` 紫、`#FF9800` 橙、`#F44336` 红、`#00BCD4` 青、`#FF69B4` 粉、`#3F51B5` 靛、`#009688` 青绿、`#FFC107` 琥珀、`#E91E63` 玫红、`#607D8B` 蓝灰
+- **自定义颜色**：HEX 输入框（校验 `#RRGGBB`，非法红字提示），填入即应用
+- 实现：`ColorScheme.fromSeed(seedColor: …)` 亮/暗两套主题，MaterialApp 读取；存 SharedPreferences；选择后**立即生效**（无需重启）
+- 应用名/App 名不动
+
+## 4. 卡顿排查 → 根因 + release 包（本轮核心）
+**根因判断：至今手机上装的都是 debug APK** —— Dart JIT 解释执行、断言开启、无 release 优化、160MB。切到 **release（AOT 编译）** 是最大提升。本轮必须完成：
+
+### 4a. Release 签名 + 构建
+- keytool 生成 `android/app/litetavern-release.keystore`（RSA 2048，有效期 10000 天，dname `CN=LiteTavern`，storepass/keypass 用随机强密码）
+- `android/key.properties` 写入签名信息；**两者都加入 .gitignore**（连同 key.properties）
+- `android/app/build.gradle.kts`：`signingConfigs.release` + `buildTypes.release` 使用它；`isMinifyEnabled = false`、`isShrinkResources = false`（Flutter 引擎类引用问题，不开混淆）；lint 已有 `abortOnError=false`
+- 完成标准含 `flutter build apk --release` 成功 + 报告 release APK 路径与大小
+
+### 4b. 静态性能审查（逐项检查，有问题就修，报告里逐条说明）
+1. 首页/编辑页**头像 `Image.file` 必须加 `cacheWidth`**（≈ 200 × MediaQuery.devicePixelRatio，四舍五入）——避免 4000px 原图全尺寸解码（导入的卡图可能很大）
+2. 聊天列表必须是 `ListView.builder`（非手写 children 铺满）
+3. 所有 controller（Text/Scroll/Focus）只在 `initState` 创建一次，确认没有在 build 里 new
+4. `build()` 里不重复创建的对象：每帧 new 的闭包/正则/DateFormat/字符串处理挪到外面或缓存
+5. 输入框文字变化不要触发整页 setState（v0.3 已有的节流逻辑保持）
+6. v0.3 的 markdown 气泡缓存确认仍然生效（key 包含字号/主题/时间戳开关）
+7. 列表项 RepaintBoundary 没被破坏（ListView 默认开启，别包进手写 Column 列表）
+8. 主页头像如果用 `CircleAvatar + Image.file`，确认没有每次 build 重新解码（file 缓存 key 稳定）
+- 若以上全无问题，报告中写明"代码层未发现明显卡点，主因即 debug 模式"，并给出实测建议
+
+## 5. 原版功能补充（3 个）
+### a) 快捷回复按钮（原版 Quick Replies）
+- 聊天输入框**上方**一排横向可滚动 chips，点按 = 立即作为用户消息发送（走正常生成流程）
+- 设置 → 聊天组「快捷回复管理」：列表页增/删/改（文本非空校验），**预置 2 条**：`继续`、`换个说法`（已删到空则不再显示那排）
+- 生成中 chips 置灰禁用
+### b) 世界书条目编辑（原版 World Info 编辑）
+- 角色编辑页 → 点已挂载的**用户导入**世界书行 → 条目列表页：
+  - 每行：主 keys、content 前 40 字预览、启用开关
+  - 点行 → 编辑弹窗：keys（逗号分隔转数组）、content（多行）、insertion_order（数字）、enabled；弹窗内可删除该条（确认）
+  - 右上「新增条目」：同弹窗空表单
+- 保存写回 `worldbooks/<id>.json`（校验 content 非空）
+- **卡内嵌 character_book 仍只读**：点击行提示"卡内嵌世界书不可编辑"
+### c) 导出对话（原版 Export）
+- 聊天右上菜单「复制对话」→ 组装纯文本：首行 `# 和{角色名}的对话（导出时间 …）`，之后每条 `[MM-dd HH:mm] {名字}: {内容}`（变体只导出当前显示的）→ 写入系统剪贴板 → snackbar「对话已复制到剪贴板」
+
+## 禁止
+- 0 个新依赖（keytool 用 JDK 自带；剪贴板用 Flutter 自带 Clipboard）
+- 不做群聊/TTS/画图/网络字体/分享导入；不回退已有功能；不改 task_spec 历史文件
+
+## 环境（同前）
+- `export PATH="/c/Users/28351/Desktop/Project/flutter/bin:$PATH"`
+- 构建前 `export FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn`
+- `version: 0.4.0+1`
+
+## 完成标准
+1. `flutter analyze` 0 issues
+2. `flutter test` 现有 12 条保持全过（可增不可减）
+3. `flutter build apk --debug` **和** `flutter build apk --release` 都成功，报告 release 路径与大小
+4. 输出：改动文件清单 + 每项实现说明 + 4b 审查逐条结论 + 已知简化点

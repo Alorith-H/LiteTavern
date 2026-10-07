@@ -217,7 +217,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   else
                     FilledButton(
                       onPressed: _finish,
-                      child: const Text('进入轻酒馆'),
+                      child: const Text('进入LiteTavern'),
                     ),
                 ],
               ),
@@ -248,7 +248,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ),
           ),
           const SizedBox(height: 28),
-          Text('轻酒馆',
+          Text('LiteTavern',
               style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   )),

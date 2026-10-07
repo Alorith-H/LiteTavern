@@ -39,6 +39,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _characters = list;
       _loading = false;
+      _previewCache.clear(); // 角色可能被编辑，简介缓存整体失效
     });
   }
 
@@ -185,13 +186,17 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  String _preview(CharacterCard c) {
-    final firstLine = c.description.trim().isEmpty
-        ? (c.personality.trim().isEmpty ? '（暂无简介）' : c.personality.trim())
-        : c.description.trim();
-    final lines = firstLine.split('\n');
-    return lines.first;
-  }
+  /// 简介首行（按 id 缓存，避免列表滚动/搜索时每帧重复切串）
+  final Map<String, String> _previewCache = {};
+
+  String _preview(CharacterCard c) => _previewCache.putIfAbsent(c.id, () {
+        final firstLine = c.description.trim().isEmpty
+            ? (c.personality.trim().isEmpty
+                ? '（暂无简介）'
+                : c.personality.trim())
+            : c.description.trim();
+        return firstLine.split('\n').first;
+      });
 
   /// FAB：底部弹窗选择"从文件导入 / 从链接下载"。
   void _showImportSheet() {
@@ -237,7 +242,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('轻酒馆'),
+        title: const Text('LiteTavern'),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings_outlined),

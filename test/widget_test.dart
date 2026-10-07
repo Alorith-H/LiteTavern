@@ -6,9 +6,12 @@ import 'package:litetavern/models/chat_message.dart';
 import 'package:litetavern/models/character_card.dart';
 import 'package:litetavern/models/world_info.dart';
 import 'package:litetavern/services/card_parser.dart';
+import 'package:litetavern/services/chat_export.dart';
 import 'package:litetavern/services/prompt_builder.dart';
+import 'package:litetavern/services/storage.dart';
 import 'package:litetavern/services/token_estimate.dart';
 import 'package:litetavern/services/world_info_engine.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 Uint8List _pngChunk(String type, List<int> data) {
   final out = BytesBuilder();
@@ -288,5 +291,43 @@ void main() {
     expect(mid.variants, ['old-reply', 'new-partial']);
     expect(mid.variantIndex, 1);
     expect(mid.content, 'new-partial');
+  });
+
+  test('导出对话纯文本格式（首行标题 + 时间前缀，空占位不导出）', () {
+    final text = buildExportText(
+      charName: '小艾',
+      userName: '旅行者',
+      messages: [
+        ChatMessage(
+          role: 'assistant',
+          content: '你好',
+          timestamp: DateTime(2026, 10, 7, 14, 5).millisecondsSinceEpoch,
+        ),
+        ChatMessage(
+          role: 'user',
+          content: '在吗',
+          timestamp: DateTime(2026, 10, 7, 14, 6).millisecondsSinceEpoch,
+        ),
+        // 生成中的空占位不导出
+        ChatMessage(role: 'assistant', content: '', timestamp: 0),
+      ],
+      exportedAt: DateTime(2026, 10, 7, 15, 30),
+    );
+    final lines = text.trim().split('\n');
+    expect(lines, hasLength(3));
+    expect(lines.first, '# 和小艾的对话（导出时间 2026-10-07 15:30）');
+    expect(lines[1], '[10-07 14:05] 小艾: 你好');
+    expect(lines[2], '[10-07 14:06] 旅行者: 在吗');
+  });
+
+  test('快捷回复默认预置两条，主动删空后为空列表', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.setMockInitialValues({});
+    await AppSettings.init();
+    expect(AppSettings.quickReplies, ['继续', '换个说法']);
+    AppSettings.quickReplies = ['继续'];
+    expect(AppSettings.quickReplies, ['继续']);
+    AppSettings.quickReplies = [];
+    expect(AppSettings.quickReplies, isEmpty);
   });
 }

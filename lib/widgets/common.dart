@@ -35,16 +35,23 @@ class CharacterAvatar extends StatelessWidget {
     return n.isEmpty ? '？' : n.substring(0, 1);
   }
 
+  /// 解码宽度基准：头像显示尺寸远小于此值，按 ~200 逻辑像素 × dpr 解码，
+  /// 避免导入的 4000px 原图全尺寸解码（内存 + 卡顿主因之一）。
+  /// 同一文件 + 同一 cacheWidth → ImageCache 键稳定，滚动不重复解码。
+  static const double _decodeBase = 200;
+
   @override
   Widget build(BuildContext context) {
     final avatar = id.isEmpty ? null : Storage.avatarFile(id);
     if (avatar != null) {
+      final dpr = MediaQuery.devicePixelRatioOf(context);
       return ClipOval(
         child: Image.file(
           avatar,
           width: size,
           height: size,
           fit: BoxFit.cover,
+          cacheWidth: (_decodeBase * dpr).round(),
           errorBuilder: (_, _, _) => _placeholder(context),
         ),
       );

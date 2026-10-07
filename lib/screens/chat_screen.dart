@@ -8,6 +8,7 @@ import '../models/chat_message.dart';
 import '../models/character_card.dart';
 import '../models/world_info.dart';
 import '../services/api_client.dart';
+import '../services/chat_export.dart';
 import '../services/macros.dart';
 import '../services/prompt_builder.dart';
 import '../services/storage.dart';
@@ -49,6 +50,12 @@ class _ChatScreenState extends State<ChatScreen> {
 
   bool _generating = false;
   bool _followScroll = true;
+
+  /// 进入聊天的首次定位只执行一次（首帧布局完成 → jumpTo 底部）
+  bool _initialLocated = false;
+
+  /// 输入框是否为空（只通知发送按钮，打字不触发整页 setState）
+  final _inputEmpty = ValueNotifier<bool>(true);
 
   /// 用户手指正按在列表上拖动：期间冻结跟随判定，绝不与手势抢位置
   bool _userDragging = false;
@@ -94,6 +101,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollCtrl.removeListener(_onScroll);
     _scrollCtrl.dispose();
     _inputCtrl.dispose();
+    _inputEmpty.dispose();
     super.dispose();
   }
 
@@ -134,7 +142,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _msgCache.clear();
       _cacheLen = -1;
     });
-    _scrollToBottom();
+    _locateInitial();
   }
 
   /// 该角色参与激活的世界书：卡内嵌 + 挂载配置里 enabled 的。
@@ -229,6 +237,18 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  /// 进入聊天：首帧布局完成后一次性 jumpTo(maxScrollExtent)，
+  /// 用标志保证只执行一次；不足一屏时 max=0 自然不动。
+  /// 只影响进入瞬间，不改动 v0.3 的流式跟随规则。
+  void _locateInitial() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_initialLocated || !mounted || !_scrollCtrl.hasClients) return;
+      _initialLocated = true;
+      _scrollCtrl.jumpTo(_scrollCtrl.position.maxScrollExtent);
+      _followScroll = true;
+    });
+  }
+
   // ------------------------------------------------------------- 生成 --
 
   String get _macroUserName => AppSettings.userName;
@@ -241,8 +261,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
   bool get _canConfigure => AppSettings.apiConfigured;
 
-  void _send() {
-    final text = _inputCtrl.text.trim();
+  void _send() => _sendText(_inputCtrl.text);
+
+  /// 发送一条用户消息（输入框发送与快捷回复共用，走正常生成流程）。
+  void _sendText(String raw) {
+    final text = raw.trim();
     final card = _card;
     if (text.isEmpty || _generating || card == null) return;
     if (!_canConfigure) {
@@ -262,6 +285,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _msgCache.clear();
     });
     _inputCtrl.clear();
+    _inputEmpty.value = true;
     _save(force: true);
     _scrollToBottom();
     _generate();
@@ -796,6 +820,14 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
             ListTile(
+              leading: const Icon(Icons.copy_all_outlined),
+              title: const Text('复制对话'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _exportConversation();
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.forward_outlined),
               title: const Text('继续生成'),
               enabled: canContinue,
@@ -829,6 +861,25 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  // ------------------------------------------------------- 导出对话 --
+
+  /// 组装纯文本写入系统剪贴板（变体只导出当前显示的）。
+  Future<void> _exportConversation() async {
+    final card = _card;
+    if (card == null) return;
+    final text = buildExportText(
+      charName: card.name,
+      userName: AppSettings.userName,
+      messages: _messages,
+      exportedAt: DateTime.now(),
+    );
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('对话已复制到剪贴板')),
     );
   }
 
@@ -1003,9 +1054,10 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
 
-    // 主题 / 宽度 / 字号 / 时间戳开关变化 → 气泡缓存整体失效
+    // 主题（亮度+主题色）/ 宽度 / 字号 / 时间戳开关变化 → 气泡缓存整体失效
     final cacheToken = (
       Theme.of(context).brightness,
+      scheme.primary.toARGB32(),
       MediaQuery.sizeOf(context).width,
       AppSettings.chatFontSize,
       AppSettings.showTimestamps,
@@ -1359,6 +1411,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildInputBar(ColorScheme scheme) {
+    final replies = AppSettings.quickReplies;
     return SafeArea(
       top: false,
       child: Container(
@@ -1367,48 +1420,81 @@ class _ChatScreenState extends State<ChatScreen> {
           color: scheme.surface,
           border: Border(top: BorderSide(color: scheme.outlineVariant)),
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Expanded(
-              child: TextField(
-                controller: _inputCtrl,
-                minLines: 1,
-                maxLines: 5,
-                textInputAction: TextInputAction.newline,
-                decoration: const InputDecoration(
-                  hintText: '说点什么…',
-                  contentPadding:
-                      EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            // 快捷回复：输入框上方一排横滑 chips，点按立即发送；
+            // 管理页删到空则整排隐藏，生成中置灰禁用
+            if (replies.isNotEmpty) ...[
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (var i = 0; i < replies.length; i++) ...[
+                      if (i > 0) const SizedBox(width: 8),
+                      ActionChip(
+                        label: Text(
+                          replies[i],
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                        onPressed:
+                            _generating ? null : () => _sendText(replies[i]),
+                      ),
+                    ],
+                  ],
                 ),
-                onChanged: (_) => setState(() {}),
-                onSubmitted: (_) => _send(),
               ),
-            ),
-            const SizedBox(width: 10),
-            _generating
-                ? IconButton(
-                    onPressed: _stop,
-                    style: IconButton.styleFrom(
-                      backgroundColor: scheme.errorContainer,
-                      foregroundColor: scheme.onErrorContainer,
+              const SizedBox(height: 8),
+            ],
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _inputCtrl,
+                    minLines: 1,
+                    maxLines: 5,
+                    textInputAction: TextInputAction.newline,
+                    decoration: const InputDecoration(
+                      hintText: '说点什么…',
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                     ),
-                    icon: const Icon(Icons.stop),
-                    tooltip: '停止',
-                  )
-                : IconButton(
-                    onPressed: _send,
-                    style: IconButton.styleFrom(
-                      backgroundColor: _inputCtrl.text.trim().isEmpty
-                          ? scheme.surfaceContainerHighest
-                          : scheme.primary,
-                      foregroundColor: _inputCtrl.text.trim().isEmpty
-                          ? scheme.onSurfaceVariant
-                          : scheme.onPrimary,
-                    ),
-                    icon: const Icon(Icons.send),
-                    tooltip: '发送',
+                    // 只在「空 ↔ 非空」翻转时通知发送按钮，打字不整页 setState
+                    onChanged: (_) =>
+                        _inputEmpty.value = _inputCtrl.text.trim().isEmpty,
+                    onSubmitted: (_) => _send(),
                   ),
+                ),
+                const SizedBox(width: 10),
+                ValueListenableBuilder<bool>(
+                  valueListenable: _inputEmpty,
+                  builder: (context, empty, _) => _generating
+                      ? IconButton(
+                          onPressed: _stop,
+                          style: IconButton.styleFrom(
+                            backgroundColor: scheme.errorContainer,
+                            foregroundColor: scheme.onErrorContainer,
+                          ),
+                          icon: const Icon(Icons.stop),
+                          tooltip: '停止',
+                        )
+                      : IconButton(
+                          onPressed: _send,
+                          style: IconButton.styleFrom(
+                            backgroundColor: empty
+                                ? scheme.surfaceContainerHighest
+                                : scheme.primary,
+                            foregroundColor: empty
+                                ? scheme.onSurfaceVariant
+                                : scheme.onPrimary,
+                          ),
+                          icon: const Icon(Icons.send),
+                          tooltip: '发送',
+                        ),
+                ),
+              ],
+            ),
           ],
         ),
       ),
