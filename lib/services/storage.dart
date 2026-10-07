@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -28,6 +28,12 @@ class Storage {
     for (final dir in ['characters', 'conversations', 'worldbooks', 'groups']) {
       await Directory('${_docs.path}/$dir').create(recursive: true);
     }
+  }
+
+  /// 测试用：跳过 path_provider，直接指定文档根目录。
+  @visibleForTesting
+  static void initForTest(Directory docs) {
+    _docs = docs;
   }
 
   static Directory get _charRoot => Directory('${_docs.path}/characters');
@@ -121,7 +127,9 @@ class Storage {
   /// 旧 = 消息数组；新 = `{messages, summary?}`（v0.6.0 起带摘要时用对象）。
   static Future<ConversationData> loadConversationData(String convId) async {
     final file = _convFile(convId);
-    if (!await file.exists()) return const ConversationData(messages: []);
+    // 回归：fallback 必须是可增长列表 —— const 空列表不可 add，
+    // 会话页拿到后 _doSend 落消息时抛 Unsupported operation。
+    if (!await file.exists()) return ConversationData(messages: <ChatMessage>[]);
     try {
       final decoded = jsonDecode(await file.readAsString());
       if (decoded is List) {
@@ -149,9 +157,9 @@ class Storage {
           summary: summary != null && summary.isEmpty ? null : summary,
         );
       }
-      return const ConversationData(messages: []);
+      return ConversationData(messages: <ChatMessage>[]);
     } catch (_) {
-      return const ConversationData(messages: []);
+      return ConversationData(messages: <ChatMessage>[]);
     }
   }
 

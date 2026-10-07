@@ -194,7 +194,8 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!mounted) return;
     setState(() {
       _card = card;
-      _messages = msgs;
+      // 防御：无论来源如何都复制成可增长列表（_doSend 会 add）
+      _messages = List.of(msgs);
       _summary = data.summary;
       _worldBooks = books;
       _loading = false;
@@ -230,7 +231,8 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       _group = group;
       _members = members;
-      _messages = data.messages;
+      // 防御：复制成可增长列表，杜绝任何来源的不可变列表
+      _messages = List.of(data.messages);
       _summary = data.summary;
       _worldBooks = books;
       _loading = false;
