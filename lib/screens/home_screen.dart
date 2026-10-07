@@ -163,7 +163,6 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.edit_outlined),
               title: const Text('编辑'),
               onTap: () {
                 Navigator.pop(ctx);
@@ -171,8 +170,6 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             ),
             ListTile(
-              leading: Icon(Icons.delete_outline,
-                  color: Theme.of(ctx).colorScheme.error),
               title: Text('删除',
                   style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
               onTap: () {
@@ -207,7 +204,6 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.file_upload_outlined),
               title: const Text('从文件导入'),
               subtitle: const Text('选择本地 .png / .json 角色卡'),
               onTap: () {
@@ -216,7 +212,6 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.link_outlined),
               title: const Text('从链接下载'),
               subtitle: const Text('输入 URL，下载 .png / .json 角色卡'),
               onTap: () {
@@ -261,13 +256,38 @@ class _HomeScreenState extends State<HomeScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
+                // 搜索框：下划线式（无边框盒）
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
                   child: TextField(
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       hintText: '搜索角色（名字 / 简介）',
-                      prefixIcon: Icon(Icons.search),
+                      hintStyle: TextStyle(
+                        fontSize: AppType.caption,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                      prefixIcon: Icon(
+                        Icons.search_outlined,
+                        size: 22,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                      prefixIconConstraints: const BoxConstraints(
+                        minWidth: 36,
+                        minHeight: 22,
+                      ),
                       isDense: true,
+                      filled: false,
+                      contentPadding:
+                          const EdgeInsets.symmetric(vertical: 12),
+                      enabledBorder: UnderlineInputBorder(
+                        borderSide: BorderSide(color: scheme.outline),
+                      ),
+                      focusedBorder: UnderlineInputBorder(
+                        borderSide: BorderSide(
+                          color: scheme.primary,
+                          width: 1.4,
+                        ),
+                      ),
                     ),
                     onChanged: (v) => setState(() => _query = v),
                   ),
@@ -277,7 +297,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showImportSheet,
-        icon: const Icon(Icons.file_upload_outlined),
+        icon: const Icon(Icons.file_upload_outlined, size: 20),
         label: const Text('导入'),
       ),
     );
@@ -294,58 +314,59 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
     }
+    // 角色行：56dp 圆角方形头像（圆角 12）+ 名字 15sp w600 + 一行简介
+    // 13sp 次要色；行间 hairline divider 左缩进 84 对齐文字。
     return RefreshIndicator(
       onRefresh: _reload,
       child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 88),
+        padding: const EdgeInsets.fromLTRB(0, 4, 0, 88),
         itemCount: list.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 10),
+        separatorBuilder: (_, _) =>
+            const Divider(height: 1, indent: 84, endIndent: 16),
         itemBuilder: (context, i) {
           final c = list[i];
-          return Card(
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: () => _openChat(c),
-              onLongPress: () => _showActions(c),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  children: [
-                    CharacterAvatar(
-                      id: c.id,
-                      name: c.name,
-                      size: 52,
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            c.name,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 16,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+          return InkWell(
+            onTap: () => _openChat(c),
+            onLongPress: () => _showActions(c),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+              child: Row(
+                children: [
+                  CharacterAvatar(
+                    id: c.id,
+                    name: c.name,
+                    size: 56,
+                    square: true,
+                    radius: 12,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          c.name,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: AppType.body,
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _preview(c),
-                            style: TextStyle(
-                              color: scheme.onSurfaceVariant,
-                              fontSize: 13,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          _preview(c),
+                          style: TextStyle(
+                            color: scheme.onSurfaceVariant,
+                            fontSize: AppType.caption,
                           ),
-                        ],
-                      ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
                     ),
-                    Icon(Icons.chevron_right, color: scheme.outline),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           );
@@ -361,27 +382,35 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.theaters_outlined, size: 88, color: scheme.primary),
+            // 空状态：大号描边图标（ink 25%）+ 一行次要文案，无 emoji
+            Icon(
+              Icons.theaters_outlined,
+              size: 88,
+              color: scheme.onSurface.withValues(alpha: 0.25),
+            ),
             const SizedBox(height: 20),
-            const Text(
-              '还没有角色\n点右下角导入角色卡',
+            Text(
+              '还没有角色，点右下角导入角色卡',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 16, height: 1.6),
+              style: TextStyle(
+                fontSize: 14,
+                color: scheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 24),
             FilledButton.icon(
               onPressed: _showImportSheet,
-              icon: const Icon(Icons.file_upload_outlined),
+              icon: const Icon(Icons.file_upload_outlined, size: 20),
               label: const Text('导入角色卡'),
             ),
             const SizedBox(height: 12),
-            TextButton.icon(
+            OutlinedButton.icon(
               onPressed: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const OnboardingScreen()),
                 );
               },
-              icon: const Icon(Icons.help_outline),
+              icon: const Icon(Icons.help_outline, size: 20),
               label: const Text('看看新手引导'),
             ),
           ],

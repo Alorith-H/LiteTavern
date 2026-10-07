@@ -9,6 +9,7 @@ import '../main.dart';
 import '../models/world_info.dart';
 import '../services/api_client.dart';
 import '../services/storage.dart';
+import '../widgets/common.dart';
 import 'onboarding_screen.dart';
 
 /// 设置页。
@@ -30,6 +31,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late double _chatFontSize;
   late int _historyLimit;
   late bool _showTimestamps;
+  late bool _showQuickReplies;
   bool _obscureKey = true;
   bool _testing = false;
 
@@ -72,6 +74,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _chatFontSize = AppSettings.chatFontSize;
     _historyLimit = AppSettings.contextHistoryLimit;
     _showTimestamps = AppSettings.showTimestamps;
+    _showQuickReplies = AppSettings.showQuickReplies;
     _seed = AppSettings.themeSeed;
     _hexCtrl = TextEditingController(text: _seedToHex(_seed));
     _loadWorldBooks();
@@ -250,412 +253,494 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('设置')),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
         children: [
-          _groupHeader('模型服务'),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final p in kApiPresets)
-                        ActionChip(
-                          label: Text(p.label),
-                          onPressed: () => setState(() {
-                            _urlCtrl.text = p.baseUrl;
-                            _modelCtrl.text = p.model;
-                            _saveApi();
-                          }),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  TextField(
-                    controller: _urlCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Base URL',
-                      hintText: 'https://api.deepseek.com/v1',
-                    ),
-                    keyboardType: TextInputType.url,
-                    onChanged: (_) => _saveApi(),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _keyCtrl,
-                    obscureText: _obscureKey,
-                    decoration: InputDecoration(
-                      labelText: 'API Key',
-                      suffixIcon: IconButton(
-                        icon: Icon(_obscureKey
-                            ? Icons.visibility_off
-                            : Icons.visibility),
-                        onPressed: () =>
-                            setState(() => _obscureKey = !_obscureKey),
-                      ),
-                    ),
-                    onChanged: (_) => _saveApi(),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _modelCtrl,
-                    decoration: const InputDecoration(
-                      labelText: '模型名',
-                      hintText: 'deepseek-chat',
-                    ),
-                    onChanged: (_) => _saveApi(),
-                  ),
-                  const SizedBox(height: 14),
-                  FilledButton.icon(
-                    onPressed: _testing ? null : _testConnection,
-                    icon: _testing
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.wifi_tethering),
-                    label: Text(_testing ? '测试中…' : '测试连接'),
-                  ),
-                  const SizedBox(height: 14),
-                  const Divider(height: 1),
-                  const SizedBox(height: 10),
-                  Text(
-                    '生成参数',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: scheme.primary,
-                    ),
-                  ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('温度 temperature', style: TextStyle(fontSize: 13)),
-                      Text(
-                        _temperature.toStringAsFixed(2),
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: scheme.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Slider(
-                    value: _temperature,
-                    min: 0,
-                    max: 2,
-                    divisions: 40,
-                    label: _temperature.toStringAsFixed(2),
-                    onChanged: (v) {
-                      setState(() => _temperature = v);
-                      AppSettings.temperature = v;
-                    },
-                  ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Top P', style: TextStyle(fontSize: 13)),
-                      Text(
-                        _topP.toStringAsFixed(2),
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: scheme.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Slider(
-                    value: _topP,
-                    min: 0,
-                    max: 1,
-                    divisions: 20,
-                    label: _topP.toStringAsFixed(2),
-                    onChanged: (v) {
-                      setState(() => _topP = v);
-                      AppSettings.topP = v;
-                    },
-                  ),
-                  const SizedBox(height: 4),
-                  TextField(
-                    controller: _maxTokensCtrl,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    decoration: const InputDecoration(
-                      labelText: '最大回复长度 max_tokens（0 = 不限）',
-                    ),
-                    onChanged: (v) =>
-                        AppSettings.maxTokens = int.tryParse(v) ?? 0,
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('上下文保留条数',
-                          style: TextStyle(fontSize: 13)),
-                      Text(
-                        '${_historyLimit.round()} 条',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: scheme.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Slider(
-                    value: _historyLimit
-                        .clamp(10, 100)
-                        .toInt()
-                        .toDouble(),
-                    min: 10,
-                    max: 100,
-                    divisions: 18,
-                    label: '${_historyLimit.round()} 条',
-                    onChanged: (v) {
-                      setState(() => _historyLimit = v.round());
-                      AppSettings.contextHistoryLimit = v.round();
-                    },
-                  ),
-                ],
+          // ---------------------------------------------- 模型服务 --
+          const SectionHeader('模型服务'),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final p in kApiPresets)
+                ActionChip(
+                  label: Text(p.label),
+                  onPressed: () => setState(() {
+                    _urlCtrl.text = p.baseUrl;
+                    _modelCtrl.text = p.model;
+                    _saveApi();
+                  }),
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _urlCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Base URL',
+              hintText: 'https://api.deepseek.com/v1',
+              helperText: '服务商提供的接口地址',
+            ),
+            keyboardType: TextInputType.url,
+            onChanged: (_) => _saveApi(),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _keyCtrl,
+            obscureText: _obscureKey,
+            decoration: InputDecoration(
+              labelText: 'API Key',
+              helperText: '只保存在本机',
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _obscureKey
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                  size: 22,
+                ),
+                onPressed: () =>
+                    setState(() => _obscureKey = !_obscureKey),
               ),
             ),
+            onChanged: (_) => _saveApi(),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _modelCtrl,
+            decoration: const InputDecoration(
+              labelText: '模型名',
+              hintText: 'deepseek-chat',
+              helperText: '服务商的模型标识，照服务商文档填',
+            ),
+            onChanged: (_) => _saveApi(),
+          ),
+          const SizedBox(height: 14),
+          FilledButton.icon(
+            onPressed: _testing ? null : _testConnection,
+            icon: _testing
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.wifi_tethering_outlined, size: 20),
+            label: Text(_testing ? '测试中…' : '测试连接'),
+          ),
+
+          // ---------------------------------------------- 生成参数 --
+          const SectionHeader('生成参数'),
+          _sliderLabel('随机度', _temperature.toStringAsFixed(2)),
+          Slider(
+            value: _temperature,
+            min: 0,
+            max: 2,
+            divisions: 40,
+            label: _temperature.toStringAsFixed(2),
+            onChanged: (v) {
+              setState(() => _temperature = v);
+              AppSettings.temperature = v;
+            },
+          ),
+          const _SubLine('越高回答越发散'),
+          const SizedBox(height: 8),
+          _sliderLabel('采样范围', _topP.toStringAsFixed(2)),
+          Slider(
+            value: _topP,
+            min: 0,
+            max: 1,
+            divisions: 20,
+            label: _topP.toStringAsFixed(2),
+            onChanged: (v) {
+              setState(() => _topP = v);
+              AppSettings.topP = v;
+            },
+          ),
+          const SizedBox(height: 4),
+          TextField(
+            controller: _maxTokensCtrl,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            decoration: const InputDecoration(
+              labelText: '单次回复长度上限',
+              helperText: '0 = 不限',
+            ),
+            onChanged: (v) => AppSettings.maxTokens = int.tryParse(v) ?? 0,
           ),
           const SizedBox(height: 8),
-          _groupHeader('世界书'),
-          Card(
-            child: Column(
-              children: [
-                ListTile(
-                  leading: Icon(Icons.add_circle_outline, color: scheme.primary),
-                  title: const Text('导入世界书 JSON'),
-                  subtitle: const Text('SillyTavern 世界书格式，聊天时按关键词自动注入'),
-                  onTap: _importWorldBook,
-                ),
-                if (_worldBooks.isNotEmpty) const Divider(height: 1),
-                for (final (id, book) in _worldBooks)
-                  ListTile(
-                    leading: const Icon(Icons.menu_book_outlined),
-                    title: Text(
-                      book.name.isEmpty ? '未命名世界书' : book.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Text('${book.entries.length} 条'
-                        '${AppSettings.mountedWorldBookIds.contains(id) ? ' · 已启用' : ' · 未启用'}'),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
+          _sliderLabel('记忆长度', '${_historyLimit.round()} 条'),
+          Slider(
+            value: _historyLimit.clamp(10, 100).toInt().toDouble(),
+            min: 10,
+            max: 100,
+            divisions: 18,
+            label: '${_historyLimit.round()} 条',
+            onChanged: (v) {
+              setState(() => _historyLimit = v.round());
+              AppSettings.contextHistoryLimit = v.round();
+            },
+          ),
+          const _SubLine('每次发送保留最近多少条消息'),
+
+          // ------------------------------------------------ 世界书 --
+          const SectionHeader('世界书'),
+          _actionRow(
+            title: '导入世界书',
+            subtitle: 'SillyTavern 格式，聊天时按关键词自动注入',
+            onTap: _importWorldBook,
+          ),
+          for (final (id, book) in _worldBooks) ...[
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Switch(
-                          value:
-                              AppSettings.mountedWorldBookIds.contains(id),
-                          onChanged: (v) => _toggleWorldBook(id, v),
+                        Text(
+                          book.name.isEmpty ? '未命名世界书' : book.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: AppType.body,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
-                        IconButton(
-                          icon: Icon(Icons.delete_outline,
-                              color: scheme.error),
-                          onPressed: () => _deleteWorldBook(id),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${book.entries.length} 条'
+                          '${AppSettings.mountedWorldBookIds.contains(id) ? ' · 已启用' : ' · 未启用'}',
+                          style: TextStyle(
+                            fontSize: AppType.caption,
+                            color: scheme.onSurfaceVariant,
+                          ),
                         ),
                       ],
                     ),
                   ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          _groupHeader('聊天'),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextField(
-                    controller: _nameCtrl,
-                    decoration: const InputDecoration(
-                      labelText: '我的名字（{{user}} 替换值）',
-                      hintText: '你',
+                  Switch(
+                    value: AppSettings.mountedWorldBookIds.contains(id),
+                    onChanged: (v) => _toggleWorldBook(id, v),
+                  ),
+                  SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: IconButton(
+                      padding: EdgeInsets.zero,
+                      icon: Icon(
+                        Icons.delete_outline,
+                        size: 22,
+                        color: scheme.error,
+                      ),
+                      tooltip: '删除',
+                      onPressed: () => _deleteWorldBook(id),
                     ),
-                    onChanged: (v) => AppSettings.userName =
-                        v.isEmpty ? '你' : v,
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('聊天气泡字号',
-                          style: TextStyle(fontSize: 13)),
-                      Text(
-                        '${_chatFontSize.round()}sp',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: scheme.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Slider(
-                    value: _chatFontSize
-                        .round()
-                        .clamp(13, 20)
-                        .toDouble(),
-                    min: 13,
-                    max: 20,
-                    divisions: 7,
-                    label: '${_chatFontSize.round()}sp',
-                    onChanged: (v) {
-                      setState(() => _chatFontSize = v.roundToDouble());
-                      AppSettings.chatFontSize = v;
-                    },
-                  ),
-                  Row(
-                    children: [
-                      const Expanded(
-                        child: Text('消息时间戳',
-                            style: TextStyle(fontSize: 13)),
-                      ),
-                      Switch(
-                        value: _showTimestamps,
-                        onChanged: (v) {
-                          setState(() => _showTimestamps = v);
-                          AppSettings.showTimestamps = v;
-                        },
-                      ),
-                    ],
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading:
-                        Icon(Icons.quickreply_outlined, color: scheme.primary),
-                    title: const Text('快捷回复管理'),
-                    subtitle: Text(
-                        '${AppSettings.quickReplies.length} 条 · 输入框上方快捷发送'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute(
-                            builder: (_) => const QuickRepliesScreen()),
-                      );
-                      // 返回后刷新条数（页面内自行持久化）
-                      if (mounted) setState(() {});
-                    },
                   ),
                 ],
               ),
             ),
+          ],
+
+          // -------------------------------------------------- 聊天 --
+          const SectionHeader('聊天'),
+          TextField(
+            controller: _nameCtrl,
+            decoration: const InputDecoration(
+              labelText: '你在对话中的称呼',
+              hintText: '你',
+              helperText: '对话里对方怎么称呼你',
+            ),
+            onChanged: (v) => AppSettings.userName = v.isEmpty ? '你' : v,
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            '聊天气泡字号',
+            style: TextStyle(
+              fontSize: AppType.caption,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          Slider(
+            value: _chatFontSize.round().clamp(13, 20).toDouble(),
+            min: 13,
+            max: 20,
+            divisions: 7,
+            label: '${_chatFontSize.round()}sp',
+            onChanged: (v) {
+              setState(() => _chatFontSize = v.roundToDouble());
+              AppSettings.chatFontSize = v;
+            },
+          ),
+          const _SubLine('字号效果预览'),
+          Text(
+            '这句话用当前字号显示，拖动滑条试试',
+            style: TextStyle(fontSize: _chatFontSize, height: 1.5),
           ),
           const SizedBox(height: 8),
-          _groupHeader('外观'),
-          Card(
+          const Divider(height: 1),
+          _switchRow(
+            title: '消息时间戳',
+            value: _showTimestamps,
+            onChanged: (v) {
+              setState(() => _showTimestamps = v);
+              AppSettings.showTimestamps = v;
+            },
+          ),
+          const Divider(height: 1),
+          _switchRow(
+            title: '显示快捷回复',
+            subtitle: '在输入框上方显示一排点按即发的短语',
+            value: _showQuickReplies,
+            onChanged: (v) {
+              setState(() => _showQuickReplies = v);
+              AppSettings.showQuickReplies = v;
+            },
+          ),
+          const Divider(height: 1),
+          _actionRow(
+            title: '快捷回复管理',
+            subtitle: '${AppSettings.quickReplies.length} 条 · 常驻入口，可先配置再打开上面的开关',
+            trailing: Icon(
+              Icons.chevron_right_outlined,
+              size: 22,
+              color: scheme.onSurfaceVariant,
+            ),
+            onTap: () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const QuickRepliesScreen()),
+              );
+              // 返回后刷新条数（页面内自行持久化）
+              if (mounted) setState(() {});
+            },
+          ),
+
+          // -------------------------------------------------- 外观 --
+          const SectionHeader('外观'),
+          Row(
+            children: [
+              for (final (i, mode, label) in const [
+                (0, 'system', '跟随系统'),
+                (1, 'light', '浅色'),
+                (2, 'dark', '深色'),
+              ]) ...[
+                if (i > 0) const SizedBox(width: 8),
+                Expanded(child: _modePreview(mode, label)),
+              ],
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Divider(height: 1),
+          const SectionHeader('主题色'),
+          GridView.count(
+            crossAxisCount: 4,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 6,
+            crossAxisSpacing: 6,
+            childAspectRatio: 1.6,
+            children: [
+              for (final value in _themeColors) _buildColorSwatch(value),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const SectionHeader('自定义颜色'),
+          TextField(
+            controller: _hexCtrl,
+            keyboardType: TextInputType.text,
+            autocorrect: false,
+            decoration: InputDecoration(
+              hintText: '#2196F3',
+              helperText: '填入合法 HEX 立即应用',
+              helperMaxLines: 2,
+              errorText: _hexError,
+              isDense: true,
+            ),
+            onChanged: _onHexChanged,
+          ),
+
+          // -------------------------------------------------- 帮助 --
+          const SectionHeader('帮助'),
+          _actionRow(
+            title: '重看新手引导',
+            trailing: Icon(
+              Icons.chevron_right_outlined,
+              size: 22,
+              color: scheme.onSurfaceVariant,
+            ),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const OnboardingScreen()),
+              );
+            },
+          ),
+          const Divider(height: 1),
+          _actionRow(
+            title: '关于',
+            trailing: Icon(
+              Icons.chevron_right_outlined,
+              size: 22,
+              color: scheme.onSurfaceVariant,
+            ),
+            onTap: _showAbout,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 滑条上方标签行：名称 + 右侧数值（accent）。
+  Widget _sliderLabel(String label, String value) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: AppType.caption,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: AppType.caption,
+            fontWeight: FontWeight.w600,
+            color: scheme.primary,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 开关行：标题（+ 副说明）直接铺在背景上，右侧 M3 Switch。
+  Widget _switchRow({
+    required String title,
+    String? subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Expanded(
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 主题模式（原「通用」分组，按 spec 挪入外观）
-                RadioGroup<String>(
-                  groupValue: AppSettings.themeMode,
-                  onChanged: (v) {
-                    if (v != null) _setTheme(v);
-                  },
-                  child: Column(
-                    children: [
-                      for (final (value, label) in const [
-                        ('system', '跟随系统'),
-                        ('light', '浅色'),
-                        ('dark', '深色'),
-                      ])
-                        RadioListTile<String>(
-                          value: value,
-                          title: Text(label),
-                        ),
-                    ],
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: AppType.body,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
-                const Divider(height: 1),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '主题色',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: scheme.primary,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      GridView.count(
-                        crossAxisCount: 4,
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        mainAxisSpacing: 6,
-                        crossAxisSpacing: 6,
-                        children: [
-                          for (final value in _themeColors)
-                            _buildColorDot(value),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      Text(
-                        '自定义颜色',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: scheme.primary,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: _hexCtrl,
-                        keyboardType: TextInputType.text,
-                        autocorrect: false,
-                        decoration: InputDecoration(
-                          hintText: '#2196F3',
-                          helperText: '填入合法 HEX 立即应用',
-                          helperMaxLines: 2,
-                          errorText: _hexError,
-                          isDense: true,
-                        ),
-                        onChanged: _onHexChanged,
-                      ),
-                    ],
+                if (subtitle != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: AppType.caption,
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
-          const SizedBox(height: 8),
-          _groupHeader('帮助'),
-          Card(
-            child: Column(
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.school_outlined),
-                  title: const Text('重看新手引导'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                          builder: (_) => const OnboardingScreen()),
-                    );
-                  },
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.info_outline),
-                  title: const Text('关于'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: _showAbout,
-                ),
-              ],
+          Switch(value: value, onChanged: onChanged),
+        ],
+      ),
+    );
+  }
+
+  /// 行为行（点按执行动作）：标题 + 副说明，无装饰图标。
+  Widget _actionRow({
+    required String title,
+    String? subtitle,
+    Widget? trailing,
+    required VoidCallback onTap,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: AppType.body,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: AppType.caption,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (trailing != null) ...[
+              const SizedBox(width: 8),
+              trailing,
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 主题模式迷你预览卡：纯色块 + 两条假文字线；
+  /// 点选态 = 1.5px accent 描边。
+  Widget _modePreview(String mode, String label) {
+    final scheme = Theme.of(context).colorScheme;
+    final selected = AppSettings.themeMode == mode;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _setTheme(mode),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            height: 56,
+            padding: EdgeInsets.all(selected ? 1.5 : 1),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: selected ? scheme.primary : scheme.outline,
+                width: selected ? 1.5 : 1,
+              ),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: _modeThumb(mode),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: AppType.caption,
+              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+              color: selected
+                  ? scheme.onSurface
+                  : scheme.onSurfaceVariant,
             ),
           ),
         ],
@@ -663,52 +748,83 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// 12 色圆点：选中态描边 + 对比色勾。
-  Widget _buildColorDot(int value) {
-    final scheme = Theme.of(context).colorScheme;
-    final selected = _seed == value;
-    final checkColor = ThemeData.estimateBrightnessForColor(Color(value)) ==
-            Brightness.light
-        ? Colors.black
-        : Colors.white;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => _applySeed(value),
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.all(3),
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: selected ? scheme.primary : scheme.outlineVariant,
-              width: selected ? 2.5 : 1,
-            ),
-          ),
-          child: Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(color: Color(value), shape: BoxShape.circle),
-            child: selected
-                ? Icon(Icons.check, size: 18, color: checkColor)
-                : null,
+  Widget _modeThumb(String mode) {
+    switch (mode) {
+      case 'light':
+        return _thumbBlock(kLightBackground, kLightInk);
+      case 'dark':
+        return _thumbBlock(kDarkBackground, kDarkInk);
+      default:
+        // 跟随系统 = 左浅右深分屏，各一条假文字线
+        return Row(
+          children: [
+            Expanded(child: _thumbBlock(kLightBackground, kLightInk, lines: 1)),
+            Expanded(child: _thumbBlock(kDarkBackground, kDarkInk, lines: 1)),
+          ],
+        );
+    }
+  }
+
+  /// 迷你缩略图：纯色块 + 1–2 条假文字线。
+  Widget _thumbBlock(Color bg, Color ink, {int lines = 2}) {
+    return Container(
+      color: bg,
+      child: Align(
+        alignment: Alignment.topLeft,
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (var i = 0; i < lines; i++) ...[
+                Container(
+                  width: lines == 1 ? 16 : (i == 0 ? 36 : 22),
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: ink.withValues(alpha: 0.25),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                if (i == 0 && lines > 1) const SizedBox(height: 5),
+              ],
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _groupHeader(String text) => Padding(
-        padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
-        child: Text(
-          text,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: Theme.of(context).colorScheme.primary,
-            letterSpacing: 0.5,
+  /// 主题色：24dp 圆角方块 + 选中 accent 描边。
+  Widget _buildColorSwatch(int value) {
+    final scheme = Theme.of(context).colorScheme;
+    final selected = _seed == value;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _applySeed(value),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.all(2),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected ? scheme.primary : Colors.transparent,
+              width: 2,
+            ),
+          ),
+          child: Container(
+            width: 24,
+            height: 24,
+            decoration: BoxDecoration(
+              color: Color(value),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: scheme.outline),
+            ),
           ),
         ),
-      );
+      ),
+    );
+  }
 
   void _showAbout() {
     showDialog<void>(
@@ -719,7 +835,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('版本 v0.4.0'),
+            Text('版本 v0.5.0'),
             SizedBox(height: 10),
             Text('简洁明了的 AI 角色扮演聊天 App，兼容 SillyTavern 角色卡与世界书。'),
           ],
@@ -730,6 +846,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: const Text('好的'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 次要说明行（13sp 次要色）。
+class _SubLine extends StatelessWidget {
+  final String text;
+
+  const _SubLine(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: TextStyle(
+        fontSize: AppType.caption,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
       ),
     );
   }
@@ -847,37 +981,57 @@ class _QuickRepliesScreenState extends State<QuickRepliesScreen> {
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 32),
                 child: Text(
-                  '还没有快捷回复\n新增后会显示在聊天输入框上方；\n全部删除则不再显示那排',
+                  '还没有快捷回复\n新增后可在设置里打开「显示快捷回复」\n让它们出现在聊天输入框上方',
                   textAlign: TextAlign.center,
-                  style:
-                      TextStyle(fontSize: 14, height: 1.6, color: scheme.onSurfaceVariant),
+                  style: TextStyle(
+                      fontSize: 14,
+                      height: 1.6,
+                      color: scheme.onSurfaceVariant),
                 ),
               ),
             )
           : ListView.separated(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 88),
               itemCount: _items.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 8),
-              itemBuilder: (context, i) => Card(
-                margin: EdgeInsets.zero,
-                child: ListTile(
-                  title: Text(
-                    _items[i],
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
+              separatorBuilder: (_, _) => const Divider(height: 1),
+              itemBuilder: (context, i) => InkWell(
+                onTap: () => _editItem(index: i),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Row(
                     children: [
-                      IconButton(
-                        icon: const Icon(Icons.edit_outlined),
-                        tooltip: '编辑',
-                        onPressed: () => _editItem(index: i),
+                      Expanded(
+                        child: Text(
+                          _items[i],
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              const TextStyle(fontSize: AppType.body),
+                        ),
                       ),
-                      IconButton(
-                        icon: Icon(Icons.delete_outline, color: scheme.error),
-                        tooltip: '删除',
-                        onPressed: () => _deleteItem(i),
+                      SizedBox(
+                        width: 40,
+                        height: 40,
+                        child: IconButton(
+                          padding: EdgeInsets.zero,
+                          icon: const Icon(Icons.edit_outlined, size: 22),
+                          tooltip: '编辑',
+                          onPressed: () => _editItem(index: i),
+                        ),
+                      ),
+                      SizedBox(
+                        width: 40,
+                        height: 40,
+                        child: IconButton(
+                          padding: EdgeInsets.zero,
+                          icon: Icon(
+                            Icons.delete_outline,
+                            size: 22,
+                            color: scheme.error,
+                          ),
+                          tooltip: '删除',
+                          onPressed: () => _deleteItem(i),
+                        ),
                       ),
                     ],
                   ),
@@ -886,7 +1040,7 @@ class _QuickRepliesScreenState extends State<QuickRepliesScreen> {
             ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _editItem(),
-        icon: const Icon(Icons.add),
+        icon: const Icon(Icons.add_outlined, size: 20),
         label: const Text('新增'),
       ),
     );

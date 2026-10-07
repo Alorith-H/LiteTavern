@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../services/api_client.dart';
 import '../services/card_parser.dart';
 import '../services/storage.dart';
+import '../widgets/common.dart';
 import 'home_screen.dart';
 
 /// 服务商预设（chips 一键填入）。
@@ -185,7 +186,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   width: selected ? 22 : 8,
                   height: 8,
                   decoration: BoxDecoration(
-                    color: selected ? scheme.primary : scheme.outlineVariant,
+                    color: selected
+                        ? scheme.primary
+                        : scheme.onSurfaceVariant.withValues(alpha: 0.4),
                     borderRadius: BorderRadius.circular(4),
                   ),
                 );
@@ -236,36 +239,29 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            width: 108,
-            height: 108,
-            decoration: BoxDecoration(
-              color: scheme.primaryContainer,
-              shape: BoxShape.circle,
-            ),
-            child: const Center(
-              child: Text('🍷', style: TextStyle(fontSize: 56)),
-            ),
-          ),
+          // 描边图标替代 emoji（禁 emoji、禁装饰圆底）
+          Icon(Icons.local_bar_outlined, size: 72, color: scheme.primary),
           const SizedBox(height: 28),
-          Text('LiteTavern',
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  )),
+          const Text(
+            'LiteTavern',
+            style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
+          ),
           const SizedBox(height: 12),
           Text(
             '导入角色卡，和喜欢的角色聊天',
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
+            style: TextStyle(
+              fontSize: AppType.body,
+              color: scheme.onSurfaceVariant,
+            ),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 8),
           Text(
             '兼容 SillyTavern 角色卡与世界书，三步开始你的故事',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
+            style: TextStyle(
+              fontSize: AppType.caption,
+              color: scheme.onSurfaceVariant,
+            ),
             textAlign: TextAlign.center,
           ),
         ],
@@ -281,14 +277,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('配置模型服务',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  )),
+          const Text(
+            '配置模型服务',
+            style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
+          ),
           const SizedBox(height: 8),
           Text(
-            '选择你用的服务商，填入 API Key。稍后也可以随时在设置里修改。',
-            style: TextStyle(color: scheme.onSurfaceVariant),
+            '选择你用的服务商，填好密钥。之后也可以随时在设置里修改。',
+            style: TextStyle(
+              fontSize: AppType.caption,
+              color: scheme.onSurfaceVariant,
+            ),
           ),
           const SizedBox(height: 16),
           Wrap(
@@ -314,6 +313,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             decoration: const InputDecoration(
               labelText: 'Base URL',
               hintText: 'https://api.deepseek.com/v1',
+              helperText: '服务商提供的接口地址',
             ),
             keyboardType: TextInputType.url,
             onChanged: (_) => _saveModelConfig(),
@@ -324,9 +324,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             obscureText: _obscureKey,
             decoration: InputDecoration(
               labelText: 'API Key',
+              helperText: '只保存在本机',
               suffixIcon: IconButton(
                 icon: Icon(
-                    _obscureKey ? Icons.visibility_off : Icons.visibility),
+                  _obscureKey
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                  size: 22,
+                ),
                 onPressed: () => setState(() => _obscureKey = !_obscureKey),
               ),
             ),
@@ -352,12 +357,21 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : Icon(_testOk ? Icons.check_circle : Icons.wifi_tethering),
+                    : Icon(
+                        _testOk
+                            ? Icons.check_circle_outlined
+                            : Icons.wifi_tethering_outlined,
+                        size: 20,
+                      ),
                 label: Text(_testing ? '测试中…' : '测试连接'),
               ),
               if (_testOk) ...[
                 const SizedBox(width: 10),
-                const Text('✅', style: TextStyle(fontSize: 20)),
+                Icon(
+                  Icons.check_circle_outlined,
+                  size: 20,
+                  color: scheme.primary,
+                ),
               ],
             ],
           ),
@@ -384,24 +398,27 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         children: [
           Icon(Icons.badge_outlined, size: 72, color: scheme.primary),
           const SizedBox(height: 24),
-          Text('导入角色',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  )),
+          const Text(
+            '导入角色',
+            style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
+          ),
           const SizedBox(height: 12),
           Text(
             '角色卡可以在 chub.ai、类脑 AI 等网站下载，格式 .png 或 .json',
-            style: TextStyle(color: scheme.onSurfaceVariant),
+            style: TextStyle(
+              fontSize: AppType.caption,
+              color: scheme.onSurfaceVariant,
+            ),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 28),
           FilledButton.icon(
             onPressed: _importCharacter,
-            icon: const Icon(Icons.file_upload_outlined),
+            icon: const Icon(Icons.file_upload_outlined, size: 20),
             label: const Text('从文件导入'),
           ),
           const SizedBox(height: 12),
-          TextButton(
+          OutlinedButton(
             onPressed: _finish,
             child: const Text('跳过，先进去看看'),
           ),

@@ -241,7 +241,6 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
               ),
               for (final (id, book) in available)
                 ListTile(
-                  leading: const Icon(Icons.menu_book_outlined),
                   title: Text(
                     book.name.trim().isEmpty ? '未命名世界书' : book.name.trim(),
                     maxLines: 1,
@@ -308,8 +307,10 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
                   const SizedBox(height: 8),
                   Text(
                     '头像来自角色卡原图（无原图时为名字首字）',
-                    style:
-                        TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                    style: TextStyle(
+                      fontSize: AppType.caption,
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
@@ -350,79 +351,69 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
               minLines: 2,
             ),
             if (card.alternateGreetings.isNotEmpty) ...[
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               _label('备选开场白（${card.alternateGreetings.length} 条，聊天中可轮换）'),
-              const SizedBox(height: 8),
-              for (var i = 0; i < card.alternateGreetings.length; i++)
-                Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '#${i + 1}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: scheme.primary,
-                          ),
+              const SizedBox(height: 4),
+              for (var i = 0; i < card.alternateGreetings.length; i++) ...[
+                if (i > 0) const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '#${i + 1}',
+                        style: TextStyle(
+                          fontSize: AppType.section,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.5,
+                          color: scheme.onSurfaceVariant,
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          card.alternateGreetings[i],
-                          style: const TextStyle(fontSize: 13, height: 1.5),
-                        ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        card.alternateGreetings[i],
+                        style: const TextStyle(
+                            fontSize: AppType.body, height: 1.5),
+                      ),
+                    ],
                   ),
                 ),
+              ],
             ],
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             _label('世界书'),
-            Card(
-              child: Column(
-                children: [
-                  if (bookCount > 0)
-                    ListTile(
-                      leading: const Icon(Icons.menu_book_outlined),
-                      title: Text('卡内嵌世界书 · $bookCount 条'),
-                      subtitle: const Text('随角色卡自动参与关键词匹配（只读）'),
-                      onTap: _embeddedBookTap,
-                    ),
-                  for (final row in mountedRows)
-                    ListTile(
-                      leading: const Icon(Icons.public),
-                      title: Text(
-                        row.$2,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      subtitle: Text('${row.$3} 条 · ${row.$4 ? '已启用' : '已禁用'}'),
-                      trailing: Switch(
-                        value: row.$4,
-                        onChanged: (v) => _toggleMount(row.$1, v),
-                      ),
-                      // 点行进入条目列表页（开关在右侧单独处理）
-                      onTap: () => _openEntries(row.$1),
-                    ),
-                  if (bookCount > 0 || mountedRows.isNotEmpty)
-                    const Divider(height: 1),
-                  ListTile(
-                    leading:
-                        Icon(Icons.add_circle_outline, color: scheme.primary),
-                    title: const Text('导入世界书'),
-                    subtitle: const Text('选择 JSON 文件，导入后自动挂载到此角色'),
-                    onTap: _importWorldBook,
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.add_link),
-                    title: const Text('从已导入中挂载'),
-                    onTap: _mountExisting,
-                  ),
-                ],
+            // 无框分节：行直接铺在背景上，细线分隔（不套卡片）
+            if (bookCount > 0)
+              _worldRow(
+                title: '卡内嵌世界书 · $bookCount 条',
+                subtitle: '随角色卡自动参与关键词匹配（只读）',
+                onTap: _embeddedBookTap,
               ),
+            for (var r = 0; r < mountedRows.length; r++) ...[
+              if (bookCount > 0 || r > 0) const Divider(height: 1),
+              _worldRow(
+                title: mountedRows[r].$2,
+                subtitle:
+                    '${mountedRows[r].$3} 条 · ${mountedRows[r].$4 ? '已启用' : '已禁用'}',
+                // 点行进入条目列表页（开关在右侧单独处理）
+                onTap: () => _openEntries(mountedRows[r].$1),
+                trailing: Switch(
+                  value: mountedRows[r].$4,
+                  onChanged: (v) => _toggleMount(mountedRows[r].$1, v),
+                ),
+              ),
+            ],
+            if (bookCount > 0 || mountedRows.isNotEmpty) const Divider(height: 1),
+            _worldRow(
+              title: '导入世界书',
+              subtitle: '选择 JSON 文件，导入后自动挂载到此角色',
+              onTap: _importWorldBook,
+            ),
+            const Divider(height: 1),
+            _worldRow(
+              title: '从已导入中挂载',
+              onTap: _mountExisting,
             ),
           ],
         ),
@@ -430,14 +421,65 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
     );
   }
 
+  /// 世界书分节里的一行：标题 + 副说明（+ 可选尾部控件），无装饰图标。
+  Widget _worldRow({
+    required String title,
+    String? subtitle,
+    Widget? trailing,
+    required VoidCallback onTap,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: AppType.body,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: AppType.caption,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            ?trailing,
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 编辑风小节标题（同全局 SectionHeader 样式，多带底部间距贴住字段）。
   Widget _label(String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.only(bottom: 4, top: 8),
         child: Text(
           text,
           style: TextStyle(
-            fontSize: 13,
+            fontSize: AppType.section,
             fontWeight: FontWeight.w600,
-            color: Theme.of(context).colorScheme.primary,
+            letterSpacing: 0.5,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
         ),
       );

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/world_info.dart';
 import '../services/storage.dart';
+import '../widgets/common.dart';
 
 /// 世界书条目列表页：查看 / 启停 / 编辑 / 新增 / 删除（用户导入的世界书）。
 /// 保存写回 `worldbooks/<id>.json`；content 非空校验在编辑弹窗内完成。
@@ -74,7 +75,7 @@ class _WorldBookEntriesScreenState extends State<WorldBookEntriesScreen> {
                   TextField(
                     controller: keysCtrl,
                     decoration: const InputDecoration(
-                      labelText: '主 keys（逗号分隔）',
+                      labelText: '触发关键词（逗号分隔）',
                       hintText: '城堡, 城镇, 酒馆',
                       isDense: true,
                     ),
@@ -85,7 +86,7 @@ class _WorldBookEntriesScreenState extends State<WorldBookEntriesScreen> {
                     minLines: 3,
                     maxLines: 8,
                     decoration: InputDecoration(
-                      labelText: 'content',
+                      labelText: '内容',
                       errorText: error,
                       isDense: true,
                     ),
@@ -95,7 +96,7 @@ class _WorldBookEntriesScreenState extends State<WorldBookEntriesScreen> {
                     controller: orderCtrl,
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
-                      labelText: 'insertion_order（数字）',
+                      labelText: '插入顺序（数字，小的在前）',
                       isDense: true,
                     ),
                   ),
@@ -233,7 +234,7 @@ class _WorldBookEntriesScreenState extends State<WorldBookEntriesScreen> {
         actions: [
           TextButton.icon(
             onPressed: () => _showEntryDialog(null),
-            icon: const Icon(Icons.add),
+            icon: const Icon(Icons.add_outlined, size: 20),
             label: const Text('新增条目'),
           ),
         ],
@@ -246,48 +247,67 @@ class _WorldBookEntriesScreenState extends State<WorldBookEntriesScreen> {
                     TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
               ),
             )
-          : ListView.builder(
+          : ListView.separated(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
               itemCount: _entries.length,
+              separatorBuilder: (_, _) => const Divider(height: 1),
               itemBuilder: (context, i) {
                 final e = _entries[i];
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    title: Text(
-                      _keysLabel(e),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.w600),
+                // 行直接铺在背景上（无卡片）：关键词 + 预览 + 启停开关
+                return InkWell(
+                  onTap: () => _showEntryDialog(e),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _keysLabel(e),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: AppType.body,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _preview(e),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: AppType.caption,
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch(
+                          value: !e.disabled,
+                          onChanged: (v) {
+                            setState(() => _entries[i] = WorldInfoEntry(
+                                  keys: e.keys,
+                                  keysSecondary: e.keysSecondary,
+                                  content: e.content,
+                                  insertionOrder: e.insertionOrder,
+                                  disabled: !v,
+                                  probability: e.probability,
+                                  useProbability: e.useProbability,
+                                  position: e.position,
+                                  depth: e.depth,
+                                  recursive: e.recursive,
+                                  scanDepth: e.scanDepth,
+                                  groupWeight: e.groupWeight,
+                                ));
+                            _persist();
+                          },
+                        ),
+                      ],
                     ),
-                    subtitle: Text(
-                      _preview(e),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    trailing: Switch(
-                      value: !e.disabled,
-                      onChanged: (v) {
-                        setState(() => _entries[i] = WorldInfoEntry(
-                              keys: e.keys,
-                              keysSecondary: e.keysSecondary,
-                              content: e.content,
-                              insertionOrder: e.insertionOrder,
-                              disabled: !v,
-                              probability: e.probability,
-                              useProbability: e.useProbability,
-                              position: e.position,
-                              depth: e.depth,
-                              recursive: e.recursive,
-                              scanDepth: e.scanDepth,
-                              groupWeight: e.groupWeight,
-                            ));
-                        _persist();
-                      },
-                    ),
-                    onTap: () => _showEntryDialog(e),
                   ),
                 );
               },

@@ -51,8 +51,21 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _generating = false;
   bool _followScroll = true;
 
-  /// 进入聊天的首次定位只执行一次（首帧布局完成 → jumpTo 底部）
+  /// 进入聊天的初始定位「收敛完成」标志（settle 方案，见 [_locateInitial]）
   bool _initialLocated = false;
+
+  /// 收敛进行中：期间冻结跟随判定（[_followScroll] 保持 false）
+  bool _locating = false;
+
+  /// 本轮收敛上一帧的 maxScrollExtent（相邻两帧差值 ≤1px 即收敛）
+  double? _prevMaxExtent;
+
+  /// 本轮收敛已进行的帧数（上限 10 帧防死循环）
+  int _locateFrame = 0;
+
+  /// 是否为 300ms 兜底二轮收敛（不再递归调度第三轮）
+  bool _isReSettle = false;
+  Timer? _reSettleTimer;
 
   /// 输入框是否为空（只通知发送按钮，打字不触发整页 setState）
   final _inputEmpty = ValueNotifier<bool>(true);
@@ -97,6 +110,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void dispose() {
     _flushTimer?.cancel();
+    _reSettleTimer?.cancel();
     _api.dispose();
     _scrollCtrl.removeListener(_onScroll);
     _scrollCtrl.dispose();
@@ -199,6 +213,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _onScroll() {
     if (_userDragging) return; // 拖动中不改变跟随状态
+    if (_locating) return; // 初始收敛期间跟随判定冻结（完成后再放开）
     if (!_scrollCtrl.hasClients) return;
     final pos = _scrollCtrl.position;
     _followScroll = pos.pixels >= pos.maxScrollExtent - _kFollowThreshold;
@@ -237,15 +252,74 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  /// 进入聊天：首帧布局完成后一次性 jumpTo(maxScrollExtent)，
-  /// 用标志保证只执行一次；不足一屏时 max=0 自然不动。
-  /// 只影响进入瞬间，不改动 v0.3 的流式跟随规则。
+  /// 进入聊天的初始定位 —— settle（逐帧收敛）方案。
+  ///
+  /// 根因：`ListView.builder` 的变高条目是懒加载的，数据 setState 后的
+  /// 第一帧 `maxScrollExtent` 只是估算值（底部条目还没实际构建），
+  /// 单次 `jumpTo(估算底)` ≠ 真实底，实测落在中间。
+  ///
+  /// 收敛流程：每帧 postFrame 内 `jumpTo(position.maxScrollExtent)`，
+  /// 记录上一帧的 max；相邻两帧 max 差值 ≤1px 视为收敛停止（上限 10 帧
+  /// 防死循环）。收敛期间 `_followScroll = false`（不触发流式跟随逻辑），
+  /// 完成后再置 true。期间用户一旦开始拖动（[_userDragging]）立即让位停止。
+  /// 收敛完成后 300ms 再跑一轮同样的收敛，兜底字体/异步布局的二次变化。
   void _locateInitial() {
+    if (_initialLocated || _locating) return;
+    _startSettle(reSettle: false);
+  }
+
+  /// 发起一轮收敛（[_reSettleTimer] 到点的兜底轮 [reSettle] 为 true）。
+  void _startSettle({required bool reSettle}) {
+    _isReSettle = reSettle;
+    _prevMaxExtent = null;
+    _locateFrame = 0;
+    _followScroll = false;
+    _locating = true;
+    _scheduleLocateFrame();
+  }
+
+  void _scheduleLocateFrame() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_initialLocated || !mounted || !_scrollCtrl.hasClients) return;
-      _initialLocated = true;
-      _scrollCtrl.jumpTo(_scrollCtrl.position.maxScrollExtent);
-      _followScroll = true;
+      if (!_locating) return;
+      if (!mounted || !_scrollCtrl.hasClients) {
+        _locating = false;
+        return;
+      }
+      if (_userDragging) {
+        // 用户已开始拖动：立即让位停止（本轮与兜底轮都作废）
+        _locating = false;
+        _initialLocated = true;
+        _reSettleTimer?.cancel();
+        _onScroll();
+        return;
+      }
+      final pos = _scrollCtrl.position;
+      final max = pos.maxScrollExtent;
+      if (pos.pixels != max) _scrollCtrl.jumpTo(max);
+      _locateFrame++;
+      final settled =
+          _prevMaxExtent != null && (max - _prevMaxExtent!).abs() <= 1;
+      _prevMaxExtent = max;
+      if (settled || _locateFrame >= 10) {
+        _finishLocate();
+      } else {
+        _scheduleLocateFrame();
+      }
+    });
+  }
+
+  void _finishLocate() {
+    _locating = false;
+    _initialLocated = true;
+    _followScroll = true;
+    if (_isReSettle) return; // 兜底轮结束，不再递归
+    // 兜底：300ms 后再执行一次同样的收敛（防字体/异步布局二次变化）。
+    // 用户已拖离底部（_followScroll=false）时不兜底，绝不与用户抢位置。
+    _reSettleTimer?.cancel();
+    _reSettleTimer = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted || !_scrollCtrl.hasClients) return;
+      if (_userDragging || !_followScroll) return;
+      _startSettle(reSettle: true);
     });
   }
 
@@ -296,7 +370,7 @@ class _ChatScreenState extends State<ChatScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('还未配置模型'),
-        content: const Text('先去设置里配置模型服务（Base URL 和 API Key），然后就能开聊了。'),
+        content: const Text('先去设置里配置模型服务，然后就能开聊了。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -788,7 +862,6 @@ class _ChatScreenState extends State<ChatScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.delete_sweep_outlined),
               title: const Text('清空对话'),
               onTap: () {
                 Navigator.pop(ctx);
@@ -796,7 +869,6 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.edit_outlined),
               title: const Text('编辑角色'),
               onTap: () {
                 Navigator.pop(ctx);
@@ -804,7 +876,6 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.bar_chart_outlined),
               title: const Text('聊天统计'),
               onTap: () {
                 Navigator.pop(ctx);
@@ -812,15 +883,13 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.article_outlined),
-              title: const Text('查看注入内容'),
+              title: const Text('查看发送内容'),
               onTap: () {
                 Navigator.pop(ctx);
                 _showInjection();
               },
             ),
             ListTile(
-              leading: const Icon(Icons.copy_all_outlined),
               title: const Text('复制对话'),
               onTap: () {
                 Navigator.pop(ctx);
@@ -828,7 +897,6 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.forward_outlined),
               title: const Text('继续生成'),
               enabled: canContinue,
               onTap: canContinue
@@ -839,8 +907,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   : null,
             ),
             ListTile(
-              leading: const Icon(Icons.refresh_outlined),
-              title: const Text('重新生成最后回复'),
+              title: const Text('重新生成'),
               enabled: canRegen,
               onTap: canRegen
                   ? () {
@@ -851,7 +918,6 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
             if (card.alternateGreetings.isNotEmpty)
               ListTile(
-                leading: const Icon(Icons.auto_awesome_outlined),
                 title: const Text('换开场白'),
                 onTap: () {
                   Navigator.pop(ctx);
@@ -926,12 +992,11 @@ class _ChatScreenState extends State<ChatScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _statLine('消息条数', '$total'),
-            _statLine('累计输入 tokens',
-                hasUsage ? '${formatTokenCount(inSum)}$mark' : '0'),
-            _statLine('累计输出 tokens',
-                hasUsage ? '${formatTokenCount(outSum)}$mark' : '0'),
             _statLine(
-                '当前发送上下文', '${formatTokenCount(contextTokens)} tokens（估算）'),
+                '输入消耗', hasUsage ? '${formatTokenCount(inSum)}$mark' : '0'),
+            _statLine(
+                '输出消耗', hasUsage ? '${formatTokenCount(outSum)}$mark' : '0'),
+            _statLine('发送前上下文', '${formatTokenCount(contextTokens)}（估算）'),
           ],
         ),
         actions: [
@@ -964,7 +1029,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  /// 查看注入内容：最近一次实际发送的 system 全文 + 激活条目数/来源。
+  /// 查看发送内容：最近一次实际发送的 system 全文 + 激活条目数/来源。
   void _showInjection() {
     final system = _lastSystemText;
     showDialog<void>(
@@ -972,7 +1037,7 @@ class _ChatScreenState extends State<ChatScreen> {
       builder: (ctx) {
         if (system == null) {
           return AlertDialog(
-            title: const Text('查看注入内容'),
+            title: const Text('查看发送内容'),
             content: const Text('还没有发送过消息'),
             actions: [
               FilledButton(
@@ -990,7 +1055,7 @@ class _ChatScreenState extends State<ChatScreen> {
             bySource.entries.map((e) => '${e.key} ${e.value} 条').join('、');
         final scheme = Theme.of(ctx).colorScheme;
         return AlertDialog(
-          title: const Text('查看注入内容'),
+          title: const Text('查看发送内容'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1015,8 +1080,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   width: double.maxFinite,
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: scheme.surfaceContainerHighest
-                        .withValues(alpha: 0.5),
+                    color: Theme.of(ctx).scaffoldBackgroundColor,
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: SingleChildScrollView(
@@ -1075,7 +1139,13 @@ class _ChatScreenState extends State<ChatScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        // surface 底、无阴影；返回描边箭头；标题 17sp w700（群聊/单聊通用）
         titleSpacing: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_outlined, size: 22),
+          tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+          onPressed: () => Navigator.of(context).maybePop(),
+        ),
         title: Row(
           children: [
             CharacterAvatar(id: card.id, name: card.name, size: 34),
@@ -1086,14 +1156,16 @@ class _ChatScreenState extends State<ChatScreen> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                    fontSize: 17, fontWeight: FontWeight.w600),
+                  fontSize: AppType.chatTitle,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ],
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.more_vert),
+            icon: const Icon(Icons.more_vert_outlined, size: 22),
             tooltip: '更多',
             onPressed: _showMenu,
           ),
@@ -1141,6 +1213,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final fontSize = AppSettings.chatFontSize;
     final showTs = AppSettings.showTimestamps;
 
+    // 气泡令牌：用户 = accent 10% 淡底、右侧、圆角 16（右下 4）；
+    // 角色 = surface 底 + hairline 描边、左侧、圆角 16（左下 4）；无阴影。
     Widget bubble = Container(
       margin: const EdgeInsets.symmetric(vertical: 5),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -1148,17 +1222,35 @@ class _ChatScreenState extends State<ChatScreen> {
         maxWidth: MediaQuery.of(context).size.width * 0.78,
       ),
       decoration: BoxDecoration(
-        color: isUser ? scheme.primaryContainer : scheme.surfaceContainerHigh,
+        color: isUser
+            ? scheme.primary.withValues(alpha: 0.10)
+            : scheme.surface,
+        border: isUser ? null : Border.all(color: scheme.outline),
         borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(14),
-          topRight: const Radius.circular(14),
-          bottomLeft: Radius.circular(isUser ? 14 : 4),
-          bottomRight: Radius.circular(isUser ? 4 : 14),
+          topLeft: const Radius.circular(16),
+          topRight: const Radius.circular(16),
+          bottomLeft: Radius.circular(isUser ? 16 : 4),
+          bottomRight: Radius.circular(isUser ? 4 : 16),
         ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 发言者名字标签位（群聊下一批启用，当前隐藏占位）
+          Visibility(
+            visible: false,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                isUser ? _macroUserName : (_card?.name ?? ''),
+                style: TextStyle(
+                  fontSize: AppType.section,
+                  fontWeight: FontWeight.w600,
+                  color: scheme.primary,
+                ),
+              ),
+            ),
+          ),
           if (thinking)
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -1184,9 +1276,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 p: TextStyle(
                   fontSize: fontSize,
                   height: 1.5,
-                  color: isUser
-                      ? scheme.onPrimaryContainer
-                      : scheme.onSurface,
+                  color: scheme.onSurface,
                 ),
               ),
             ),
@@ -1264,8 +1354,8 @@ class _ChatScreenState extends State<ChatScreen> {
               padding: const EdgeInsets.only(top: 2, left: 6, right: 6),
               child: Text(
                 infoLine,
-                style:
-                    TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+                style: TextStyle(
+                    fontSize: AppType.meta, color: scheme.onSurfaceVariant),
               ),
             ),
           if (isUser && showTs)
@@ -1274,8 +1364,8 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Text(
                 _formatTime(m.timestamp),
                 style: TextStyle(
-                  fontSize: 10,
-                  color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
+                  fontSize: AppType.meta,
+                  color: scheme.onSurfaceVariant,
                 ),
               ),
             ),
@@ -1305,7 +1395,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     shape: BoxShape.circle,
                     color: i == m.variantIndex
                         ? scheme.primary
-                        : scheme.outlineVariant.withValues(alpha: 0.7),
+                        : scheme.onSurfaceVariant.withValues(alpha: 0.4),
                   ),
                 ),
               ),
@@ -1338,7 +1428,6 @@ class _ChatScreenState extends State<ChatScreen> {
         child: ListBody(
           children: [
             ListTile(
-              leading: const Icon(Icons.copy_outlined),
               title: const Text('复制'),
               onTap: () async {
                 Navigator.pop(ctx);
@@ -1350,7 +1439,6 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.edit_outlined),
               title: const Text('编辑'),
               onTap: () {
                 Navigator.pop(ctx);
@@ -1359,7 +1447,6 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
             if (canRegen)
               ListTile(
-                leading: const Icon(Icons.refresh_outlined),
                 title: const Text('重新生成'),
                 onTap: () {
                   Navigator.pop(ctx);
@@ -1412,20 +1499,22 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildInputBar(ColorScheme scheme) {
     final replies = AppSettings.quickReplies;
+    // 显示快捷回复开关默认关；关闭时整排完全不渲染（不占位）
+    final showQuick = AppSettings.showQuickReplies && replies.isNotEmpty;
     return SafeArea(
       top: false,
       child: Container(
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
         decoration: BoxDecoration(
           color: scheme.surface,
-          border: Border(top: BorderSide(color: scheme.outlineVariant)),
+          border: Border(top: BorderSide(color: scheme.outline)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // 快捷回复：输入框上方一排横滑 chips，点按立即发送；
             // 管理页删到空则整排隐藏，生成中置灰禁用
-            if (replies.isNotEmpty) ...[
+            if (showQuick) ...[
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
@@ -1435,7 +1524,8 @@ class _ChatScreenState extends State<ChatScreen> {
                       ActionChip(
                         label: Text(
                           replies[i],
-                          style: const TextStyle(fontSize: 13),
+                          style:
+                              const TextStyle(fontSize: AppType.caption),
                         ),
                         onPressed:
                             _generating ? null : () => _sendText(replies[i]),
@@ -1467,31 +1557,44 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 ),
                 const SizedBox(width: 10),
+                // 发送钮：40dp 圆形 accent 实心；停止态红色；空输入弱化
                 ValueListenableBuilder<bool>(
                   valueListenable: _inputEmpty,
-                  builder: (context, empty, _) => _generating
-                      ? IconButton(
-                          onPressed: _stop,
-                          style: IconButton.styleFrom(
-                            backgroundColor: scheme.errorContainer,
-                            foregroundColor: scheme.onErrorContainer,
+                  builder: (context, empty, _) => SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: _generating
+                        ? IconButton(
+                            onPressed: _stop,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                                minWidth: 40, minHeight: 40),
+                            style: IconButton.styleFrom(
+                              backgroundColor: scheme.error,
+                              foregroundColor: scheme.onError,
+                              shape: const CircleBorder(),
+                            ),
+                            icon: const Icon(Icons.stop_outlined, size: 20),
+                            tooltip: '停止',
+                          )
+                        : IconButton(
+                            onPressed: _send,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                                minWidth: 40, minHeight: 40),
+                            style: IconButton.styleFrom(
+                              backgroundColor: empty
+                                  ? scheme.onSurface.withValues(alpha: 0.06)
+                                  : scheme.primary,
+                              foregroundColor: empty
+                                  ? scheme.onSurfaceVariant
+                                  : scheme.onPrimary,
+                              shape: const CircleBorder(),
+                            ),
+                            icon: const Icon(Icons.send_outlined, size: 20),
+                            tooltip: '发送',
                           ),
-                          icon: const Icon(Icons.stop),
-                          tooltip: '停止',
-                        )
-                      : IconButton(
-                          onPressed: _send,
-                          style: IconButton.styleFrom(
-                            backgroundColor: empty
-                                ? scheme.surfaceContainerHighest
-                                : scheme.primary,
-                            foregroundColor: empty
-                                ? scheme.onSurfaceVariant
-                                : scheme.onPrimary,
-                          ),
-                          icon: const Icon(Icons.send),
-                          tooltip: '发送',
-                        ),
+                  ),
                 ),
               ],
             ),

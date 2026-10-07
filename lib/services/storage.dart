@@ -297,8 +297,9 @@ class AppSettings {
   static String get themeMode => _sp.getString(_kTheme) ?? 'system';
   static set themeMode(String v) => _sp.setString(_kTheme, v);
 
-  /// 主题色 seed（0xFFRRGGBB），默认紫
-  static int get themeSeed => _sp.getInt(_kThemeSeed) ?? 0xFF8E4585;
+  /// 主题色 seed（0xFFRRGGBB）：从未设置过时用赤陶酒红默认值，
+  /// 用户已选过的颜色保留在 prefs 不受影响。
+  static int get themeSeed => _sp.getInt(_kThemeSeed) ?? 0xFF9C4632;
   static set themeSeed(int v) => _sp.setInt(_kThemeSeed, v);
   static const _kThemeSeed = 'theme_seed';
 
@@ -308,6 +309,12 @@ class AppSettings {
       _sp.getStringList(_kQuickReplies) ?? const ['继续', '换个说法'];
   static set quickReplies(List<String> v) => _sp.setStringList(_kQuickReplies, v);
   static const _kQuickReplies = 'quick_replies';
+
+  /// 聊天页是否显示快捷回复排，默认关闭（无记录 = 关）。
+  /// 关闭时输入框上方完全不渲染 chips 行；已存的快捷回复数据不动。
+  static bool get showQuickReplies => _sp.getBool(_kShowQuickReplies) ?? false;
+  static set showQuickReplies(bool v) => _sp.setBool(_kShowQuickReplies, v);
+  static const _kShowQuickReplies = 'show_quick_replies';
 
   static bool get onboardingDone => _sp.getBool(_kOnboarding) ?? false;
   static set onboardingDone(bool v) => _sp.setBool(_kOnboarding, v);

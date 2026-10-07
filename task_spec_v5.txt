@@ -1,0 +1,95 @@
+# 轻酒馆 v0.5.0 第一批 — 滚动修复 + 克制编辑风重设计 + 快捷回复开关
+（增量修改。后续批次还会加功能，本轮建立的设计系统它们要沿用，务必落地彻底）
+
+## 1. 【Bug修复】进入对话必须停在最底部（v0.4 修复无效，根因已定位）
+
+**根因（已确认，照此修）**：`chat_screen.dart` 的 `_locateInitial()` 在数据 setState 后的第一个
+postFrame 里 `jumpTo(maxScrollExtent)` —— 但 `ListView.builder` 的变高条目是懒加载的，
+**首帧的 maxScrollExtent 是估算值**（还没实际构建底部条目），跳到估算底 ≠ 真实底，实测落在中间。
+
+**修复方案（settle 定位）**：
+- `_locateInitial` 改为逐帧收敛：每帧 postFrame 内 `jumpTo(position.maxScrollExtent)`，
+  记录上一帧的 max；连续 2 帧 max 差值 ≤1px 视为收敛停止；上限 10 帧（防死循环）
+- 收敛完成前置 `_followScroll = false`（避免中途触发流式跟随逻辑），完成后再置 true
+- 兜底：收敛后 300ms 再执行一次同样的收敛（防字体/异步布局二次变化）
+- `_initialLocated` 标志语义改为「收敛完成」；期间若用户已开始拖动（`_userDragging`）立即让位停止
+- 验收：打开一条较长的历史对话，初始位置必须是最后一条消息贴底
+
+## 2. 【核心】UI 去 AI 味 —— 克制编辑风（全页面改造）
+
+用户选定方向：**克制编辑风：排版驱动、去卡片堆砌、细线分隔、统一描边图标、有性格的默认色**。
+
+### 设计令牌（严格执行，不许自行发挥）
+- **色板**
+  - 浅色：背景 `#FAF9F6`（暖纸白）、surface `#FFFFFF`、正文 ink `#1C1B19`、次要文字 `#6E6A63`、
+    分隔线 = ink @ 8% 透明度
+  - 深色：背景 `#151412`、surface `#1E1C1A`、正文 `#EDEAE4`、次要 `#9A958C`、分隔线 = 白 @ 10%
+  - **默认主题色换掉紫色**：seed `0xFF9C4632`（赤陶酒红，编辑风且呼应酒馆）；
+    12 色选择器和自定义 HEX 保留不动（用户可改回）
+  - Material 主题用 `ColorScheme.fromSeed(seedColor, brightness)`，但**必须覆写** background/
+    surface/outline 为上面的精确值，不能放任 M3 默认薰衣草派生色
+- **排版**（用系统默认中文字体，靠字重字号做层次）
+  - 页面标题 20sp w700；分组标题 **12sp w600、字距 +0.5、次要色**（编辑风小节标）；正文 15sp；
+    说明/次要 13sp；消息 meta 11sp
+- **图标**：全部 `Icons.xxx_outline` / `xxx_outlined` 描边族，尺寸统一 20-22，**禁止混用实心图标、
+  禁止 emoji 出现在任何 UI**
+- **圆角**：输入框/面板 10、气泡 16（贴边角 4）、chip 胶囊；全局只有这三档
+- **禁令**（这是去 AI 味的关键，违者重做）：
+  - ❌ 卡片堆砌：设置页/列表**不再用 Card 包组**，改为「小节标题 + 直接铺在背景上的行 + 细线分隔」
+  - ❌ 任何 elevation 阴影、彩色渐变条、渐变描边
+  - ❌ emoji 图标、魔法阵/皇冠类装饰、emoji 空状态
+  - ❌ 每行必带左侧圆形图标（删掉纯装饰性 leading icon，行内信息靠排版层次）
+
+### 各页面改造要点
+**设置页**：分组卡片 → 无框分节（section header + 行 + hairline divider，divider 左缩进对齐文字）。
+控件保留 M3 switch/slider（用新主题着色）。主题模式从文字单选改为 **3 个迷你预览卡**（浅/深/系统
+各画一个 mini 缩略：纯色块+两条假文字线，点选态 = 1.5sp accent 描边）。主题色圆点改 **24dp 圆角方块**
++ 选中 accent 描边。字号滑条旁的"15sp"数字删掉，换成**实时样例句**（"字号效果预览"用当前字号渲染）。
+- 文案去技术腔（全部过一遍）：
+  - `我的名字（{{user}} 替换值）` → `你在对话中的称呼`
+  - `temperature` → `随机度`（副说明：越高回答越发散）；`top_p` → `采样范围`；`max_tokens` → `单次回复长度上限`（0 = 不限）
+  - `上下文保留条数` → `记忆长度`（副说明：每次发送保留最近多少条消息）
+  - `base URL` 保留但加副说明"服务商提供的接口地址"；`API Key` 副说明"只保存在本机"
+  - 其余同类技术腔照此风格改
+
+**首页**：角色行 = 圆角方形头像（56dp、圆角 12）+ 右侧名字（15sp w600）+ 一行简介（13sp 次要色、
+ellipsis）+ 行间 hairline divider（左缩进 84 对齐文字）。搜索框改**下划线式**（无边框盒）。
+空状态：大号 outlined 图标（ink 25% 透明）+ 一行 14sp 次要文案，无 emoji。FAB 保留但用 tonal
+（accent 10% 底 + accent 图标，无阴影）。
+
+**聊天页**：
+- 气泡：用户 = accent 10% 淡底、右侧、圆角 16（右下 4）；角色 = surface 底 + hairline 描边、
+  左侧、圆角 16（左下 4）；**无阴影**
+- meta 行（时间/token）11sp 次要色；圆点指示器保持
+- 输入栏：顶部分隔改 hairline，栏底 surface；发送钮 40dp 圆形 accent 实心，停止态红色
+- 顶栏：surface 底、无阴影、返回 outlined、标题 17sp w700（群聊/单聊通用，下一批要用）
+- 菜单项文字照文案规范清理
+
+**引导页 / 编辑页 / 世界书列表**：同一令牌系统重刷（纸白底、ink 排版、赤陶 accent、hairline、
+无卡片）；引导页大标题 28sp w700，按钮改 filled + outlined 两态
+
+**主题实现**：`main.dart` 集中 `buildTheme(brightness, seed)`（缓存），覆写 background/surface/
+outline/scaffoldBackground；亮暗默认值即新色板（**用户已有主题色选择存在 prefs → 保留用户选择，
+只把"从未设置过的默认 seed"换成 0xFF9C4632**）
+
+## 3. 快捷回复开关（默认关闭）
+- 设置 → 聊天组新增「显示快捷回复」Switch，**默认 false**（SharedPreferences 无记录时 = 关）
+- 关闭时：聊天页**完全不渲染** chips 行（不是置灰，是不占位）
+- 「快捷回复管理」入口保留在设置（常驻，方便开启前先配置）
+- 已存的快捷回复数据不动
+
+## 禁止
+- 不改任何业务逻辑（发送/流式/变体/世界书/统计/下载…一律不碰，只动样式与文案）
+- 新依赖 0 个；不改 gradle；不动图标素材
+- 不做第二批内容（群聊等）——但顶栏/气泡结构要为群聊留好样式基础（名字标签位可用 visibility 隐藏）
+
+## 环境
+- `export PATH="/c/Users/28351/Desktop/Project/flutter/bin:$PATH"`
+- 构建前 `export FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn`
+- `version: 0.5.0+1`
+
+## 完成标准
+1. `flutter analyze` 0 issues
+2. `flutter test` 现有 14 条全过（可增）
+3. `flutter build apk --release` 成功（签名已配好，直接 build）
+4. 输出：改动清单 + 滚动修复实现说明 + 设计令牌落地核对表（每页对照禁令自查）

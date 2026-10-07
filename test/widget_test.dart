@@ -330,4 +330,30 @@ void main() {
     AppSettings.quickReplies = [];
     expect(AppSettings.quickReplies, isEmpty);
   });
+
+  test('显示快捷回复开关默认关闭，且不影响已存数据', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.setMockInitialValues({});
+    await AppSettings.init();
+    // 无记录 = 关
+    expect(AppSettings.showQuickReplies, isFalse);
+    AppSettings.showQuickReplies = true;
+    expect(AppSettings.showQuickReplies, isTrue);
+    // 开关与数据解耦：开开关不改写快捷回复列表
+    expect(AppSettings.quickReplies, ['继续', '换个说法']);
+    AppSettings.showQuickReplies = false;
+    expect(AppSettings.showQuickReplies, isFalse);
+  });
+
+  test('从未设置过主题色时默认赤陶酒红，已有选择保留', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.setMockInitialValues({});
+    await AppSettings.init();
+    expect(AppSettings.themeSeed, 0xFF9C4632);
+    AppSettings.themeSeed = 0xFF2196F3;
+    expect(AppSettings.themeSeed, 0xFF2196F3);
+    // 重新读取仍保留用户选择
+    await AppSettings.init();
+    expect(AppSettings.themeSeed, 0xFF2196F3);
+  });
 }
