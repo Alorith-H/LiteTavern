@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../models/chat_group.dart';
 import '../models/character_card.dart';
 import '../services/card_downloader.dart';
 import '../services/card_parser.dart';
@@ -11,10 +12,11 @@ import '../services/storage.dart';
 import '../widgets/common.dart';
 import 'chat_screen.dart';
 import 'character_edit_screen.dart';
+import 'create_group_screen.dart';
 import 'onboarding_screen.dart';
 import 'settings_screen.dart';
 
-/// 首页：角色列表。
+/// 首页：单人角色列表 / 群聊列表（顶部分段切换）。
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -24,8 +26,12 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   List<CharacterCard> _characters = [];
+  List<ChatGroup> _groups = [];
   bool _loading = true;
   String _query = '';
+
+  /// 0 = 单人，1 = 群聊（仅会话内记忆，重启回单人）
+  int _tab = 0;
 
   @override
   void initState() {
@@ -35,12 +41,22 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _reload() async {
     final list = await Storage.loadCharacters();
+    final groups = await Storage.loadGroups();
     if (!mounted) return;
     setState(() {
       _characters = list;
+      _groups = groups;
       _loading = false;
       _previewCache.clear(); // 角色可能被编辑，简介缓存整体失效
     });
+  }
+
+  /// 成员名字（角色被删除后回退 null，行里只显示现存成员）。
+  String? _memberName(String id) {
+    for (final c in _characters) {
+      if (c.id == id) return c.name;
+    }
+    return null;
   }
 
   List<CharacterCard> get _visibleCharacters {
@@ -155,6 +171,46 @@ class _HomeScreenState extends State<HomeScreen> {
     await _reload();
   }
 
+  Future<void> _openGroupChat(String groupId) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => ChatScreen.group(groupId: groupId)),
+    );
+    // 从聊天返回后刷新（可能被删除或成员变动）
+    _reload();
+  }
+
+  Future<void> _deleteGroup(ChatGroup group) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除群聊'),
+        content: Text('确定删除「${group.name}」吗？聊天记录也会一并删除，此操作不可恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await Storage.deleteGroup(group.id);
+    await _reload();
+  }
+
+  Future<void> _createGroup() async {
+    final id = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const CreateGroupScreen()),
+    );
+    if (id == null || !mounted) return;
+    // 创建成功直接进入新群聊
+    _openGroupChat(id);
+  }
+
   void _showActions(CharacterCard card) {
     showModalBottomSheet<void>(
       context: context,
@@ -256,12 +312,16 @@ class _HomeScreenState extends State<HomeScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
+                // 顶部分段切换：单人 | 群聊（胶囊、hairline、选中 accent 淡底）
+                _buildSegmented(scheme),
                 // 搜索框：下划线式（无边框盒）
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
                   child: TextField(
                     decoration: InputDecoration(
-                      hintText: '搜索角色（名字 / 简介）',
+                      hintText: _tab == 0
+                          ? '搜索角色（名字 / 简介）'
+                          : '搜索群聊（名字 / 成员）',
                       hintStyle: TextStyle(
                         fontSize: AppType.caption,
                         color: scheme.onSurfaceVariant,
@@ -295,15 +355,206 @@ class _HomeScreenState extends State<HomeScreen> {
                 Expanded(child: _buildList(scheme)),
               ],
             ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showImportSheet,
-        icon: const Icon(Icons.file_upload_outlined, size: 20),
-        label: const Text('导入'),
+      floatingActionButton: _tab == 0
+          ? FloatingActionButton.extended(
+              onPressed: _showImportSheet,
+              icon: const Icon(Icons.file_upload_outlined, size: 20),
+              label: const Text('导入'),
+            )
+          : FloatingActionButton.extended(
+              onPressed: _createGroup,
+              icon: const Icon(Icons.group_add_outlined, size: 20),
+              label: const Text('新建群聊'),
+            ),
+    );
+  }
+
+  /// 分段切换「单人 | 群聊」：胶囊描边 + 选中段 accent 10% 淡底。
+  Widget _buildSegmented(ColorScheme scheme) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: Container(
+        height: 40,
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: scheme.outline),
+        ),
+        child: Row(
+          children: [
+            Expanded(child: _segment(scheme, 0, '单人')),
+            const SizedBox(width: 6),
+            Expanded(child: _segment(scheme, 1, '群聊')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _segment(ColorScheme scheme, int index, String label) {
+    final selected = _tab == index;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        if (_tab == index) return;
+        setState(() => _tab = index);
+      },
+      child: Container(
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected
+              ? scheme.primary.withValues(alpha: 0.10)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(17),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: AppType.caption,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+            color: selected ? scheme.primary : scheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<ChatGroup> get _visibleGroups {
+    final q = _query.trim().toLowerCase();
+    if (q.isEmpty) return _groups;
+    return _groups.where((g) {
+      if (g.name.toLowerCase().contains(q)) return true;
+      for (final id in g.memberIds) {
+        final n = _memberName(id);
+        if (n != null && n.toLowerCase().contains(q)) return true;
+      }
+      return false;
+    }).toList();
+  }
+
+  /// 群聊列表行：群名 w600 + 成员数/成员名 13sp 次要（与角色行同构），
+  /// 长按删除（确认框，级联删会话）。
+  Widget _buildGroupRow(ChatGroup g, ColorScheme scheme) {
+    final names = <String>[];
+    for (final id in g.memberIds) {
+      final n = _memberName(id);
+      if (n != null) names.add(n);
+    }
+    final subtitle = names.isEmpty
+        ? '${g.memberIds.length} 位成员'
+        : '${g.memberIds.length} 位成员 · ${names.join('、')}';
+    return InkWell(
+      onTap: () => _openGroupChat(g.id),
+      onLongPress: () => _deleteGroup(g),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+        child: Row(
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: scheme.primary.withValues(alpha: 0.08),
+                border: Border.all(color: scheme.outline),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                Icons.groups_outlined,
+                size: 26,
+                color: scheme.primary,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    g.name,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: AppType.body,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: scheme.onSurfaceVariant,
+                      fontSize: AppType.caption,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGroupList(ColorScheme scheme) {
+    if (_groups.isEmpty) return _buildGroupEmpty(scheme);
+    final list = _visibleGroups;
+    if (list.isEmpty) {
+      return Center(
+        child: Text(
+          '没有匹配的群聊',
+          style: TextStyle(fontSize: 15, color: scheme.onSurfaceVariant),
+        ),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _reload,
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(0, 4, 0, 88),
+        itemCount: list.length,
+        separatorBuilder: (_, _) =>
+            const Divider(height: 1, indent: 84, endIndent: 16),
+        itemBuilder: (context, i) => _buildGroupRow(list[i], scheme),
+      ),
+    );
+  }
+
+  Widget _buildGroupEmpty(ColorScheme scheme) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.groups_outlined,
+              size: 88,
+              color: scheme.onSurface.withValues(alpha: 0.25),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              '还没有群聊，选两个以上角色开一桌',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: _createGroup,
+              icon: const Icon(Icons.group_add_outlined, size: 20),
+              label: const Text('新建群聊'),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildList(ColorScheme scheme) {
+    if (_tab == 1) return _buildGroupList(scheme);
     if (_characters.isEmpty) return _buildEmpty(scheme);
     final list = _visibleCharacters;
     if (list.isEmpty) {

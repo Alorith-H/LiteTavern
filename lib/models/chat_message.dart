@@ -63,6 +63,13 @@ class ChatMessage {
   /// 与 variants 平行的每变体 token 消耗；旧数据为空 → 回退消息级字段
   final List<VariantUsage> variantUsage;
 
+  /// 群聊发言者角色 id（v0.6.0）。单聊不填 = null（兼容旧数据）；
+  /// 群聊 assistant 消息必填，user 消息 null 表示"我"。
+  final String? senderId;
+
+  /// 群聊发言者名字（v0.6.0），仅群聊 assistant 消息有值。
+  final String? senderName;
+
   const ChatMessage({
     required this.role,
     required this.content,
@@ -74,6 +81,8 @@ class ChatMessage {
     this.variants = const [],
     this.variantIndex = 0,
     this.variantUsage = const [],
+    this.senderId,
+    this.senderName,
   });
 
   /// 当前变体的 token 消耗（旧数据回退到消息级字段）。
@@ -132,6 +141,8 @@ class ChatMessage {
       variants: variants,
       variantIndex: index,
       variantUsage: usage,
+      senderId: json['senderId'] as String?,
+      senderName: json['senderName'] as String?,
     );
   }
 
@@ -141,6 +152,8 @@ class ChatMessage {
       'content': content,
       'timestamp': timestamp,
       if (error != null) 'error': error,
+      if (senderId != null) 'senderId': senderId,
+      if (senderName != null) 'senderName': senderName,
       if (promptTokens != null) 'promptTokens': promptTokens,
       if (completionTokens != null) 'completionTokens': completionTokens,
       if (tokensEstimated) 'tokensEstimated': true,
@@ -200,6 +213,8 @@ class ChatMessage {
       variants: v,
       variantIndex: idx,
       variantUsage: u,
+      senderId: senderId,
+      senderName: senderName,
     );
   }
 }

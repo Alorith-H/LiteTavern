@@ -32,6 +32,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late int _historyLimit;
   late bool _showTimestamps;
   late bool _showQuickReplies;
+  late int _autoContinue;
+  late bool _autoSummarize;
   bool _obscureKey = true;
   bool _testing = false;
 
@@ -75,6 +77,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _historyLimit = AppSettings.contextHistoryLimit;
     _showTimestamps = AppSettings.showTimestamps;
     _showQuickReplies = AppSettings.showQuickReplies;
+    _autoContinue = AppSettings.autoContinueCount;
+    _autoSummarize = AppSettings.autoSummarize;
     _seed = AppSettings.themeSeed;
     _hexCtrl = TextEditingController(text: _seedToHex(_seed));
     _loadWorldBooks();
@@ -379,6 +383,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             },
           ),
           const _SubLine('每次发送保留最近多少条消息'),
+          const SizedBox(height: 8),
+          const Divider(height: 1),
+          _stepperRow(
+            title: '自动继续次数',
+            subtitle: '回复达到长度上限时代写续接的次数，0 = 关闭',
+            value: _autoContinue,
+            onChanged: (v) {
+              setState(() => _autoContinue = v);
+              AppSettings.autoContinueCount = v;
+            },
+          ),
 
           // ------------------------------------------------ 世界书 --
           const SectionHeader('世界书'),
@@ -494,6 +509,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onChanged: (v) {
               setState(() => _showQuickReplies = v);
               AppSettings.showQuickReplies = v;
+            },
+          ),
+          const Divider(height: 1),
+          _switchRow(
+            title: '长对话自动摘要',
+            subtitle: '对话太长时自动把早期内容压成摘要，保证不遗忘',
+            value: _autoSummarize,
+            onChanged: (v) {
+              setState(() => _autoSummarize = v);
+              AppSettings.autoSummarize = v;
             },
           ),
           const Divider(height: 1),
@@ -650,6 +675,76 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           Switch(value: value, onChanged: onChanged),
+        ],
+      ),
+    );
+  }
+
+  /// 步进器行：标题 + 副说明，右侧 − N +（0–5），编辑风无卡片。
+  Widget _stepperRow({
+    required String title,
+    required String subtitle,
+    required int value,
+    required ValueChanged<int> onChanged,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: AppType.body,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: AppType.caption,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 36,
+            height: 36,
+            child: IconButton(
+              padding: EdgeInsets.zero,
+              icon: const Icon(Icons.remove_outlined, size: 20),
+              onPressed: value <= 0 ? null : () => onChanged(value - 1),
+            ),
+          ),
+          SizedBox(
+            width: 26,
+            child: Text(
+              '$value',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: AppType.body,
+                fontWeight: FontWeight.w600,
+                color: scheme.primary,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 36,
+            height: 36,
+            child: IconButton(
+              padding: EdgeInsets.zero,
+              icon: const Icon(Icons.add_outlined, size: 20),
+              onPressed: value >= 5 ? null : () => onChanged(value + 1),
+            ),
+          ),
         ],
       ),
     );
@@ -835,7 +930,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('版本 v0.5.0'),
+            Text('版本 v0.6.0'),
             SizedBox(height: 10),
             Text('简洁明了的 AI 角色扮演聊天 App，兼容 SillyTavern 角色卡与世界书。'),
           ],

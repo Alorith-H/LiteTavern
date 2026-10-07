@@ -20,7 +20,12 @@ String buildExportText({
   );
   for (final m in messages) {
     if (m.content.trim().isEmpty) continue;
-    final name = m.role == 'user' ? userName : charName;
+    // 群聊消息带 senderName（单聊无此字段，回退 charName）
+    final name = m.role == 'user'
+        ? userName
+        : (m.senderName?.trim().isNotEmpty == true
+            ? m.senderName!.trim()
+            : charName);
     buf.writeln('[${_fmtShort(m.timestamp)}] $name: ${m.content}');
   }
   return buf.toString();

@@ -139,6 +139,90 @@ class ApiClient {
     }
   }
 
+  /// 生成长对话摘要（v0.6.0）。流式收集但不做 UI 逐字刷新，
+  /// 返回完整文本；被 [cancel] 取消时返回 ''。
+  /// 复用同一套 API 配置，temperature 由调用方传（建议 0.4）。
+  Future<String> summarize({
+    required String baseUrl,
+    required String apiKey,
+    required String model,
+    required String system,
+    required String user,
+    double temperature = 0.4,
+    int maxTokens = 512,
+  }) async {
+    cancel();
+    _cancelled = false;
+    final client = http.Client();
+    _client = client;
+
+    try {
+      final uri = Uri.parse('${_trimSlash(baseUrl)}/chat/completions');
+      final request = http.Request('POST', uri);
+      request.headers['Content-Type'] = 'application/json';
+      request.headers['Authorization'] = 'Bearer $apiKey';
+      request.body = jsonEncode({
+        'model': model,
+        'messages': [
+          {'role': 'system', 'content': system},
+          {'role': 'user', 'content': user},
+        ],
+        'stream': true,
+        'temperature': temperature,
+        'max_tokens': maxTokens,
+      });
+      final response =
+          await client.send(request).timeout(const Duration(seconds: 15));
+      if (_cancelled) return '';
+
+      if (response.statusCode != 200) {
+        final body = await response.stream.bytesToString();
+        if (_cancelled) return '';
+        throw ApiException(humanError(response.statusCode, body));
+      }
+
+      final buf = StringBuffer();
+      final lines = response.stream
+          .transform(utf8.decoder)
+          .transform(const LineSplitter());
+      await for (final line in lines) {
+        if (_cancelled) break;
+        if (!line.startsWith('data:')) continue;
+        final data = line.substring(5).trim();
+        if (data == '[DONE]') break;
+        try {
+          final json = jsonDecode(data);
+          if (json is! Map) continue;
+          final choices = json['choices'];
+          if (choices is List && choices.isNotEmpty) {
+            final first = choices.first;
+            final delta = first is Map ? first['delta'] : null;
+            final content = delta is Map ? delta['content'] : null;
+            if (content is String && content.isNotEmpty) {
+              buf.write(content);
+            }
+          }
+        } catch (_) {
+          // 忽略无法解析的行
+        }
+      }
+      return _cancelled ? '' : buf.toString();
+    } on TimeoutException {
+      if (_cancelled) return '';
+      throw const ApiException('连接超时（15 秒），请检查网络或 Base URL');
+    } catch (e) {
+      if (_cancelled) return '';
+      if (e is ApiException) rethrow;
+      if (e is http.ClientException) {
+        throw ApiException('网络错误：${e.message}（请检查地址和网络）');
+      }
+      throw ApiException('请求失败：$e');
+    } finally {
+      if (identical(_client, client)) _client = null;
+      client.close();
+    }
+  }
+
   /// 取消当前请求：关闭底层连接。已收到的文本由 UI 保留。
   void cancel() {
     _cancelled = true;

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
+import '../models/chat_group.dart';
 import '../models/chat_message.dart';
 import '../models/character_card.dart';
 import '../models/world_info.dart';
@@ -12,6 +13,7 @@ import '../services/chat_export.dart';
 import '../services/macros.dart';
 import '../services/prompt_builder.dart';
 import '../services/storage.dart';
+import '../services/summarize.dart';
 import '../services/token_estimate.dart';
 import '../services/world_info_engine.dart';
 import '../widgets/common.dart';
@@ -28,11 +30,20 @@ const double _kFollowThreshold = 120;
 /// 流式刷新最小间隔（ms）：一帧内多个 token 合并成一次 setState。
 const int _kStreamFlushMs = 33;
 
-/// 聊天页（核心页面）。
+/// 聊天页（核心页面）。单聊与群聊共用一套气泡/流式/变体/菜单机器，
+/// 仅 prompt 组装、轮转与标题不同（v0.6.0 群聊）。
 class ChatScreen extends StatefulWidget {
+  /// 单聊角色 id（群聊模式为空串）
   final String charId;
 
-  const ChatScreen({super.key, required this.charId});
+  /// 群聊群 id（单聊模式为 null）
+  final String? groupId;
+
+  const ChatScreen({super.key, required this.charId}) : groupId = null;
+
+  const ChatScreen.group({super.key, required this.groupId}) : charId = '';
+
+  bool get isGroup => groupId != null;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -40,6 +51,27 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   CharacterCard? _card;
+
+  /// 群聊状态（单聊为 null / 空）
+  ChatGroup? _group;
+  List<CharacterCard> _members = [];
+
+  /// 早期对话摘要（随会话持久化）
+  ChatSummary? _summary;
+
+  /// 正在生成摘要（输入栏上方进度态）
+  bool _summarizing = false;
+
+  bool get _isGroup => widget.isGroup;
+
+  /// 会话存储 key：单聊 = 角色 id；群聊 = `group_<群id>`
+  String get _convId =>
+      _isGroup ? Storage.groupConvId(widget.groupId!) : widget.charId;
+
+  /// 能否组装 prompt（统计/生成的前置条件）
+  bool get _canBuildPrompt =>
+      _isGroup ? _members.isNotEmpty : _card != null;
+
   List<ChatMessage> _messages = [];
   List<WorldInfo> _worldBooks = [];
   bool _loading = true;
@@ -85,6 +117,13 @@ class _ChatScreenState extends State<ChatScreen> {
   int _genStartLen = 0; // 生成开始时 content 长度（估算只算新增部分）
   bool _tokensApplied = false; // 本次生成的 token 是否已写入（防重复累计）
 
+  /// 自动继续（v0.6.0）：本轮回复已用掉的自动续接次数 / 最近一次输出 token 数
+  int _autoUsed = 0;
+  int? _lastCompletion;
+
+  /// 最近一次生成是否出错（群聊轮转据此中断本轮）
+  bool _genFailed = false;
+
   /// 已完成消息的 widget 缓存（含 markdown 渲染结果）。
   /// key 是消息对象本身：内容/身份一变即自然失效；列表结构变化时整体清空。
   final Map<ChatMessage, Widget> _msgCache = {};
@@ -122,12 +161,17 @@ class _ChatScreenState extends State<ChatScreen> {
   // ------------------------------------------------------------- 加载 --
 
   Future<void> _load() async {
+    if (_isGroup) {
+      await _loadGroup();
+      return;
+    }
     final card = await Storage.loadCharacter(widget.charId);
     if (card == null) {
       if (mounted) Navigator.of(context).pop();
       return;
     }
-    var msgs = await Storage.loadConversation(widget.charId);
+    final data = await Storage.loadConversationData(widget.charId);
+    var msgs = data.messages;
     if (msgs.isEmpty && card.firstMes.trim().isNotEmpty) {
       msgs = [
         ChatMessage(
@@ -141,7 +185,7 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       ];
       // 写入开场白（不 await，避免阻塞首帧）
-      Storage.saveConversation(card.id, msgs);
+      Storage.saveConversation(card.id, msgs, summary: data.summary);
     }
 
     // 世界书：卡内嵌 + 该角色挂载且启用的合并
@@ -151,12 +195,85 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       _card = card;
       _messages = msgs;
+      _summary = data.summary;
       _worldBooks = books;
       _loading = false;
       _msgCache.clear();
       _cacheLen = -1;
     });
     _locateInitial();
+  }
+
+  /// 群聊加载：群定义 + 现存成员卡 + 会话（无开场白，用户先发言）。
+  Future<void> _loadGroup() async {
+    final group = await Storage.loadGroup(widget.groupId!);
+    if (group == null) {
+      if (mounted) Navigator.of(context).pop();
+      return;
+    }
+    final all = await Storage.loadCharacters();
+    // 保持 memberIds 顺序（即群内顺序）；卡已被删除的成员跳过
+    final members = <CharacterCard>[];
+    for (final id in group.memberIds) {
+      for (final c in all) {
+        if (c.id == id) {
+          members.add(c);
+          break;
+        }
+      }
+    }
+    final data =
+        await Storage.loadConversationData(Storage.groupConvId(group.id));
+    final books = await _loadWorldBooksForGroup(members);
+
+    if (!mounted) return;
+    setState(() {
+      _group = group;
+      _members = members;
+      _messages = data.messages;
+      _summary = data.summary;
+      _worldBooks = books;
+      _loading = false;
+      _msgCache.clear();
+      _cacheLen = -1;
+    });
+    _locateInitial();
+  }
+
+  /// 群聊合并世界书：各成员 enabled 挂载（跨成员去重）+ 各自卡内嵌。
+  Future<List<WorldInfo>> _loadWorldBooksForGroup(
+      List<CharacterCard> members) async {
+    final books = <WorldInfo>[];
+    final enabledIds = <String>{};
+    for (final card in members) {
+      final embedded = card.characterBook;
+      if (embedded != null) {
+        books.add(embedded.name.trim().isEmpty
+            ? WorldInfo(
+                name: '卡内嵌世界书',
+                description: embedded.description,
+                entries: embedded.entries,
+              )
+            : embedded);
+      }
+      final explicit = await Storage.worldBookMountsFor(card.id);
+      final mounts = explicit ??
+          [
+            for (final id in AppSettings.mountedWorldBookIds)
+              (id: id, enabled: true),
+          ];
+      for (final m in mounts) {
+        if (m.enabled) enabledIds.add(m.id);
+      }
+    }
+    if (enabledIds.isNotEmpty) {
+      final all = await Storage.loadWorldBooks();
+      for (final (id, wb) in all) {
+        // 同一本书被多名成员挂载只并入一次（去重）
+        if (enabledIds.contains(id)) books.add(wb);
+      }
+    }
+    return books;
   }
 
   /// 该角色参与激活的世界书：卡内嵌 + 挂载配置里 enabled 的。
@@ -198,15 +315,18 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _pendingSave = Future.value();
 
   void _save({bool force = false}) {
-    final card = _card;
-    if (card == null) return;
+    if (!_isGroup && _card == null) return;
+    if (_isGroup && _group == null) return;
     final now = DateTime.now();
     if (!force && now.difference(_lastSave).inMilliseconds < 500) return;
     _lastSave = now;
     final snapshot = List.of(_messages);
+    final summary = _summary;
+    final convId = _convId;
     // 串行写入，避免并发覆盖
-    _pendingSave =
-        _pendingSave.then((_) => Storage.saveConversation(card.id, snapshot));
+    _pendingSave = _pendingSave.then(
+      (_) => Storage.saveConversation(convId, snapshot, summary: summary),
+    );
   }
 
   // ----------------------------------------------------------- 滚动 --
@@ -338,32 +458,200 @@ class _ChatScreenState extends State<ChatScreen> {
   void _send() => _sendText(_inputCtrl.text);
 
   /// 发送一条用户消息（输入框发送与快捷回复共用，走正常生成流程）。
+  /// 发送前若触发长对话摘要，先走摘要管线（可取消，成败都不阻塞发送）。
   void _sendText(String raw) {
     final text = raw.trim();
-    final card = _card;
-    if (text.isEmpty || _generating || card == null) return;
+    if (text.isEmpty || _generating || _summarizing) return;
     if (!_canConfigure) {
       _promptConfigureApi();
       return;
     }
+    if (_isGroup && _members.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('群成员都已被删除，请重建这个群聊')),
+      );
+      return;
+    }
+    if (_summaryNeeded()) {
+      _summarizeThenSend(text);
+      return;
+    }
+    _doSend(text);
+  }
+
+  /// 实际落消息并开跑（摘要管线的下半场也走这里）。
+  void _doSend(String text) {
     final now = DateTime.now().millisecondsSinceEpoch;
+    // 群聊：计算本轮发言序列（@ 点名 → 仅被点名者按群内顺序；否则全员从指针轮转）
+    var targets = const <int>[];
+    if (_isGroup) {
+      final names = [for (final m in _members) m.name];
+      final pointer = _group?.turnIndex ?? 0;
+      targets = turnOrder(_members.length, pointer, parseMentions(text, names));
+      if (targets.isEmpty) {
+        targets = turnOrder(_members.length, pointer, null);
+      }
+      if (targets.isEmpty) return;
+    }
     setState(() {
-      _messages
-        ..add(ChatMessage(role: 'user', content: text, timestamp: now))
-        ..add(ChatMessage(role: 'assistant', content: '', timestamp: now));
+      _messages.add(ChatMessage(role: 'user', content: text, timestamp: now));
+      if (_isGroup) {
+        final m = _members[targets.first];
+        _messages.add(ChatMessage(
+          role: 'assistant',
+          content: '',
+          timestamp: now,
+          senderId: m.id,
+          senderName: m.name,
+        ));
+      } else {
+        _messages.add(ChatMessage(role: 'assistant', content: '', timestamp: now));
+      }
       _generating = true;
       _followScroll = true;
-      _isContinueGen = false;
-      _genStartLen = 0;
-      _streamBuf = '';
       _msgCache.clear();
     });
     _inputCtrl.clear();
     _inputEmpty.value = true;
     _save(force: true);
     _scrollToBottom();
-    _generate();
+    if (_isGroup) {
+      _runGroupRound(targets);
+    } else {
+      _generateSingle();
+    }
   }
+
+  // ------------------------------------------------------- 群聊轮转 --
+
+  /// 一轮：按 [targets]（成员下标）逐个生成，每人一条回复。
+  /// 轮转指针在每位成员"开始发言"时即推进 —— 中途停止不回退，
+  /// 下次发送从下一成员继续；完整一轮跑完指针绕回起点。
+  Future<void> _runGroupRound(List<int> targets) async {
+    for (var k = 0; k < targets.length; k++) {
+      if (!mounted || !_generating) break;
+      if (k > 0) {
+        // 为下一位成员追加空占位（sender 随消息持久化）
+        final m = _members[targets[k]];
+        setState(() {
+          _messages.add(ChatMessage(
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime.now().millisecondsSinceEpoch,
+            senderId: m.id,
+            senderName: m.name,
+          ));
+          _msgCache.clear();
+        });
+        _save(force: true);
+        _followBottom();
+      }
+      final g = _group;
+      if (g != null) {
+        final next = advanceTurn(_members.length, targets[k]);
+        if (next != g.turnIndex) {
+          _group = g.withTurnIndex(next);
+          Storage.saveGroup(_group!); // 不 await，尽快落盘
+        }
+      }
+      final ok = await _generate();
+      if (!ok || !mounted) break; // 停止或失败 → 本轮结束
+    }
+    _finishGeneration();
+  }
+
+  /// 生成收尾：关掉进行中状态并落盘（单次操作与轮转共用）。
+  void _finishGeneration() {
+    if (!mounted) return;
+    if (_generating) {
+      setState(() => _generating = false);
+    }
+    _save(force: true);
+    _followBottom();
+  }
+
+  // ----------------------------------------------------- 长对话摘要 --
+
+  int get _historyLimit => AppSettings.contextHistoryLimit;
+
+  /// 发送前是否需要摘要：开关开（调用方已查）且超窗且摘要为空/已过期。
+  bool _summaryNeeded() =>
+      AppSettings.autoSummarize &&
+      summaryIsStale(_messages, _summary, _historyLimit);
+
+  /// 消息的显示名（摘要/导出共用）。
+  String _nameOf(ChatMessage m) {
+    final sender = m.senderName?.trim();
+    if (m.role == 'assistant' && sender != null && sender.isNotEmpty) {
+      return sender;
+    }
+    if (_isGroup) {
+      return _members.isNotEmpty ? _members.first.name : (_group?.name ?? '');
+    }
+    return _card?.name ?? '';
+  }
+
+  /// 跑一次摘要（发送前管线与菜单手动触发共用）。
+  /// 成功写入 summary 并返回 true；失败/取消/超时(30s) 返回 false。
+  Future<bool> _runSummarize() async {
+    final early = earlyMessages(_messages, _historyLimit);
+    if (early.isEmpty) return false;
+    final transcript = buildSummaryTranscript(
+      early: early,
+      userName: _macroUserName,
+      nameOf: _nameOf,
+    );
+    try {
+      final raw = await _api
+          .summarize(
+            baseUrl: AppSettings.baseUrl,
+            apiKey: AppSettings.apiKey,
+            model: AppSettings.model,
+            system: '你是对话摘要助手。把用户给出的早期对话压缩成不超过300字的中文摘要，'
+                '只保留关键情节、人物关系与未决事项，不要任何前缀或解释，直接输出摘要。',
+            user: transcript,
+            temperature: 0.4,
+          )
+          .timeout(const Duration(seconds: 30));
+      final text = normalizeSummary(raw);
+      if (text.isEmpty) return false; // 已取消或空输出
+      if (!mounted) return false;
+      setState(() {
+        // updatedAt = 摘要覆盖到的最后一条早期消息时间戳（过期判断依据）
+        _summary = ChatSummary(text: text, updatedAt: early.last.timestamp);
+      });
+      _save(force: true);
+      return true;
+    } on TimeoutException {
+      _api.cancel();
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 触发摘要后继续发送：无论成功、失败还是取消，都按现状直接发送。
+  Future<void> _summarizeThenSend(String text) async {
+    setState(() => _summarizing = true);
+    await _runSummarize();
+    if (!mounted) return;
+    setState(() => _summarizing = false);
+    _doSend(text);
+  }
+
+  /// 菜单「立即总结早期对话」：同一管线，只总结不发送。
+  Future<void> _manualSummarize() async {
+    setState(() => _summarizing = true);
+    final ok = await _runSummarize();
+    if (!mounted) return;
+    setState(() => _summarizing = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(ok ? '已总结' : '总结未完成')),
+    );
+  }
+
+  /// 进度条上的取消：掐掉摘要请求，本次跳过摘要（调用方继续原流程）。
+  void _cancelSummarize() => _api.cancel();
 
   void _promptConfigureApi() {
     showDialog<void>(
@@ -426,18 +714,60 @@ class _ChatScreenState extends State<ChatScreen> {
     _save();
   }
 
-  Future<void> _generate() async {
-    final card = _card;
-    if (card == null) return;
+  /// 单次操作（单聊发送 / 重生成 / 重试 / 继续生成）：
+  /// 生成一轮回复并收尾 `_generating`。
+  Future<void> _generateSingle({bool isContinue = false}) async {
+    await _generate(isContinue: isContinue);
+    _finishGeneration();
+  }
+
+  /// 为末条 assistant 消息生成一轮回复（含自动继续循环）。
+  /// 返回 true = 正常完成；false = 被停止或出错。
+  /// 群聊轮转对每位成员各调一次，`_generating` 由轮转持有。
+  Future<bool> _generate({bool isContinue = false}) async {
+    if (!_canBuildPrompt) return false;
+    _autoUsed = 0; // 自动继续次数按"每条回复"计
+    var cont = isContinue;
+    while (true) {
+      if (!mounted) return false;
+      setState(() {
+        _isContinueGen = cont;
+        _genStartLen = cont &&
+                _messages.isNotEmpty &&
+                _messages.last.role == 'assistant'
+            ? _messages.last.content.length
+            : 0;
+        _streamBuf = '';
+      });
+      final ok = await _runOnce();
+      if (!ok || !mounted) return false;
+      if (!_shouldAutoContinue()) return true;
+      _autoUsed++;
+      cont = true;
+    }
+  }
+
+  /// 自动继续触发（v0.6.0）：`max_tokens > 0` 且本次输出 ≥ 上限×0.98，
+  /// 且未达次数上限、用户未停止、上次生成成功且已有正文。
+  bool _shouldAutoContinue() {
+    if (!mounted || !_generating || _genFailed) return false;
+    final maxT = AppSettings.maxTokens;
+    if (maxT <= 0) return false;
+    if (_autoUsed >= AppSettings.autoContinueCount) return false;
+    final c = _lastCompletion;
+    if (c == null) return false;
+    if (_messages.isEmpty || _messages.last.role != 'assistant') return false;
+    if (_messages.last.content.isEmpty) return false;
+    return c >= maxT * 0.98;
+  }
+
+  /// 单次流式请求（一次 streamChat；`_isContinueGen` 时追加到同一变体）。
+  Future<bool> _runOnce() async {
     final token = ++_genToken;
     _tokensApplied = false;
+    _genFailed = false;
 
-    final built = PromptBuilder.build(
-      card: card,
-      history: _messages,
-      worldBooks: _worldBooks,
-      userName: _macroUserName,
-    );
+    final built = _buildPrompt();
     _lastSystemText = built.systemText;
     _lastActivated = built.activated;
 
@@ -479,19 +809,75 @@ class _ChatScreenState extends State<ChatScreen> {
           if (i < 0 || _messages[i].role != 'assistant') return;
           _messages[i] = _messages[i].copyWith(error: error);
         });
+        _genFailed = true;
       },
       onDone: () {},
     );
 
     _flushStream();
-    if (!mounted || token != _genToken) return;
+    // 被停止：_stop 已完成记账与落盘，这里直接退出
+    if (!mounted || token != _genToken) return false;
+
+    // 本次输出 token（自动继续判断用）：优先精确 usage，否则估算新增文本
+    if (exactCompletion != null) {
+      _lastCompletion = exactCompletion;
+    } else {
+      final m = _messages.last;
+      final start = _genStartLen.clamp(0, m.content.length).toInt();
+      _lastCompletion = estimateTokens(m.content.substring(start));
+    }
+
+    // 群聊：剥掉模型按规则自发的消息头「名字: 」（渲染时再加回，避免双前缀）
+    if (_isGroup && !_isContinueGen) _stripSpeakerPrefix();
+
     setState(() {
-      _generating = false;
       _applyTokens(exactPrompt, exactCompletion);
     });
     _save(force: true);
     _followBottom();
-    _isContinueGen = false;
+    return !_genFailed;
+  }
+
+  /// 组装本次发送的 prompt（单聊 / 群聊分流），带早期摘要。
+  PromptBuildResult _buildPrompt() {
+    if (_isGroup) {
+      final last = _messages.isEmpty ? null : _messages.last;
+      final speaker =
+          (last != null && last.role == 'assistant') ? last.senderName : null;
+      return PromptBuilder.buildGroup(
+        members: _members,
+        history: _messages,
+        worldBooks: _worldBooks,
+        userName: _macroUserName,
+        speakerName: speaker,
+        summaryText: _summary?.text,
+      );
+    }
+    return PromptBuilder.build(
+      card: _card!,
+      history: _messages,
+      worldBooks: _worldBooks,
+      userName: _macroUserName,
+      summaryText: _summary?.text,
+    );
+  }
+
+  /// 群聊：剥掉内容开头的「名字: 」头（只在首次生成后调用）。
+  void _stripSpeakerPrefix() {
+    if (_messages.isEmpty) return;
+    final i = _messages.length - 1;
+    final m = _messages[i];
+    if (m.role != 'assistant') return;
+    final name = m.senderName?.trim();
+    if (name == null || name.isEmpty) return;
+    final n = RegExp.escape(name);
+    final re = RegExp(
+      '^\\s*(?:\\*\\*)?(?:【$n】|\\[?$n\\]?)(?:\\*\\*)?\\s*[:：]\\s*',
+    );
+    final stripped = m.content.replaceFirst(re, '');
+    if (stripped != m.content) {
+      _messages[i] = m.copyWith(content: stripped);
+    }
   }
 
   /// 写入本次生成的 token：
@@ -623,7 +1009,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// 重新生成 = 追加变体（不删除旧回复，生成完自动切到新变体）。
   Future<void> _regenerate() async {
-    if (_generating || _card == null) return;
+    if (_generating || _summarizing || !_canBuildPrompt) return;
     if (!_canConfigure) {
       _promptConfigureApi();
       return;
@@ -633,19 +1019,16 @@ class _ChatScreenState extends State<ChatScreen> {
       _messages[_messages.length - 1] = _prepVariantSlot(_messages.last);
       _generating = true;
       _followScroll = true;
-      _isContinueGen = false;
-      _genStartLen = 0;
-      _streamBuf = '';
       _msgCache.clear();
     });
     _save(force: true);
     _followBottom();
-    await _generate();
+    await _generateSingle();
   }
 
   /// 失败气泡里的重试。
   Future<void> _retry(ChatMessage failed) async {
-    if (_generating || _card == null) return;
+    if (_generating || _summarizing || !_canBuildPrompt) return;
     if (!_canConfigure) {
       _promptConfigureApi();
       return;
@@ -659,14 +1042,11 @@ class _ChatScreenState extends State<ChatScreen> {
         _messages[idx] = _prepVariantSlot(_messages[idx]);
         _generating = true;
         _followScroll = true;
-        _isContinueGen = false;
-        _genStartLen = 0;
-        _streamBuf = '';
         _msgCache.clear();
       });
       _save(force: true);
       _followBottom();
-      await _generate();
+      await _generateSingle();
       return;
     }
 
@@ -698,22 +1078,22 @@ class _ChatScreenState extends State<ChatScreen> {
         role: 'assistant',
         content: '',
         timestamp: DateTime.now().millisecondsSinceEpoch,
+        // 群聊：新占位沿用失败消息的发言者
+        senderId: failed.senderId,
+        senderName: failed.senderName,
       ));
       _generating = true;
       _followScroll = true;
-      _isContinueGen = false;
-      _genStartLen = 0;
-      _streamBuf = '';
       _msgCache.clear();
     });
     _save(force: true);
     _followBottom();
-    await _generate();
+    await _generateSingle();
   }
 
   /// 继续生成：在同一条 AI 消息末尾流式追加文本。
   Future<void> _continueGeneration() async {
-    if (_generating || _card == null) return;
+    if (_generating || _summarizing || !_canBuildPrompt) return;
     if (_messages.isEmpty || _messages.last.role != 'assistant') return;
     final last = _messages.last;
     if (last.content.isEmpty || last.error != null) return;
@@ -722,15 +1102,12 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
     setState(() {
-      _isContinueGen = true;
-      _genStartLen = last.content.length;
       _generating = true;
       _followScroll = true;
-      _streamBuf = '';
     });
     _save(force: true);
     _scrollToBottom();
-    await _generate();
+    await _generateSingle(isContinue: true);
   }
 
   /// 切换某条消息的当前变体（气泡横滑 / 圆点点按）。
@@ -768,8 +1145,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _clearConversation() async {
-    final card = _card;
-    if (card == null) return;
+    if (!_isGroup && _card == null) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -788,16 +1164,21 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
     );
     if (ok != true || !mounted) return;
+    final card = _card;
     setState(() {
-      _messages = card.firstMes.trim().isEmpty
-          ? <ChatMessage>[]
-          : [
-              ChatMessage(
-                role: 'assistant',
-                content: _macro(card.firstMes),
-                timestamp: DateTime.now().millisecondsSinceEpoch,
-              ),
-            ];
+      // 群聊没有开场白；单聊回到 first_mes
+      if (_isGroup || card == null || card.firstMes.trim().isEmpty) {
+        _messages = <ChatMessage>[];
+      } else {
+        _messages = [
+          ChatMessage(
+            role: 'assistant',
+            content: _macro(card.firstMes),
+            timestamp: DateTime.now().millisecondsSinceEpoch,
+          ),
+        ];
+      }
+      _summary = null; // 清空即不再需要早期摘要
       _msgCache.clear();
       _cacheLen = -1;
     });
@@ -845,7 +1226,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _showMenu() {
     final card = _card;
-    if (card == null) return;
+    if (!_isGroup && card == null) return;
     final canRegen = !_generating &&
         _messages.isNotEmpty &&
         _messages.any((m) => m.role == 'user');
@@ -855,6 +1236,10 @@ class _ChatScreenState extends State<ChatScreen> {
         last.role == 'assistant' &&
         last.content.isNotEmpty &&
         last.error == null;
+    // 存在可总结历史时才显示（超窗的早期消息非空）
+    final canSummarize = !_generating &&
+        !_summarizing &&
+        hasSummarizableHistory(_messages, _historyLimit);
     showModalBottomSheet<void>(
       context: context,
       builder: (ctx) => SafeArea(
@@ -868,13 +1253,14 @@ class _ChatScreenState extends State<ChatScreen> {
                 _clearConversation();
               },
             ),
-            ListTile(
-              title: const Text('编辑角色'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _editCharacter();
-              },
-            ),
+            if (card != null)
+              ListTile(
+                title: const Text('编辑角色'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _editCharacter();
+                },
+              ),
             ListTile(
               title: const Text('聊天统计'),
               onTap: () {
@@ -916,7 +1302,15 @@ class _ChatScreenState extends State<ChatScreen> {
                     }
                   : null,
             ),
-            if (card.alternateGreetings.isNotEmpty)
+            if (canSummarize)
+              ListTile(
+                title: const Text('立即总结早期对话'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _manualSummarize();
+                },
+              ),
+            if (card != null && card.alternateGreetings.isNotEmpty)
               ListTile(
                 title: const Text('换开场白'),
                 onTap: () {
@@ -934,10 +1328,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// 组装纯文本写入系统剪贴板（变体只导出当前显示的）。
   Future<void> _exportConversation() async {
-    final card = _card;
-    if (card == null) return;
+    if (!_isGroup && _card == null) return;
+    final title = _isGroup ? (_group?.name ?? '群聊') : _card!.name;
     final text = buildExportText(
-      charName: card.name,
+      charName: title,
       userName: AppSettings.userName,
       messages: _messages,
       exportedAt: DateTime.now(),
@@ -970,14 +1364,8 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     var contextTokens = 0;
-    final card = _card;
-    if (card != null) {
-      final built = PromptBuilder.build(
-        card: card,
-        history: _messages,
-        worldBooks: _worldBooks,
-        userName: _macroUserName,
-      );
+    if (_canBuildPrompt) {
+      final built = _buildPrompt();
       contextTokens =
           estimateTokens(built.messages.map((m) => m.content).join('\n'));
     }
@@ -1110,8 +1498,9 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final card = _card;
+    final ready = _isGroup ? _group != null : card != null;
 
-    if (_loading || card == null) {
+    if (_loading || !ready) {
       return Scaffold(
         appBar: AppBar(),
         body: const Center(child: CircularProgressIndicator()),
@@ -1148,11 +1537,16 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         title: Row(
           children: [
-            CharacterAvatar(id: card.id, name: card.name, size: 34),
-            const SizedBox(width: 10),
+            if (_isGroup) ...[
+              const Icon(Icons.groups_outlined, size: 26),
+              const SizedBox(width: 10),
+            ] else ...[
+              CharacterAvatar(id: card!.id, name: card.name, size: 34),
+              const SizedBox(width: 10),
+            ],
             Expanded(
               child: Text(
-                card.name,
+                _isGroup ? _group!.name : card!.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -1236,21 +1630,21 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 发言者名字标签位（群聊下一批启用，当前隐藏占位）
-          Visibility(
-            visible: false,
-            child: Padding(
+          // 群聊：角色气泡左上角显示发言者名字（12sp w600 次要色）
+          if (_isGroup &&
+              !isUser &&
+              (m.senderName ?? '').trim().isNotEmpty)
+            Padding(
               padding: const EdgeInsets.only(bottom: 4),
               child: Text(
-                isUser ? _macroUserName : (_card?.name ?? ''),
+                m.senderName!.trim(),
                 style: TextStyle(
                   fontSize: AppType.section,
                   fontWeight: FontWeight.w600,
-                  color: scheme.primary,
+                  color: scheme.onSurfaceVariant,
                 ),
               ),
             ),
-          ),
           if (thinking)
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -1322,6 +1716,23 @@ class _ChatScreenState extends State<ChatScreen> {
         enabled: !_generating && m.variants.length > 1,
         onSwipe: (dir) => _switchVariant(m, m.variantIndex + dir),
         child: bubble,
+      );
+    }
+
+    // 群聊：角色气泡左侧置 36dp 头像首字圆标（横滑只滑气泡，头像作锚点）
+    if (!isUser && _isGroup) {
+      bubble = Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CharacterAvatar(
+            id: m.senderId ?? '',
+            name: (m.senderName ?? '').trim(),
+            size: 36,
+          ),
+          const SizedBox(width: 8),
+          Flexible(child: bubble),
+        ],
       );
     }
 
@@ -1512,6 +1923,47 @@ class _ChatScreenState extends State<ChatScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // 摘要进度态：输入栏上方细进度 + 文案 + 取消（取消 = 本次跳过直接发）
+            if (_summarizing) ...[
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: scheme.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '正在总结早期对话…',
+                        style: TextStyle(
+                          fontSize: AppType.caption,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _cancelSummarize,
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: const Text(
+                        '取消',
+                        style: TextStyle(fontSize: AppType.caption),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             // 快捷回复：输入框上方一排横滑 chips，点按立即发送；
             // 管理页删到空则整排隐藏，生成中置灰禁用
             if (showQuick) ...[
@@ -1558,14 +2010,16 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
                 const SizedBox(width: 10),
                 // 发送钮：40dp 圆形 accent 实心；停止态红色；空输入弱化
+                //（摘要进行中也显示停止钮，按下 = 取消摘要）
                 ValueListenableBuilder<bool>(
                   valueListenable: _inputEmpty,
                   builder: (context, empty, _) => SizedBox(
                     width: 40,
                     height: 40,
-                    child: _generating
+                    child: (_generating || _summarizing)
                         ? IconButton(
-                            onPressed: _stop,
+                            onPressed:
+                                _generating ? _stop : _cancelSummarize,
                             padding: EdgeInsets.zero,
                             constraints: const BoxConstraints(
                                 minWidth: 40, minHeight: 40),

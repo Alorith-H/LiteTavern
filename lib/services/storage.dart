@@ -6,16 +6,26 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/chat_message.dart';
+import '../models/chat_group.dart';
 import '../models/character_card.dart';
 import '../models/world_info.dart';
+import 'summarize.dart';
 
-/// 文件存储：角色 / 对话 / 世界书（纯 JSON，无数据库）。
+/// 会话文件内容：消息列表 + 可选的早期摘要。
+class ConversationData {
+  final List<ChatMessage> messages;
+  final ChatSummary? summary;
+
+  const ConversationData({required this.messages, this.summary});
+}
+
+/// 文件存储：角色 / 对话 / 世界书 / 群聊（纯 JSON，无数据库）。
 class Storage {
   static late Directory _docs;
 
   static Future<void> init() async {
     _docs = await getApplicationDocumentsDirectory();
-    for (final dir in ['characters', 'conversations', 'worldbooks']) {
+    for (final dir in ['characters', 'conversations', 'worldbooks', 'groups']) {
       await Directory('${_docs.path}/$dir').create(recursive: true);
     }
   }
@@ -23,6 +33,7 @@ class Storage {
   static Directory get _charRoot => Directory('${_docs.path}/characters');
   static Directory get _convRoot => Directory('${_docs.path}/conversations');
   static Directory get _wbRoot => Directory('${_docs.path}/worldbooks');
+  static Directory get _groupRoot => Directory('${_docs.path}/groups');
 
   /// id 用时间戳字符串
   static String newId() => DateTime.now().millisecondsSinceEpoch.toString();
@@ -106,33 +117,130 @@ class Storage {
   static File _convFile(String charId) =>
       File('${_convRoot.path}${Platform.pathSeparator}$charId.json');
 
-  static Future<List<ChatMessage>> loadConversation(String charId) async {
-    final file = _convFile(charId);
-    if (!await file.exists()) return [];
+  /// 读会话（含可选摘要）。兼容两种格式：
+  /// 旧 = 消息数组；新 = `{messages, summary?}`（v0.6.0 起带摘要时用对象）。
+  static Future<ConversationData> loadConversationData(String convId) async {
+    final file = _convFile(convId);
+    if (!await file.exists()) return const ConversationData(messages: []);
     try {
       final decoded = jsonDecode(await file.readAsString());
-      if (decoded is! List) return [];
-      return decoded
-          .whereType<Map<String, dynamic>>()
-          .map(ChatMessage.fromJson)
-          .toList();
+      if (decoded is List) {
+        return ConversationData(
+          messages: decoded
+              .whereType<Map<String, dynamic>>()
+              .map(ChatMessage.fromJson)
+              .toList(),
+        );
+      }
+      if (decoded is Map<String, dynamic>) {
+        final raw = decoded['messages'];
+        final messages = raw is List
+            ? raw
+                .whereType<Map<String, dynamic>>()
+                .map(ChatMessage.fromJson)
+                .toList()
+            : <ChatMessage>[];
+        final summaryRaw = decoded['summary'];
+        final summary = summaryRaw is Map<String, dynamic>
+            ? ChatSummary.fromJson(summaryRaw)
+            : null;
+        return ConversationData(
+          messages: messages,
+          summary: summary != null && summary.isEmpty ? null : summary,
+        );
+      }
+      return const ConversationData(messages: []);
     } catch (_) {
-      return [];
+      return const ConversationData(messages: []);
     }
   }
 
+  static Future<List<ChatMessage>> loadConversation(String convId) async =>
+      (await loadConversationData(convId)).messages;
+
+  /// 写会话。无摘要时保持旧的数组格式（单聊文件字节不变）；
+  /// 有摘要时写 `{messages, summary}` 对象。
   static Future<void> saveConversation(
-      String charId, List<ChatMessage> messages) async {
-    final file = _convFile(charId);
-    await file.writeAsString(
-      jsonEncode(messages.map((m) => m.toJson()).toList()),
-      flush: true,
-    );
+    String convId,
+    List<ChatMessage> messages, {
+    ChatSummary? summary,
+  }) async {
+    final file = _convFile(convId);
+    final data = summary == null || summary.isEmpty
+        ? messages.map((m) => m.toJson()).toList()
+        : <String, dynamic>{
+            'messages': [for (final m in messages) m.toJson()],
+            'summary': summary.toJson(),
+          };
+    await file.writeAsString(jsonEncode(data), flush: true);
   }
 
-  static Future<void> deleteConversation(String charId) async {
-    final file = _convFile(charId);
+  static Future<void> deleteConversation(String convId) async {
+    final file = _convFile(convId);
     if (await file.exists()) await file.delete();
+  }
+
+  // ---------------------------------------------------------- 群聊 --
+
+  static File _groupFile(String groupId) =>
+      File('${_groupRoot.path}${Platform.pathSeparator}$groupId.json');
+
+  /// 群聊会话 id（与单聊共用 conversations 目录）。
+  static String groupConvId(String groupId) => 'group_$groupId';
+
+  /// 读取全部群聊（创建时间倒序，新的在前）。
+  static Future<List<ChatGroup>> loadGroups() async {
+    final result = <ChatGroup>[];
+    if (!await _groupRoot.exists()) return result;
+    await for (final entity in _groupRoot.list()) {
+      if (entity is! File || !entity.path.endsWith('.json')) continue;
+      try {
+        final json =
+            jsonDecode(await entity.readAsString()) as Map<String, dynamic>;
+        final g = ChatGroup.fromJson(json);
+        if (g.id.isNotEmpty) result.add(g);
+      } catch (_) {
+        // 损坏的群文件跳过
+      }
+    }
+    result.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return result;
+  }
+
+  static Future<ChatGroup?> loadGroup(String id) async {
+    final file = _groupFile(id);
+    if (!await file.exists()) return null;
+    try {
+      final json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      final g = ChatGroup.fromJson(json);
+      return g.id.isEmpty ? null : g;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 保存群聊（含轮转指针）；id 为空时生成新 id。返回带 id 的群。
+  static Future<ChatGroup> saveGroup(ChatGroup group) async {
+    final id = group.id.isEmpty ? newId() : group.id;
+    final saved = group.id.isEmpty
+        ? ChatGroup(
+            id: id,
+            name: group.name,
+            memberIds: group.memberIds,
+            createdAt: group.createdAt,
+            turnIndex: group.turnIndex,
+          )
+        : group;
+    await _groupRoot.create(recursive: true);
+    await _groupFile(id).writeAsString(jsonEncode(saved.toJson()), flush: true);
+    return saved;
+  }
+
+  /// 删除群聊：群文件 + 级联删除其会话。
+  static Future<void> deleteGroup(String id) async {
+    final file = _groupFile(id);
+    if (await file.exists()) await file.delete();
+    await deleteConversation(groupConvId(id));
   }
 
   // -------------------------------------------------------- 世界书 --
@@ -360,6 +468,20 @@ class AppSettings {
   /// 最大回复长度；0 = 不限（请求里不带该字段）
   static int get maxTokens => _sp.getInt(_kMaxTokens) ?? 0;
   static set maxTokens(int v) => _sp.setInt(_kMaxTokens, v);
+
+  static const _kAutoContinue = 'auto_continue_count';
+  static const _kAutoSummarize = 'auto_summarize';
+
+  /// 自动继续次数，0–5，默认 2（0 = 关闭）。
+  /// 回复达到长度上限（completion ≥ max_tokens×0.98）时代写续接。
+  static int get autoContinueCount =>
+      (_sp.getInt(_kAutoContinue) ?? 2).clamp(0, 5).toInt();
+  static set autoContinueCount(int v) =>
+      _sp.setInt(_kAutoContinue, v.clamp(0, 5));
+
+  /// 长对话自动摘要开关，默认开。
+  static bool get autoSummarize => _sp.getBool(_kAutoSummarize) ?? true;
+  static set autoSummarize(bool v) => _sp.setBool(_kAutoSummarize, v);
 
   static bool get apiConfigured =>
       baseUrl.trim().isNotEmpty && apiKey.trim().isNotEmpty;
