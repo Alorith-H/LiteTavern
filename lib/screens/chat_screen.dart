@@ -8,6 +8,7 @@ import '../models/chat_group.dart';
 import '../models/chat_message.dart';
 import '../models/character_card.dart';
 import '../models/world_info.dart';
+import '../services/active_generations.dart';
 import '../services/api_client.dart';
 import '../services/chat_export.dart';
 import '../services/context_usage.dart';
@@ -148,6 +149,13 @@ class _ChatScreenState extends State<ChatScreen> {
   /// 最近一次生成是否出错（群聊轮转据此中断本轮）
   bool _genFailed = false;
 
+  /// 本次请求是否带了非默认高级采样字段（v0.9.0：失败时错误气泡下追加提示）
+  bool _sentAdvanced = false;
+
+  /// 最近一次出错的请求是否带了非默认高级字段（提示行显示条件，
+  /// 仅页面内存态：重进后旧错误只显示原始错误文本）
+  bool _lastErrorAdvanced = false;
+
   /// 已完成消息的 widget 缓存（含 markdown 渲染结果）。
   /// key 是消息对象本身：内容/身份一变即自然失效；列表结构变化时整体清空。
   final Map<ChatMessage, Widget> _msgCache = {};
@@ -172,6 +180,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    // v0.10.0：只解绑后台生成的 UI 监听，不取消请求 —— 生成在后台跑完，
+    // 完成由管理器落库；重进本页时 _load 里的接管逻辑恢复显示。
+    ActiveGenerations.instance.of(_convId)?.detach();
     _throttle.dispose();
     _reSettleTimer?.cancel();
     _api.dispose();
@@ -194,6 +205,8 @@ class _ChatScreenState extends State<ChatScreen> {
       if (mounted) Navigator.of(context).pop();
       return;
     }
+    // 生成中任务先记一次：读后任务恰好完成落库的竞态由下方第二次查兜底
+    final jobBefore = ActiveGenerations.instance.of(_convId);
     final data = await Storage.loadConversationData(widget.charId);
     var msgs = data.messages;
     if (msgs.isEmpty && card.firstMes.trim().isNotEmpty) {
@@ -216,6 +229,16 @@ class _ChatScreenState extends State<ChatScreen> {
     final books = await _loadWorldBooksFor(card);
 
     if (!mounted) return;
+    final job = ActiveGenerations.instance.of(_convId);
+    if (job != null) {
+      // 生成中重进（v0.10.0）：内容以任务缓冲为准 + 接管显示
+      msgs = _adoptJob(msgs, job);
+    } else if (jobBefore != null) {
+      // 任务恰好在读取期间完成并落库 → 重读一次拿最终内容
+      final fresh = await Storage.loadConversationData(widget.charId);
+      if (!mounted) return;
+      msgs = fresh.messages;
+    }
     setState(() {
       _card = card;
       // 防御：无论来源如何都复制成可增长列表（_doSend 会 add）
@@ -248,16 +271,26 @@ class _ChatScreenState extends State<ChatScreen> {
         }
       }
     }
+    final jobBefore = ActiveGenerations.instance.of(_convId);
     final data =
         await Storage.loadConversationData(Storage.groupConvId(group.id));
     final books = await _loadWorldBooksForGroup(members);
 
     if (!mounted) return;
+    var msgs = data.messages;
+    final job = ActiveGenerations.instance.of(_convId);
+    if (job != null) {
+      msgs = _adoptJob(msgs, job);
+    } else if (jobBefore != null) {
+      final fresh = await Storage.loadConversationData(_convId);
+      if (!mounted) return;
+      msgs = fresh.messages;
+    }
     setState(() {
       _group = group;
       _members = members;
       // 防御：复制成可增长列表，杜绝任何来源的不可变列表
-      _messages = List.of(data.messages);
+      _messages = List.of(msgs);
       _summary = data.summary;
       _hitStats = data.hitStats; // 旧会话无记录 = null（不显示命中率）
       _worldBooks = books;
@@ -741,6 +774,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 '只保留关键情节、人物关系与未决事项，不要任何前缀或解释，直接输出摘要。',
             user: user,
             temperature: 0.4,
+            sampling: AppSettings.activePreset.sampling,
           )
           .timeout(const Duration(seconds: 30));
       final text = normalizeSummary(raw);
@@ -896,25 +930,37 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     _lastPrompt = toSend;
 
-    int? exactPrompt;
-    int? exactCompletion;
+    // v0.9.0：统一走激活预设的完整参数集（高级字段默认不进 body）
+    final sampling = AppSettings.activePreset.sampling;
+    _sentAdvanced = !sampling.isDefault;
 
-    await _api.streamChat(
-      baseUrl: AppSettings.baseUrl,
-      apiKey: AppSettings.apiKey,
-      model: AppSettings.model,
-      messages: toSend,
-      temperature: AppSettings.temperature,
-      topP: AppSettings.topP,
-      maxTokens: AppSettings.maxTokens,
+    // v0.10.0：请求交给后台生成管理器 —— 页面 dispose 只解绑不取消，
+    // 完成后由管理器落库；本页（发起方）await 任务结束走原有收尾编排。
+    final target = _messages.last;
+    final job = ActiveGenerations.instance.start(
+      key: _convId,
+      kind: GenKind.chat,
+      request: GenRequest(
+        baseUrl: AppSettings.baseUrl,
+        apiKey: AppSettings.apiKey,
+        model: AppSettings.model,
+        messages: toSend,
+        temperature: AppSettings.temperature,
+        topP: AppSettings.topP,
+        maxTokens: AppSettings.maxTokens,
+        stream: AppSettings.streaming,
+        sampling: sampling,
+      ),
+      initialText: target.content,
+      targetTs: target.timestamp,
+      targetSender: target.senderId,
+      genStartLen: _genStartLen,
+      isContinue: _isContinueGen,
+      prompt: toSend,
+      sentAdvanced: _sentAdvanced,
       onDelta: (delta) {
         if (!mounted || token != _genToken) return;
         _enqueueDelta(delta);
-      },
-      onUsage: (p, c) {
-        exactPrompt = p;
-        exactCompletion = c;
-        _lastExactPrompt = p; // 上下文占用页「上次实际」
       },
       onError: (error) {
         if (!mounted || token != _genToken) return;
@@ -926,9 +972,18 @@ class _ChatScreenState extends State<ChatScreen> {
           _messages[i] = _messages[i].copyWith(error: error);
         });
         _genFailed = true;
+        _lastErrorAdvanced = _sentAdvanced;
       },
-      onDone: () {},
     );
+    // 同 key 已有进行中的生成（防重入兜底，正常被 _generating 挡住）
+    if (job == null) return false;
+
+    await job.finished;
+
+    // usage 在请求结束前已写入任务（与原 onUsage 时序一致）
+    final exactPrompt = job.exactPrompt;
+    final exactCompletion = job.exactCompletion;
+    if (exactPrompt != null) _lastExactPrompt = exactPrompt;
 
     _flushStream();
     // 被停止：_stop 已完成记账与落盘，这里直接退出
@@ -2016,6 +2071,20 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ],
             ),
+            // v0.9.0：本次带了非默认高级采样参数时的失败提示
+            //（只追加提示，不改设置、不吞原始错误）
+            if (isLast && _lastErrorAdvanced)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  '本次带了高级采样参数，当前后端可能不支持，可到高级设置改回默认',
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontSize: AppType.caption,
+                    height: 1.4,
+                  ),
+                ),
+              ),
           ],
           if (!isUser && m.variants.length > 1) _buildVariantDots(scheme, m),
         ],

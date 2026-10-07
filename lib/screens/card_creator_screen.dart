@@ -105,6 +105,10 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
   bool _followScroll = true;
   int _genToken = 0;
 
+  /// 本次请求是否带了非默认高级采样字段（v0.9.0 失败提示，页面内存态）
+  bool _sentAdvanced = false;
+  bool _lastErrorAdvanced = false;
+
   /// 流式节流：与聊天页同一实现（≥33ms 才落一次 setState）
   late final StreamThrottle _throttle = StreamThrottle(
     minIntervalMs: 33,
@@ -226,6 +230,9 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
     if (isContinue) {
       history.add(const PromptMessage(role: 'system', content: _kContinueHint));
     }
+    // v0.9.0：统一走激活预设的完整参数集（高级字段默认不进 body）
+    final sampling = AppSettings.activePreset.sampling;
+    _sentAdvanced = !sampling.isDefault;
     await _api.streamChat(
       baseUrl: AppSettings.baseUrl,
       apiKey: AppSettings.apiKey,
@@ -237,6 +244,8 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
       temperature: AppSettings.temperature,
       topP: AppSettings.topP,
       maxTokens: AppSettings.maxTokens,
+      stream: AppSettings.streaming,
+      sampling: sampling,
       onDelta: (delta) {
         if (!mounted || token != _genToken) return;
         _throttle.enqueue(delta);
@@ -249,6 +258,7 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
             _msgs.last.error = error;
           }
         });
+        _lastErrorAdvanced = _sentAdvanced;
       },
       onDone: () {},
     );
@@ -322,6 +332,7 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
             user: _transcript(),
             temperature: AppSettings.temperature,
             maxTokens: maxT,
+            sampling: AppSettings.activePreset.sampling,
           )
           .timeout(const Duration(seconds: 120));
       if (!mounted) return;
@@ -558,6 +569,19 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
                     ),
                   ],
                 ),
+                // v0.9.0：本次带了非默认高级采样参数时的失败提示
+                if (i == _msgs.length - 1 && _lastErrorAdvanced)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      '本次带了高级采样参数，当前后端可能不支持，可到高级设置改回默认',
+                      style: TextStyle(
+                        color: scheme.onSurfaceVariant,
+                        fontSize: AppType.caption,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
               ],
             ],
           ),

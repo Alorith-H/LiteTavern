@@ -1,0 +1,67 @@
+# 轻酒馆 v0.9.0 第五批 — 设置两级改版 + 真实生效的高级采样参数
+（增量。设计沿用克制编辑风。**硬约束：只实现 OpenAI 兼容请求里真实存在的字段**，
+默认值=请求里完全不出现，对严格端点零影响；禁止实现 ST 特有但接口传不了的参数。）
+
+## 1. 设置页两级结构
+- 主设置页保留现有分组与顺序（模型服务 / 生成参数 / 世界书 / 聊天 / 外观 / 帮助）
+- **生成参数组新增一项**：「流式传输」Switch（默认开），副说明"关掉则整段生成完一次性显示"
+- **新增「高级设置」入口行**（放在生成参数组末尾）：标题「高级设置」+ 副说明
+  "采样参数、停止词等不常用项" → 子页面 `advanced_settings_screen.dart`
+- 高级页顶部小节标题同现有样式；页面符合编辑风（行 + hairline，无 Card）
+
+## 2. 高级设置页（子页面）—— 字段与语义
+每项：中文标签 + 人话副说明 + 控件；**值为默认时请求里绝不出现该字段**：
+| 标签 | 请求字段 | 控件 | 默认(=不发送) |
+|---|---|---|---|
+| 频率惩罚 | frequency_penalty | 滑条 0–2.0 步进0.05 | 0 |
+| 存在惩罚 | presence_penalty | 滑条 0–2.0 步进0.05 | 0 |
+| 重复惩罚 | repetition_penalty | 滑条 1.0–2.0 步进0.05 | 1.0（说明：部分后端支持） |
+| Top K | top_k | 数字 0–200 | 0（说明：只从概率前 K 个词里选，0=关闭，部分后端支持） |
+| Min P | min_p | 滑条 0–0.5 步进0.01 | 0（说明：相对最高概率的截断，0=关闭，部分后端支持） |
+| 随机种子 | seed | 数字输入，空=随机 | 空（说明：固定可复现同一回答） |
+| 停止词 | stop | 多行输入（每行一个），≤4 个 | 空 |
+副说明示例文案自拟，全部人话，禁 emoji。
+
+### 发送与错误
+- ApiClient 组装请求时逐字段：`值 != 默认` 才写入 body；stop 空列表不写
+- 发送失败且本次带了非默认高级字段 → 错误气泡下方追加一行提示：
+  "本次带了高级采样参数，当前后端可能不支持，可到高级设置改回默认"（不自动改设置、不吞原始错误）
+
+### 预设集成
+- 提示词预设模型扩展为 `{temperature, topP, maxTokens, frequencyPenalty, presencePenalty,
+  repetitionPenalty, topK, minP, seed, stop}`；高级页编辑的即是**激活预设**的字段
+  （与生成参数滑条同一套"改动即存入预设"语义，页顶显示当前预设名）
+- 迁移：已存预设 JSON 缺新字段 → 默认值补齐（读取时补，保存时带上），不破坏旧数据
+- 聊天/创建器/摘要等所有出网请求统一走激活预设的完整参数集
+
+## 3. 单人/群聊分段按钮动画（用户点名，补充需求）
+- 现状：v0.8 给内容区加了交叉淡入，但**顶部按钮的选中态是瞬时跳变**
+- 要求：把顶部「单人 | 群聊」改为**自带滑动指示的分段控件**（自定义实现，替换现状）：
+  - 胶囊形高亮背景在两个分段间**平滑滑动**：AnimatedPositioned/AnimatedAlign，
+    250–300ms，easeOutCubic，点左点右都触发，不允许瞬时跳变
+  - 文字颜色/字重同步渐变（AnimatedDefaultTextStyle 或 TweenColor）
+  - 样式符合编辑风：胶囊圆角、选中 = accent 淡填充 + accent 文字、未选中 = 次要色文字；
+    禁 emoji、无阴影
+  - 点击区域仍覆盖两段（点哪段选哪段）；v0.8 已做的内容区淡入**保留**
+  - 加 ≥1 条 widget 测试：点击后 pump 动画完成，指示器在目标段
+
+## 4. 明确不做（防止自作主张）
+DRY / XTC / TFS / Smoothing Factor / Dynamic Temperature / Epsilon / Eta Cutoff /
+Top A / Typical P / Mirostat / Beam Search / Top nsigma / Repetition Penalty Range·Slope
+—— OpenAI 兼容接口无法生效，**一律不实现**；在高级设置页底部加一行次要色说明：
+"DRY、XTC、Mirostat 等依赖本地后端的采样器暂不提供"
+
+## 禁止
+- 不动现有分组的既有项与行为；不改 gradle/图标；除 share_plus 外 0 新依赖
+- 默认参数状态下，请求 body 与 v0.8 完全一致（回归保障）
+
+## 环境
+- `export PATH="/c/Users/28351/Desktop/Project/flutter/bin:$PATH"`（/c/flutter/bin 亦可）
+- 构建前 `export FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn`
+- `version: 0.9.0+1`
+
+## 完成标准
+1. `flutter analyze` 0 issues
+2. `flutter test` 现有 87 条全过 + 新增（默认不发送 ≥3、预设迁移 ≥2、stop 归一化 ≥1）
+3. `flutter build apk --release` 成功
+4. 输出：改动清单 + 字段/默认值对照表 + 预设迁移说明

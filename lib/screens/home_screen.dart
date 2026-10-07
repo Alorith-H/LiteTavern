@@ -10,6 +10,7 @@ import '../services/card_downloader.dart';
 import '../services/card_parser.dart';
 import '../services/storage.dart';
 import '../widgets/common.dart';
+import '../widgets/segmented_toggle.dart';
 import 'card_creator_screen.dart';
 import 'chat_screen.dart';
 import 'character_edit_screen.dart';
@@ -333,8 +334,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                // 顶部分段切换：单人 | 群聊（胶囊、hairline、选中 accent 淡底）
-                _buildSegmented(scheme),
+                // 顶部分段切换：单人 | 群聊（胶囊、hairline、滑动指示 v0.9.0）
+                _buildSegmented(),
                 // 搜索框：下划线式（无边框盒）
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
@@ -404,52 +405,16 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// 分段切换「单人 | 群聊」：胶囊描边 + 选中段 accent 10% 淡底。
-  Widget _buildSegmented(ColorScheme scheme) {
+  /// 分段切换「单人 | 群聊」：胶囊描边 + 自带滑动指示（v0.9.0）。
+  /// 胶囊高亮在两段间平滑滑动（280ms easeOutCubic），文字同步渐变；
+  /// 内容区的 v0.8 交叉淡入保留。
+  Widget _buildSegmented() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      child: Container(
-        height: 40,
-        padding: const EdgeInsets.all(3),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: scheme.outline),
-        ),
-        child: Row(
-          children: [
-            Expanded(child: _segment(scheme, 0, '单人')),
-            const SizedBox(width: 6),
-            Expanded(child: _segment(scheme, 1, '群聊')),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _segment(ColorScheme scheme, int index, String label) {
-    final selected = _tab == index;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () {
-        if (_tab == index) return;
-        setState(() => _tab = index);
-      },
-      child: Container(
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: selected
-              ? scheme.primary.withValues(alpha: 0.10)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(17),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: AppType.caption,
-            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-            color: selected ? scheme.primary : scheme.onSurfaceVariant,
-          ),
-        ),
+      child: SegmentedToggle(
+        value: _tab,
+        labels: const ['单人', '群聊'],
+        onChanged: (i) => setState(() => _tab = i),
       ),
     );
   }

@@ -4,6 +4,32 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'prompt_builder.dart';
+import 'sampling_params.dart';
+
+/// 组装 /chat/completions 请求体（纯函数，单测直接打这里）。
+/// 默认参数下与 v0.8 的 body 完全一致；[sampling] 中值为默认的字段
+/// 完全不出现（对严格端点零影响）。
+Map<String, dynamic> buildChatRequestBody({
+  required String model,
+  required List<PromptMessage> messages,
+  required bool stream,
+  required double temperature,
+  required double topP,
+  int maxTokens = 0,
+  bool includeUsage = false,
+  SamplingParams sampling = const SamplingParams(),
+}) =>
+    {
+      'model': model,
+      'messages': messages.map((m) => m.toJson()).toList(),
+      'stream': stream,
+      'temperature': temperature,
+      'top_p': topP,
+      if (maxTokens > 0) 'max_tokens': maxTokens,
+      if (stream && includeUsage)
+        'stream_options': {'include_usage': true},
+      ...sampling.toBodyFields(),
+    };
 
 /// OpenAI 兼容 API 流式客户端（支持取消）。
 class ApiClient {
@@ -12,6 +38,8 @@ class ApiClient {
 
   /// 流式聊天。回调逐 chunk 收到 delta 文本；
   /// provider 返回 usage 时（[DONE] 前最后一个 chunk）回调 [onUsage]。
+  /// [stream] = false 时整段生成完一次性回调（v0.9.0 流式传输开关）；
+  /// [sampling] 为激活预设的高级采样参数，默认值不进 body。
   Future<void> streamChat({
     required String baseUrl,
     required String apiKey,
@@ -20,6 +48,8 @@ class ApiClient {
     double temperature = 0.8,
     double topP = 1.0,
     int maxTokens = 0,
+    bool stream = true,
+    SamplingParams sampling = const SamplingParams(),
     required void Function(String delta) onDelta,
     required void Function(String error) onError,
     required void Function() onDone,
@@ -33,19 +63,20 @@ class ApiClient {
     try {
       final uri = Uri.parse('${_trimSlash(baseUrl)}/chat/completions');
 
-      Map<String, dynamic> buildBody(bool includeUsage) => {
-            'model': model,
-            'messages': messages.map((m) => m.toJson()).toList(),
-            'stream': true,
-            'temperature': temperature,
-            'top_p': topP,
-            if (maxTokens > 0) 'max_tokens': maxTokens,
-            if (includeUsage) 'stream_options': {'include_usage': true},
-          };
+      Map<String, dynamic> buildBody(bool includeUsage) => buildChatRequestBody(
+            model: model,
+            messages: messages,
+            stream: stream,
+            temperature: temperature,
+            topP: topP,
+            maxTokens: maxTokens,
+            includeUsage: includeUsage,
+            sampling: sampling,
+          );
 
       // 请求带 stream_options 收集 usage；若 provider 因该字段报 400，
-      // 去掉后静默重试一次（不弹错误给用户）。
-      var includeUsage = true;
+      // 去掉后静默重试一次（不弹错误给用户）。非流式不带该字段。
+      var includeUsage = stream;
       late final http.StreamedResponse response;
       while (true) {
         final request = http.Request('POST', uri);
@@ -73,6 +104,37 @@ class ApiClient {
         if (_cancelled) return;
         final body = await response.stream.bytesToString();
         onError(humanError(response.statusCode, body));
+        return;
+      }
+
+      // 非流式：读完整 JSON，一次性回调全文与 usage。
+      if (!stream) {
+        final raw = await response.stream.bytesToString();
+        if (_cancelled) return;
+        final json = jsonDecode(raw);
+        if (json is! Map) {
+          onError('请求失败：响应不是合法 JSON');
+          return;
+        }
+        final usage = json['usage'];
+        if (usage is Map &&
+            usage['prompt_tokens'] is num &&
+            usage['completion_tokens'] is num) {
+          onUsage?.call(
+            (usage['prompt_tokens'] as num).toInt(),
+            (usage['completion_tokens'] as num).toInt(),
+          );
+        }
+        final choices = json['choices'];
+        String? content;
+        if (choices is List && choices.isNotEmpty && choices.first is Map) {
+          final msg = choices.first['message'];
+          if (msg is Map && msg['content'] is String) {
+            content = msg['content'] as String;
+          }
+        }
+        if (content != null && content.isNotEmpty) onDelta(content);
+        onDone();
         return;
       }
 
@@ -150,6 +212,7 @@ class ApiClient {
     required String user,
     double temperature = 0.4,
     int maxTokens = 512,
+    SamplingParams sampling = const SamplingParams(),
   }) async {
     cancel();
     _cancelled = false;
@@ -170,6 +233,7 @@ class ApiClient {
         'stream': true,
         'temperature': temperature,
         'max_tokens': maxTokens,
+        ...sampling.toBodyFields(),
       });
       final response =
           await client.send(request).timeout(const Duration(seconds: 15));

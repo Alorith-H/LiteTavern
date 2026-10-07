@@ -9,6 +9,7 @@ import '../main.dart';
 import '../models/world_info.dart';
 import '../services/storage.dart';
 import '../widgets/common.dart';
+import 'advanced_settings_screen.dart';
 import 'api_config_screen.dart';
 import 'gen_presets_screen.dart';
 import 'onboarding_screen.dart';
@@ -33,6 +34,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late bool _showQuickReplies;
   late int _autoContinue;
   late bool _autoSummarize;
+  late bool _streaming;
 
   /// 当前主题色 seed 与自定义 HEX 输入
   late int _seed;
@@ -74,6 +76,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _showQuickReplies = AppSettings.showQuickReplies;
     _autoContinue = AppSettings.autoContinueCount;
     _autoSummarize = AppSettings.autoSummarize;
+    _streaming = AppSettings.streaming;
     _seed = AppSettings.themeSeed;
     _hexCtrl = TextEditingController(text: _seedToHex(_seed));
     _loadWorldBooks();
@@ -109,6 +112,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _openPresets() async {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const GenPresetsScreen()),
+    );
+    _syncFromSettings();
+  }
+
+  /// 高级设置子页（v0.9.0）：返回后同步预设相关显示（激活预设可能已切换）。
+  Future<void> _openAdvanced() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const AdvancedSettingsScreen()),
     );
     _syncFromSettings();
   }
@@ -354,6 +365,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
               setState(() => _autoContinue = v);
               AppSettings.autoContinueCount = v;
             },
+          ),
+          const Divider(height: 1),
+          _switchRow(
+            title: '流式传输',
+            subtitle: '关掉则整段生成完一次性显示',
+            value: _streaming,
+            onChanged: (v) {
+              setState(() => _streaming = v);
+              AppSettings.streaming = v;
+            },
+          ),
+          const Divider(height: 1),
+          // 高级设置入口（生成参数组末尾）：采样参数、停止词等不常用项
+          _actionRow(
+            title: '高级设置',
+            subtitle: '采样参数、停止词等不常用项',
+            trailing: Icon(
+              Icons.chevron_right_outlined,
+              size: 22,
+              color: scheme.onSurfaceVariant,
+            ),
+            onTap: _openAdvanced,
           ),
 
           // ------------------------------------------------ 世界书 --

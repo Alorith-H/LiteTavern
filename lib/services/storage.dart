@@ -10,6 +10,7 @@ import '../models/chat_group.dart';
 import '../models/character_card.dart';
 import '../models/world_info.dart';
 import 'hit_stats.dart';
+import 'sampling_params.dart';
 import 'summarize.dart';
 
 /// 会话文件内容：消息列表 + 可选的早期摘要 + 可选的世界书命中率统计。
@@ -431,7 +432,8 @@ class ApiConfig {
       );
 }
 
-/// 一套生成参数预设（v0.7.0）。存 SharedPreferences JSON 数组。
+/// 一套生成参数预设（v0.7.0，v0.9.0 扩展高级采样字段）。
+/// 存 SharedPreferences JSON 数组；旧 JSON 缺新字段 → 读取时默认补齐。
 class GenPreset {
   final String id;
   final String name;
@@ -445,37 +447,122 @@ class GenPreset {
   /// 0 = 不限（请求不带该字段）
   final int maxTokens;
 
+  /// 频率惩罚 0–2，默认 0 = 请求不带
+  final double frequencyPenalty;
+
+  /// 存在惩罚 0–2，默认 0 = 请求不带
+  final double presencePenalty;
+
+  /// 重复惩罚 1.0–2.0，默认 1.0 = 请求不带（部分后端支持）
+  final double repetitionPenalty;
+
+  /// Top K，默认 0 = 关闭 = 请求不带（部分后端支持）
+  final int topK;
+
+  /// Min P 0–0.5，默认 0 = 关闭 = 请求不带（部分后端支持）
+  final double minP;
+
+  /// 随机种子，null = 随机 = 请求不带
+  final int? seed;
+
+  /// 停止词（≤4，读取时归一化）；空列表 = 请求不带
+  final List<String> stop;
+
   const GenPreset({
     required this.id,
     required this.name,
     required this.temperature,
     required this.topP,
     required this.maxTokens,
+    this.frequencyPenalty = SamplingParams.defaultFrequencyPenalty,
+    this.presencePenalty = SamplingParams.defaultPresencePenalty,
+    this.repetitionPenalty = SamplingParams.defaultRepetitionPenalty,
+    this.topK = SamplingParams.defaultTopK,
+    this.minP = SamplingParams.defaultMinP,
+    this.seed,
+    this.stop = const [],
   });
 
+  /// 读取时补齐：v0.8 及更早的预设 JSON 没有高级字段 → 全部落默认值。
   factory GenPreset.fromJson(Map<String, dynamic> json) => GenPreset(
         id: json['id'] is String ? json['id'] as String : '',
         name: json['name'] is String ? json['name'] as String : '',
         temperature: (json['temperature'] as num?)?.toDouble() ?? 0.8,
         topP: (json['topP'] as num?)?.toDouble() ?? 1.0,
         maxTokens: (json['maxTokens'] as num?)?.toInt() ?? 0,
+        frequencyPenalty:
+            (json['frequencyPenalty'] as num?)?.toDouble() ??
+                SamplingParams.defaultFrequencyPenalty,
+        presencePenalty:
+            (json['presencePenalty'] as num?)?.toDouble() ??
+                SamplingParams.defaultPresencePenalty,
+        repetitionPenalty:
+            (json['repetitionPenalty'] as num?)?.toDouble() ??
+                SamplingParams.defaultRepetitionPenalty,
+        topK: (json['topK'] as num?)?.toInt() ?? SamplingParams.defaultTopK,
+        minP: (json['minP'] as num?)?.toDouble() ?? SamplingParams.defaultMinP,
+        seed: (json['seed'] as num?)?.toInt(),
+        stop: SamplingParams.normalizeStop(
+          (json['stop'] as List?)?.whereType<String>() ?? const [],
+        ),
       );
 
+  /// 保存时带上补齐的新字段（seed 为 null 时写 null，读回仍是 null）。
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
         'temperature': temperature,
         'topP': topP,
         'maxTokens': maxTokens,
+        'frequencyPenalty': frequencyPenalty,
+        'presencePenalty': presencePenalty,
+        'repetitionPenalty': repetitionPenalty,
+        'topK': topK,
+        'minP': minP,
+        'seed': seed,
+        'stop': stop,
       };
 
-  GenPreset copyWith({String? name, double? temperature, double? topP, int? maxTokens}) =>
+  /// 高级采样参数视图（请求组装与"是否带了非默认项"判断共用）。
+  SamplingParams get sampling => SamplingParams(
+        frequencyPenalty: frequencyPenalty,
+        presencePenalty: presencePenalty,
+        repetitionPenalty: repetitionPenalty,
+        topK: topK,
+        minP: minP,
+        seed: seed,
+        stop: stop,
+      );
+
+  /// seed 用哨兵区分"不改"与"清空为随机"（传 null = 清空）。
+  static const Object _keepSeed = Object();
+
+  GenPreset copyWith({
+    String? name,
+    double? temperature,
+    double? topP,
+    int? maxTokens,
+    double? frequencyPenalty,
+    double? presencePenalty,
+    double? repetitionPenalty,
+    int? topK,
+    double? minP,
+    Object? seed = _keepSeed,
+    List<String>? stop,
+  }) =>
       GenPreset(
         id: id,
         name: name ?? this.name,
         temperature: temperature ?? this.temperature,
         topP: topP ?? this.topP,
         maxTokens: maxTokens ?? this.maxTokens,
+        frequencyPenalty: frequencyPenalty ?? this.frequencyPenalty,
+        presencePenalty: presencePenalty ?? this.presencePenalty,
+        repetitionPenalty: repetitionPenalty ?? this.repetitionPenalty,
+        topK: topK ?? this.topK,
+        minP: minP ?? this.minP,
+        seed: identical(seed, _keepSeed) ? this.seed : seed as int?,
+        stop: stop ?? this.stop,
       );
 }
 
@@ -726,6 +813,46 @@ class AppSettings {
   static int get maxTokens => activePreset.maxTokens;
   static set maxTokens(int v) =>
       _updateActivePreset((p) => p.copyWith(maxTokens: v));
+
+  // ---------------------------------------------- 高级采样（v0.9.0） --
+  // 与温度/TopP 同一套"改动即存入激活预设"语义；默认值 = 请求不发送。
+
+  /// 频率惩罚 0–2，默认 0（= 请求不带）。
+  static double get frequencyPenalty => activePreset.frequencyPenalty;
+  static set frequencyPenalty(double v) =>
+      _updateActivePreset((p) => p.copyWith(frequencyPenalty: v));
+
+  /// 存在惩罚 0–2，默认 0（= 请求不带）。
+  static double get presencePenalty => activePreset.presencePenalty;
+  static set presencePenalty(double v) =>
+      _updateActivePreset((p) => p.copyWith(presencePenalty: v));
+
+  /// 重复惩罚 1.0–2.0，默认 1.0（= 请求不带，部分后端支持）。
+  static double get repetitionPenalty => activePreset.repetitionPenalty;
+  static set repetitionPenalty(double v) =>
+      _updateActivePreset((p) => p.copyWith(repetitionPenalty: v));
+
+  /// Top K，默认 0 = 关闭（= 请求不带，部分后端支持）。
+  static int get topK => activePreset.topK;
+  static set topK(int v) => _updateActivePreset((p) => p.copyWith(topK: v));
+
+  /// Min P 0–0.5，默认 0 = 关闭（= 请求不带，部分后端支持）。
+  static double get minP => activePreset.minP;
+  static set minP(double v) => _updateActivePreset((p) => p.copyWith(minP: v));
+
+  /// 随机种子，null = 随机（= 请求不带）。
+  static int? get seed => activePreset.seed;
+  static set seed(int? v) => _updateActivePreset((p) => p.copyWith(seed: v));
+
+  /// 停止词（≤4，调用方先归一化）；空列表 = 请求不带。
+  static List<String> get stop => activePreset.stop;
+  static set stop(List<String> v) =>
+      _updateActivePreset((p) => p.copyWith(stop: v));
+
+  /// 流式传输（v0.9.0）：关掉则整段生成完一次性显示。默认开。
+  static bool get streaming => _sp.getBool(_kStreaming) ?? true;
+  static set streaming(bool v) => _sp.setBool(_kStreaming, v);
+  static const _kStreaming = 'streaming';
 
   /// 设置是否已加载（未初始化时读取默认值，供纯逻辑模块兜底）
   static bool get initialized => _ready;
