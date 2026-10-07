@@ -4,23 +4,31 @@ import '../models/chat_message.dart';
 import '../models/world_info.dart';
 import 'macros.dart';
 
-/// 一条激活的世界词条目：宏替换后的内容 + 来源世界书名。
+/// 一条激活的世界词条目：宏替换后的内容 + 来源世界书名 +
+/// 注入位置（0 system 最前 / 1 历史深度 / 2 角色设定后，供 PromptBuilder 分流）。
 class ActivatedEntry {
   final String source;
   final String content;
+  final int position;
+  final int depth;
 
-  const ActivatedEntry({required this.source, required this.content});
+  const ActivatedEntry({
+    required this.source,
+    required this.content,
+    this.position = 0,
+    this.depth = 0,
+  });
 }
 
 /// 世界书关键词激活引擎。
 ///
 /// 激活逻辑：
-/// 1. 取最近 scanDepth 条消息的全部文本（小写化）
+/// 1. 取最近 scanDepth 条消息的全部文本（小写化；scanDepth 0 = 全程）
 /// 2. 条目任一 key（不区分大小写，contains 匹配）出现在文本中 → 初步命中
-/// 3. keysecondary 非空时，还需至少一个 secondary key 命中
+/// 3. keysecondary 非空时，还需至少一个 secondary key 命中（AND 语义）
 /// 4. disabled 跳过；useProbability 为 true 时按百分比随机
 /// 5. recursive 条目把已激活条目 content 并入匹配文本再跑一轮（最多迭代 3 层）
-/// 6. 命中条目按 insertion_order 升序，宏替换后返回（带来源标注）
+/// 6. 命中条目按 insertion_order 升序，宏替换后返回（带来源标注 + position/depth）
 class WorldInfoEngine {
   /// [books] 为需要参与激活的世界书（卡内嵌 + 用户挂载的合并传入）。
   /// 返回按 insertion_order 升序的、已宏替换的条目（含来源世界书名）。
@@ -43,9 +51,13 @@ class WorldInfoEngine {
     }
     if (all.isEmpty) return [];
 
-    // 每个 scanDepth 值对应的最近 N 条消息文本缓存
+    // 每个 scanDepth 值对应的最近 N 条消息文本缓存；
+    // scanDepth 0 = 全程（不截断），N>0 只回看最近 N 条
+    final fullText =
+        messages.map((m) => m.content.toLowerCase()).join('\n');
     final textCache = <int, String>{};
     String textFor(int depth) {
+      if (depth <= 0) return fullText;
       return textCache.putIfAbsent(depth, () {
         final take = messages.length > depth
             ? messages.sublist(messages.length - depth)
@@ -132,6 +144,8 @@ class WorldInfoEngine {
               source: t.$3.name.trim().isEmpty ? '未命名世界书' : t.$3.name.trim(),
               content:
                   applyMacros(t.$2.content, charName: charName, userName: userName),
+              position: t.$2.position,
+              depth: t.$2.depth,
             ))
         .toList();
   }

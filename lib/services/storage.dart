@@ -368,6 +368,96 @@ class Storage {
   }
 }
 
+/// 一套 API 配置（v0.7.0 多配置）。存 SharedPreferences JSON 数组。
+class ApiConfig {
+  final String id;
+  final String name;
+  final String baseUrl;
+  final String key;
+  final String model;
+
+  const ApiConfig({
+    required this.id,
+    required this.name,
+    this.baseUrl = '',
+    this.key = '',
+    this.model = '',
+  });
+
+  factory ApiConfig.fromJson(Map<String, dynamic> json) => ApiConfig(
+        id: json['id'] is String ? json['id'] as String : '',
+        name: json['name'] is String ? json['name'] as String : '',
+        baseUrl: json['baseUrl'] is String ? json['baseUrl'] as String : '',
+        key: json['key'] is String ? json['key'] as String : '',
+        model: json['model'] is String ? json['model'] as String : '',
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'baseUrl': baseUrl,
+        'key': key,
+        'model': model,
+      };
+
+  ApiConfig copyWith({String? name, String? baseUrl, String? key, String? model}) =>
+      ApiConfig(
+        id: id,
+        name: name ?? this.name,
+        baseUrl: baseUrl ?? this.baseUrl,
+        key: key ?? this.key,
+        model: model ?? this.model,
+      );
+}
+
+/// 一套生成参数预设（v0.7.0）。存 SharedPreferences JSON 数组。
+class GenPreset {
+  final String id;
+  final String name;
+
+  /// 0–2，默认 0.8
+  final double temperature;
+
+  /// 0–1，默认 1.0
+  final double topP;
+
+  /// 0 = 不限（请求不带该字段）
+  final int maxTokens;
+
+  const GenPreset({
+    required this.id,
+    required this.name,
+    required this.temperature,
+    required this.topP,
+    required this.maxTokens,
+  });
+
+  factory GenPreset.fromJson(Map<String, dynamic> json) => GenPreset(
+        id: json['id'] is String ? json['id'] as String : '',
+        name: json['name'] is String ? json['name'] as String : '',
+        temperature: (json['temperature'] as num?)?.toDouble() ?? 0.8,
+        topP: (json['topP'] as num?)?.toDouble() ?? 1.0,
+        maxTokens: (json['maxTokens'] as num?)?.toInt() ?? 0,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'temperature': temperature,
+        'topP': topP,
+        'maxTokens': maxTokens,
+      };
+
+  GenPreset copyWith({String? name, double? temperature, double? topP, int? maxTokens}) =>
+      GenPreset(
+        id: id,
+        name: name ?? this.name,
+        temperature: temperature ?? this.temperature,
+        topP: topP ?? this.topP,
+        maxTokens: maxTokens ?? this.maxTokens,
+      );
+}
+
 /// 应用设置（shared_preferences）。
 class AppSettings {
   static late SharedPreferences _sp;
@@ -375,8 +465,246 @@ class AppSettings {
 
   static Future<void> init() async {
     _sp = await SharedPreferences.getInstance();
+    _migrateApiConfig();
+    _migrateGenPreset();
     _ready = true;
   }
+
+  // ------------------------------------------------------------ 迁移 --
+
+  /// 配置/预设 id：微秒时间戳 + 进程内序号（避免同毫秒碰撞）。
+  static int _idSeq = 0;
+  static String _newId() =>
+      '${DateTime.now().microsecondsSinceEpoch}_${_idSeq++}';
+
+  /// 供界面新建配置/预设时取 id。
+  static String newConfigId() => _newId();
+
+  /// 旧的单套 baseUrl/key/model → 名为「默认」的配置并激活（一次性）。
+  /// `api_configs` 存在即已迁移过，不重复迁；旧字段迁完即删。
+  /// 全新安装（无旧字段）也建一套空的「默认」，保证列表至少 1 套。
+  static void _migrateApiConfig() {
+    if (!_sp.containsKey(_kApiConfigs)) {
+      final cfg = ApiConfig(
+        id: _newId(),
+        name: '默认',
+        baseUrl: _sp.getString(_kBaseUrl) ?? '',
+        key: _sp.getString(_kApiKey) ?? '',
+        model: _sp.getString(_kModel) ?? '',
+      );
+      _sp.setString(_kApiConfigs, jsonEncode([cfg.toJson()]));
+      _sp.setString(_kActiveApiCfg, cfg.id);
+    }
+    _sp.remove(_kBaseUrl);
+    _sp.remove(_kApiKey);
+    _sp.remove(_kModel);
+  }
+
+  /// 旧的 temperature/topP/maxTokens → 名为「默认」的预设（一次性）。
+  /// 逻辑同上；全新安装默认 0.8 / 1.0 / 0。
+  static void _migrateGenPreset() {
+    if (!_sp.containsKey(_kGenPresets)) {
+      final preset = GenPreset(
+        id: _newId(),
+        name: '默认',
+        temperature: _sp.getDouble(_kTemperature) ?? 0.8,
+        topP: _sp.getDouble(_kTopP) ?? 1.0,
+        maxTokens: _sp.getInt(_kMaxTokens) ?? 0,
+      );
+      _sp.setString(_kGenPresets, jsonEncode([preset.toJson()]));
+      _sp.setString(_kActivePreset, preset.id);
+    }
+    _sp.remove(_kTemperature);
+    _sp.remove(_kTopP);
+    _sp.remove(_kMaxTokens);
+  }
+
+  // ------------------------------------------------------ API 配置 --
+
+  static const _kApiConfigs = 'api_configs';
+  static const _kActiveApiCfg = 'active_api_config_id';
+
+  static List<ApiConfig> get apiConfigs {
+    try {
+      final raw = _sp.getString(_kApiConfigs);
+      if (raw != null) {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          final list = decoded
+              .whereType<Map<String, dynamic>>()
+              .map(ApiConfig.fromJson)
+              .where((c) => c.id.isNotEmpty)
+              .toList();
+          if (list.isNotEmpty) return list;
+        }
+      }
+    } catch (_) {
+      // 数据损坏时回落到默认单套
+    }
+    return const [
+      ApiConfig(id: 'default', name: '默认'),
+    ];
+  }
+
+  static set apiConfigs(List<ApiConfig> v) =>
+      _sp.setString(_kApiConfigs, jsonEncode([for (final c in v) c.toJson()]));
+
+  static ApiConfig get activeApiConfig {
+    final list = apiConfigs;
+    final id = _sp.getString(_kActiveApiCfg);
+    for (final c in list) {
+      if (c.id == id) return c;
+    }
+    return list.first;
+  }
+
+  /// 激活 id；不存在的 id 忽略（调用方读 activeApiConfig 拿到的是第一套）。
+  static set activeApiConfigId(String v) {
+    for (final c in apiConfigs) {
+      if (c.id == v) {
+        _sp.setString(_kActiveApiCfg, v);
+        return;
+      }
+    }
+  }
+
+  /// 改写激活配置的字段（列表里原位替换）。
+  static void _updateActiveApi(ApiConfig Function(ApiConfig) f) {
+    final list = List.of(apiConfigs);
+    final active = activeApiConfig;
+    final i = list.indexWhere((c) => c.id == active.id);
+    final updated = f(active);
+    if (i < 0) {
+      list.add(updated);
+      _sp.setString(_kActiveApiCfg, updated.id);
+    } else {
+      list[i] = updated;
+    }
+    apiConfigs = list;
+  }
+
+  /// 删除配置：至少保留 1 套（剩最后一套时不生效）；
+  /// 删掉激活项 → 自动激活第一套。
+  static void deleteApiConfig(String id) {
+    final list = apiConfigs;
+    if (list.length <= 1) return;
+    final next = list.where((c) => c.id != id).toList();
+    if (next.length == list.length) return; // id 不存在
+    apiConfigs = next;
+    if (_sp.getString(_kActiveApiCfg) == id) {
+      _sp.setString(_kActiveApiCfg, next.first.id);
+    }
+  }
+
+  /// 出网统一读激活配置（聊天/继续/摘要/测试共用）。
+  static String get baseUrl => activeApiConfig.baseUrl;
+  static set baseUrl(String v) =>
+      _updateActiveApi((c) => c.copyWith(baseUrl: v.trim()));
+
+  static String get apiKey => activeApiConfig.key;
+  static set apiKey(String v) =>
+      _updateActiveApi((c) => c.copyWith(key: v.trim()));
+
+  static String get model => activeApiConfig.model;
+  static set model(String v) =>
+      _updateActiveApi((c) => c.copyWith(model: v.trim()));
+
+  // ------------------------------------------------------ 生成参数 --
+
+  static const _kGenPresets = 'gen_presets';
+  static const _kActivePreset = 'active_preset_id';
+
+  // 旧的单套生成参数字段（仅迁移时读取，迁完即删）
+  static const _kTemperature = 'temperature';
+  static const _kTopP = 'top_p';
+  static const _kMaxTokens = 'max_tokens';
+
+  static List<GenPreset> get genPresets {
+    try {
+      final raw = _sp.getString(_kGenPresets);
+      if (raw != null) {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          final list = decoded
+              .whereType<Map<String, dynamic>>()
+              .map(GenPreset.fromJson)
+              .where((p) => p.id.isNotEmpty)
+              .toList();
+          if (list.isNotEmpty) return list;
+        }
+      }
+    } catch (_) {
+      // 数据损坏时回落到默认单套
+    }
+    return const [
+      GenPreset(
+        id: 'default',
+        name: '默认',
+        temperature: 0.8,
+        topP: 1.0,
+        maxTokens: 0,
+      ),
+    ];
+  }
+
+  static set genPresets(List<GenPreset> v) =>
+      _sp.setString(_kGenPresets, jsonEncode([for (final p in v) p.toJson()]));
+
+  static GenPreset get activePreset {
+    final list = genPresets;
+    final id = _sp.getString(_kActivePreset);
+    for (final p in list) {
+      if (p.id == id) return p;
+    }
+    return list.first;
+  }
+
+  static set activePresetId(String v) {
+    for (final p in genPresets) {
+      if (p.id == v) {
+        _sp.setString(_kActivePreset, v);
+        return;
+      }
+    }
+  }
+
+  static void _updateActivePreset(GenPreset Function(GenPreset) f) {
+    final list = List.of(genPresets);
+    final active = activePreset;
+    final i = list.indexWhere((p) => p.id == active.id);
+    if (i < 0) {
+      list.add(f(active));
+    } else {
+      list[i] = f(active);
+    }
+    genPresets = list;
+  }
+
+  /// 删除预设：至少保留 1 套；删掉激活项 → 自动激活第一套。
+  static void deletePreset(String id) {
+    final list = genPresets;
+    if (list.length <= 1) return;
+    final next = list.where((p) => p.id != id).toList();
+    if (next.length == list.length) return;
+    genPresets = next;
+    if (_sp.getString(_kActivePreset) == id) {
+      _sp.setString(_kActivePreset, next.first.id);
+    }
+  }
+
+  /// 生成温度，0–2，默认 0.8（读写都落在激活预设上）。
+  static double get temperature => activePreset.temperature;
+  static set temperature(double v) =>
+      _updateActivePreset((p) => p.copyWith(temperature: v));
+
+  /// Top-p，0–1，默认 1.0（同上）。
+  static double get topP => activePreset.topP;
+  static set topP(double v) => _updateActivePreset((p) => p.copyWith(topP: v));
+
+  /// 最大回复长度；0 = 不限（请求里不带该字段，同上）。
+  static int get maxTokens => activePreset.maxTokens;
+  static set maxTokens(int v) =>
+      _updateActivePreset((p) => p.copyWith(maxTokens: v));
 
   /// 设置是否已加载（未初始化时读取默认值，供纯逻辑模块兜底）
   static bool get initialized => _ready;
@@ -388,15 +716,6 @@ class AppSettings {
   static const _kTheme = 'theme_mode';
   static const _kOnboarding = 'onboarding_done';
   static const _kMountedWb = 'mounted_worldbooks';
-
-  static String get baseUrl => _sp.getString(_kBaseUrl) ?? '';
-  static set baseUrl(String v) => _sp.setString(_kBaseUrl, v.trim());
-
-  static String get apiKey => _sp.getString(_kApiKey) ?? '';
-  static set apiKey(String v) => _sp.setString(_kApiKey, v.trim());
-
-  static String get model => _sp.getString(_kModel) ?? '';
-  static set model(String v) => _sp.setString(_kModel, v.trim());
 
   static String get userName => _sp.getString(_kUserName) ?? '你';
   static set userName(String v) => _sp.setString(_kUserName, v);
@@ -452,22 +771,6 @@ class AppSettings {
   /// 消息时间戳显示开关，默认关
   static bool get showTimestamps => _sp.getBool(_kShowTimestamps) ?? false;
   static set showTimestamps(bool v) => _sp.setBool(_kShowTimestamps, v);
-
-  static const _kTemperature = 'temperature';
-  static const _kTopP = 'top_p';
-  static const _kMaxTokens = 'max_tokens';
-
-  /// 生成温度，0–2，默认 0.8
-  static double get temperature => _sp.getDouble(_kTemperature) ?? 0.8;
-  static set temperature(double v) => _sp.setDouble(_kTemperature, v);
-
-  /// Top-p，0–1，默认 1.0
-  static double get topP => _sp.getDouble(_kTopP) ?? 1.0;
-  static set topP(double v) => _sp.setDouble(_kTopP, v);
-
-  /// 最大回复长度；0 = 不限（请求里不带该字段）
-  static int get maxTokens => _sp.getInt(_kMaxTokens) ?? 0;
-  static set maxTokens(int v) => _sp.setInt(_kMaxTokens, v);
 
   static const _kAutoContinue = 'auto_continue_count';
   static const _kAutoSummarize = 'auto_summarize';

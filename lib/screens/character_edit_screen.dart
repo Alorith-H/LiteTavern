@@ -3,9 +3,12 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../models/character_card.dart';
 import '../models/world_info.dart';
+import '../services/card_export.dart';
 import '../services/storage.dart';
 import '../widgets/common.dart';
 import 'world_book_entries_screen.dart';
@@ -109,6 +112,104 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
     await Storage.saveCharacter(updated);
     if (!mounted) return;
     Navigator.of(context).pop(true);
+  }
+
+  // ---------------------------------------------------------- 导出 --
+
+  /// 导出格式选择：JSON 总是可用；PNG 仅当角色有原图卡时提供。
+  void _exportSheet() {
+    final card = _card;
+    if (card == null) return;
+    final hasPng = Storage.avatarFile(card.id) != null;
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) {
+        final scheme = Theme.of(ctx).colorScheme;
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+                child: Text(
+                  '导出格式',
+                  style: TextStyle(
+                    fontSize: AppType.section,
+                    fontWeight: FontWeight.w600,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.data_object_outlined),
+                title: const Text('JSON'),
+                subtitle: const Text('chara_card V2 规范，可再次导入'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _export(asPng: false);
+                },
+              ),
+              if (hasPng)
+                ListTile(
+                  leading: const Icon(Icons.image_outlined),
+                  title: const Text('PNG'),
+                  subtitle: const Text('写回原图卡片，图片本身仍可导入'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _export(asPng: true);
+                  },
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// 用当前表单值导出 → 临时文件 → 系统分享面板，用完即删临时文件。
+  Future<void> _export({required bool asPng}) async {
+    final card = _card;
+    if (card == null) return;
+    final name =
+        _nameCtrl.text.trim().isEmpty ? card.name : _nameCtrl.text.trim();
+    final withForm = card.copyWith(
+      name: name,
+      description: _descCtrl.text,
+      personality: _personalityCtrl.text,
+      scenario: _scenarioCtrl.text,
+      firstMes: _firstMesCtrl.text,
+    );
+    final json = buildExportJson(withForm);
+    File? tmp;
+    try {
+      final dir = await getTemporaryDirectory();
+      final base = safeFileName(withForm.name);
+      if (asPng) {
+        final avatar = Storage.avatarFile(withForm.id);
+        if (avatar == null) return; // 无原图（正常情况已被选择器挡住）
+        final out = embedCharaInPng(await avatar.readAsBytes(), json);
+        tmp = File('${dir.path}${Platform.pathSeparator}$base.png');
+        await tmp.writeAsBytes(out, flush: true);
+      } else {
+        tmp = File('${dir.path}${Platform.pathSeparator}$base.json');
+        await tmp.writeAsString(json, flush: true);
+      }
+      await SharePlus.instance.share(ShareParams(files: [XFile(tmp.path)]));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('导出失败：$e')),
+      );
+    } finally {
+      // share_plus 分享前会把文件拷进自己的缓存目录，删掉原件不影响接收方
+      final f = tmp;
+      if (f != null) {
+        try {
+          if (await f.exists()) await f.delete();
+        } catch (_) {}
+      }
+    }
   }
 
   // ---------------------------------------------------------- 世界书 --
@@ -280,6 +381,19 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
       appBar: AppBar(
         title: const Text('编辑角色'),
         actions: [
+          PopupMenuButton<String>(
+            tooltip: '更多',
+            icon: const Icon(Icons.more_vert_outlined),
+            onSelected: (v) {
+              if (v == 'export') _exportSheet();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'export',
+                child: Text('导出角色卡'),
+              ),
+            ],
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: FilledButton(

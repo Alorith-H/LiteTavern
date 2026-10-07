@@ -7,9 +7,10 @@ import 'package:flutter/services.dart';
 
 import '../main.dart';
 import '../models/world_info.dart';
-import '../services/api_client.dart';
 import '../services/storage.dart';
 import '../widgets/common.dart';
+import 'api_config_screen.dart';
+import 'gen_presets_screen.dart';
 import 'onboarding_screen.dart';
 
 /// 设置页。
@@ -21,9 +22,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  late final TextEditingController _urlCtrl;
-  late final TextEditingController _keyCtrl;
-  late final TextEditingController _modelCtrl;
   late final TextEditingController _nameCtrl;
   late final TextEditingController _maxTokensCtrl;
   late double _temperature;
@@ -34,8 +32,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late bool _showQuickReplies;
   late int _autoContinue;
   late bool _autoSummarize;
-  bool _obscureKey = true;
-  bool _testing = false;
 
   /// 当前主题色 seed 与自定义 HEX 输入
   late int _seed;
@@ -60,15 +56,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     0xFF607D8B, // 蓝灰
   ];
 
-  final _api = ApiClient();
   List<(String, WorldInfo)> _worldBooks = [];
 
   @override
   void initState() {
     super.initState();
-    _urlCtrl = TextEditingController(text: AppSettings.baseUrl);
-    _keyCtrl = TextEditingController(text: AppSettings.apiKey);
-    _modelCtrl = TextEditingController(text: AppSettings.model);
     _nameCtrl = TextEditingController(text: AppSettings.userName);
     _maxTokensCtrl = TextEditingController(text: '${AppSettings.maxTokens}');
     _temperature = AppSettings.temperature.clamp(0.0, 2.0).toDouble();
@@ -86,43 +78,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
-    _urlCtrl.dispose();
-    _keyCtrl.dispose();
-    _modelCtrl.dispose();
     _nameCtrl.dispose();
     _maxTokensCtrl.dispose();
     _hexCtrl.dispose();
-    _api.dispose();
     super.dispose();
   }
 
-  void _saveApi() {
-    AppSettings.baseUrl = _urlCtrl.text;
-    AppSettings.apiKey = _keyCtrl.text;
-    AppSettings.model = _modelCtrl.text;
+  /// 子页面（配置列表 / 预设列表）返回后同步滑条与输入框
+  ///（激活配置或激活预设可能已切换）。
+  void _syncFromSettings() {
+    if (!mounted) return;
+    setState(() {
+      _temperature = AppSettings.temperature.clamp(0.0, 2.0).toDouble();
+      _topP = AppSettings.topP.clamp(0.0, 1.0).toDouble();
+      _maxTokensCtrl.text = '${AppSettings.maxTokens}';
+    });
   }
 
-  Future<void> _testConnection() async {
-    _saveApi();
-    if (!AppSettings.apiConfigured) {
-      _toast('请先填写 Base URL 和 API Key');
-      return;
-    }
-    setState(() => _testing = true);
-    try {
-      final model = await _api.testConnection(
-        baseUrl: AppSettings.baseUrl,
-        apiKey: AppSettings.apiKey,
-        model: AppSettings.model,
-      );
-      if (!mounted) return;
-      _toast('连接成功，模型：$model');
-    } catch (e) {
-      if (!mounted) return;
-      _toast('连接失败：$e');
-    } finally {
-      if (mounted) setState(() => _testing = false);
-    }
+  Future<void> _openApiConfigs() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ApiConfigsScreen()),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _openPresets() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const GenPresetsScreen()),
+    );
+    _syncFromSettings();
   }
 
   void _toast(String msg) {
@@ -260,78 +244,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
         children: [
           // ---------------------------------------------- 模型服务 --
+          // 当前配置行：名称 + 模型名副文本 + 切换箭头 → 配置列表（选择/管理）
           const SectionHeader('模型服务'),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final p in kApiPresets)
-                ActionChip(
-                  label: Text(p.label),
-                  onPressed: () => setState(() {
-                    _urlCtrl.text = p.baseUrl;
-                    _modelCtrl.text = p.model;
-                    _saveApi();
-                  }),
-                ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          TextField(
-            controller: _urlCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Base URL',
-              hintText: 'https://api.deepseek.com/v1',
-              helperText: '服务商提供的接口地址',
+          _actionRow(
+            title: AppSettings.activeApiConfig.name,
+            subtitle: AppSettings.activeApiConfig.model.trim().isEmpty
+                ? '未填写模型名 · 点此管理配置'
+                : AppSettings.activeApiConfig.model.trim(),
+            trailing: Icon(
+              Icons.swap_horiz_outlined,
+              size: 22,
+              color: scheme.onSurfaceVariant,
             ),
-            keyboardType: TextInputType.url,
-            onChanged: (_) => _saveApi(),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _keyCtrl,
-            obscureText: _obscureKey,
-            decoration: InputDecoration(
-              labelText: 'API Key',
-              helperText: '只保存在本机',
-              suffixIcon: IconButton(
-                icon: Icon(
-                  _obscureKey
-                      ? Icons.visibility_off_outlined
-                      : Icons.visibility_outlined,
-                  size: 22,
-                ),
-                onPressed: () =>
-                    setState(() => _obscureKey = !_obscureKey),
-              ),
-            ),
-            onChanged: (_) => _saveApi(),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _modelCtrl,
-            decoration: const InputDecoration(
-              labelText: '模型名',
-              hintText: 'deepseek-chat',
-              helperText: '服务商的模型标识，照服务商文档填',
-            ),
-            onChanged: (_) => _saveApi(),
-          ),
-          const SizedBox(height: 14),
-          FilledButton.icon(
-            onPressed: _testing ? null : _testConnection,
-            icon: _testing
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.wifi_tethering_outlined, size: 20),
-            label: Text(_testing ? '测试中…' : '测试连接'),
+            onTap: _openApiConfigs,
           ),
 
           // ---------------------------------------------- 生成参数 --
           const SectionHeader('生成参数'),
+          // 当前预设行：名称 + 简要参数 → 预设列表（选择/另存/编辑）
+          _actionRow(
+            title: '预设 · ${AppSettings.activePreset.name}',
+            subtitle:
+                't${AppSettings.activePreset.temperature.toStringAsFixed(1)}'
+                ' · p${AppSettings.activePreset.topP.toStringAsFixed(1)}'
+                '${AppSettings.activePreset.maxTokens > 0 ? ' · 上限 ${AppSettings.activePreset.maxTokens}' : ''}'
+                ' · 下方滑条改动即存入此预设',
+            trailing: Icon(
+              Icons.chevron_right_outlined,
+              size: 22,
+              color: scheme.onSurfaceVariant,
+            ),
+            onTap: _openPresets,
+          ),
+          const SizedBox(height: 4),
           _sliderLabel('随机度', _temperature.toStringAsFixed(2)),
           Slider(
             value: _temperature,
@@ -930,7 +875,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('版本 v0.6.0'),
+            Text('版本 v0.7.0'),
             SizedBox(height: 10),
             Text('简洁明了的 AI 角色扮演聊天 App，兼容 SillyTavern 角色卡与世界书。'),
           ],

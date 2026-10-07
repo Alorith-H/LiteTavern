@@ -15,7 +15,7 @@ class WorldInfoEntry {
   final int probability;
   final bool useProbability;
 
-  /// 0=系统提示词注入 / 1=聊天中深度注入 / 2=角色设定后注入（MVP 全部注入系统提示）
+  /// 0=对话开头注入（系统提示前部）/ 1=对话中按深度注入（用户消息）/ 2=角色设定后注入
   final int position;
   final int depth;
   final bool recursive;

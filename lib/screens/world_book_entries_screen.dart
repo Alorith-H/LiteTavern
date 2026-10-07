@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models/world_info.dart';
 import '../services/storage.dart';
@@ -51,14 +52,27 @@ class _WorldBookEntriesScreenState extends State<WorldBookEntriesScreen> {
       e.keys.isEmpty ? '（无关键词）' : e.keys.join('、');
 
   /// 新增 / 编辑条目弹窗；保存 / 删除后立即写回存储。
+  /// v0.7.0：含高级字段——次要关键词、按概率注入、注入位置/深度、递归、回看条数。
   Future<void> _showEntryDialog(WorldInfoEntry? current) async {
     final keysCtrl = TextEditingController(
       text: current == null ? '' : current.keys.join(', '),
     );
+    final secondaryCtrl = TextEditingController(
+      text: current == null ? '' : current.keysSecondary.join(', '),
+    );
     final contentCtrl = TextEditingController(text: current?.content ?? '');
     final orderCtrl =
         TextEditingController(text: '${current?.insertionOrder ?? 0}');
+    final scanDepthCtrl =
+        TextEditingController(text: '${current?.scanDepth ?? 50}');
     var enabled = current == null || !current.disabled;
+    var useProb = current?.useProbability ?? false;
+    var prob = (current?.probability ?? 100).clamp(0, 100).toInt();
+    // 位置归一到 0/1/2（导入数据可能是别的值）
+    var position = current?.position ?? 0;
+    if (position != 1 && position != 2) position = 0;
+    var depth = (current?.depth ?? 4).clamp(0, 99).toInt();
+    var recursive = current?.recursive ?? false;
     String? error;
 
     final result = await showDialog<Object>(
@@ -77,6 +91,15 @@ class _WorldBookEntriesScreenState extends State<WorldBookEntriesScreen> {
                     decoration: const InputDecoration(
                       labelText: '触发关键词（逗号分隔）',
                       hintText: '城堡, 城镇, 酒馆',
+                      isDense: true,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: secondaryCtrl,
+                    decoration: const InputDecoration(
+                      labelText: '次要关键词（逗号分隔，可留空）',
+                      helperText: '主词命中后，还需其中至少一个出现才注入',
                       isDense: true,
                     ),
                   ),
@@ -109,6 +132,130 @@ class _WorldBookEntriesScreenState extends State<WorldBookEntriesScreen> {
                         onChanged: (v) => set(() => enabled = v),
                       ),
                     ],
+                  ),
+                  const Divider(height: 1),
+                  Row(
+                    children: [
+                      const Expanded(child: Text('按概率随机注入')),
+                      Switch(
+                        value: useProb,
+                        onChanged: (v) => set(() => useProb = v),
+                      ),
+                    ],
+                  ),
+                  if (useProb) ...[
+                    Slider(
+                      value: prob.toDouble(),
+                      min: 0,
+                      max: 100,
+                      divisions: 100,
+                      label: '$prob%',
+                      onChanged: (v) => set(() => prob = v.toInt()),
+                    ),
+                    Text(
+                      '命中后有 $prob% 的概率注入',
+                      style: TextStyle(
+                        fontSize: AppType.caption,
+                        color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                  const Divider(height: 1),
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8, bottom: 2),
+                    child: Text(
+                      '注入位置',
+                      style: TextStyle(
+                        fontSize: AppType.caption,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  RadioGroup<int>(
+                    groupValue: position,
+                    onChanged: (v) => set(() => position = v ?? 0),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        RadioListTile<int>(
+                          value: 0,
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('对话开头注入', style: TextStyle(fontSize: AppType.body)),
+                        ),
+                        RadioListTile<int>(
+                          value: 1,
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('对话中按深度注入', style: TextStyle(fontSize: AppType.body)),
+                          subtitle: const Text('作为用户消息插进历史里', style: TextStyle(fontSize: AppType.caption)),
+                        ),
+                        RadioListTile<int>(
+                          value: 2,
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('角色设定后注入', style: TextStyle(fontSize: AppType.body)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (position == 1) ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '插到倒数第 ${depth + 1} 条消息之前',
+                            style: TextStyle(
+                              fontSize: AppType.caption,
+                              color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                        Text('$depth'),
+                      ],
+                    ),
+                    Slider(
+                      value: depth.toDouble(),
+                      min: 0,
+                      max: 99,
+                      divisions: 99,
+                      onChanged: (v) => set(() => depth = v.toInt()),
+                    ),
+                  ],
+                  const Divider(height: 1),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('递归匹配'),
+                            Text(
+                              '用已激活条目的内容继续匹配其它词条',
+                              style: TextStyle(
+                                fontSize: AppType.caption,
+                                color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch(
+                        value: recursive,
+                        onChanged: (v) => set(() => recursive = v),
+                      ),
+                    ],
+                  ),
+                  TextField(
+                    controller: scanDepthCtrl,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: const InputDecoration(
+                      labelText: '回看消息条数',
+                      helperText: '只回看最近 N 条消息找关键词，0 = 全程',
+                      isDense: true,
+                    ),
                   ),
                 ],
               ),
@@ -144,11 +291,15 @@ class _WorldBookEntriesScreenState extends State<WorldBookEntriesScreen> {
     );
 
     final keys = keysCtrl.text;
+    final secondary = secondaryCtrl.text;
     final content = contentCtrl.text;
     final order = int.tryParse(orderCtrl.text) ?? 0;
+    final scanDepth = int.tryParse(scanDepthCtrl.text) ?? 50;
     keysCtrl.dispose();
+    secondaryCtrl.dispose();
     contentCtrl.dispose();
     orderCtrl.dispose();
+    scanDepthCtrl.dispose();
 
     if (result == 'delete') {
       if (!mounted) return;
@@ -182,38 +333,27 @@ class _WorldBookEntriesScreenState extends State<WorldBookEntriesScreen> {
       for (final k in keys.split(RegExp(r'[,，]')))
         if (k.trim().isNotEmpty) k.trim(),
     ];
-    final WorldInfoEntry updated;
+    final parsedSecondary = [
+      for (final k in secondary.split(RegExp(r'[,，]')))
+        if (k.trim().isNotEmpty) k.trim(),
+    ];
+    final updated = WorldInfoEntry(
+      keys: parsedKeys,
+      keysSecondary: parsedSecondary,
+      content: content,
+      insertionOrder: order,
+      disabled: !enabled,
+      probability: prob,
+      useProbability: useProb,
+      position: position,
+      depth: depth,
+      recursive: recursive,
+      scanDepth: scanDepth < 0 ? 0 : scanDepth,
+      groupWeight: current?.groupWeight ?? 100,
+    );
     if (current == null) {
-      updated = WorldInfoEntry(
-        keys: parsedKeys,
-        keysSecondary: const [],
-        content: content,
-        insertionOrder: order,
-        disabled: !enabled,
-        probability: 100,
-        useProbability: false,
-        position: 0,
-        depth: 4,
-        recursive: false,
-        scanDepth: 50,
-        groupWeight: 100,
-      );
       setState(() => _entries.add(updated));
     } else {
-      updated = WorldInfoEntry(
-        keys: parsedKeys,
-        keysSecondary: current.keysSecondary,
-        content: content,
-        insertionOrder: order,
-        disabled: !enabled,
-        probability: current.probability,
-        useProbability: current.useProbability,
-        position: current.position,
-        depth: current.depth,
-        recursive: current.recursive,
-        scanDepth: current.scanDepth,
-        groupWeight: current.groupWeight,
-      );
       setState(() {
         final i = _entries.indexOf(current);
         if (i >= 0) _entries[i] = updated;

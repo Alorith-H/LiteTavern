@@ -1,0 +1,73 @@
+# 轻酒馆 v0.7.0 第三批（最后一批）— 多API配置 + 提示词预设 + 世界书高级字段 + 角色卡导出
+（增量。设计沿用克制编辑风令牌：纸白/深色板、赤陶 seed、无 Card、小节标题+hairline 行、
+*_outline 图标、圆角 10/16/胶囊、禁 emoji、文案人话。）
+
+## 1. 多套 API 配置切换
+- 模型服务设置页重构为「配置列表」模式：
+  - 存储：SharedPreferences JSON 数组 `[{id, name, baseUrl, key, model}]` + `activeApiConfigId`
+  - **平滑迁移**：检测到旧的单套 baseUrl/key/model 字段时自动迁成名为「默认」的配置并激活，
+    迁移后删旧字段（一次性的，别反复迁）
+  - 页面顶部：当前配置行（名称 + 模型名副文本 + 切换箭头）→ 点开选择/管理列表：
+    每行 radio 选中态 + 「编辑」「删除」图标；**新建配置**按钮；至少保留 1 套（删最后一套置灰）
+    - 删除激活项 → 自动激活第一项
+  - 编辑表单（新页面或弹窗均可）：名称（占位"配置 1"）、接口地址、API Key（密文+眼睛）、
+    模型名 + 服务商预设 chips（DeepSeek/Kimi/GLM/小米MiMo/Ollama，点击填充地址与模型，
+    不清空已填 Key）+ **测试连接**按钮（测表单里的值，成功显示返回的模型名/耗时）
+- 所有出网请求（聊天、继续、摘要、测试）统一走**激活配置**
+- 引导页第2页：改为直接编辑「激活配置」（逻辑等同现在，无感知）
+- 现有页面文案同步：「模型服务」分组标题保留，内部结构按上述调整
+
+## 2. 提示词预设（生成参数多套）
+- 存储：`[{id, name, temperature, topP, maxTokens}]` + `activePresetId`，默认预设
+  `{name: 默认, 0.8, 1.0, 0}`（可改值；至少保留 1 套）
+- 设置 → 生成参数区顶部：当前预设行（名称 + 简要 `t0.8 · p1.0`）→ 点开列表：
+  选中/编辑/删除/「另存为新预设」（把当前滑条值存为新名称，弹输入框）
+- 下方滑条组编辑的就是**激活预设**，改动即时保存到该预设（与现在交互一致）
+- 请求 body 用激活预设的值（maxTokens=0 不带字段，沿用）
+- 迁移：旧的 temperature/topP/maxTokens 字段 → 迁入「默认」预设后删除
+
+## 3. 世界书高级字段编辑（引擎必须真实生效）
+- 条目编辑弹窗在现有字段（keys/content/insertion_order/enabled）上**追加**：
+  - `keysecondary`：逗号分隔输入，副说明"次要关键词——主词命中后，还需其中至少一个出现才注入"
+  - `useProbability` Switch + `probability` 0–100 数字/slider，副说明"按概率随机注入"
+  - `position` 三选（人话标签）：`对话开头注入`（0，进系统提示最前）/ `对话中按深度注入`（1）/
+    `角色设定后注入`（2，系统提示里角色字段之后）
+  - `depth` 0–99（仅 position=1 显示），副说明"插到倒数第 N 条消息之前"
+  - `recursive` Switch，副说明"用已激活条目的内容继续匹配其它词条"
+  - `scanDepth` 数字（0=全程），副说明"只回看最近 N 条消息找关键词"
+- **引擎侧**（world_info_engine / prompt_builder）逐项核对，不生效的修：
+  - position 0 vs 2 的**注入顺序区分**（0 在 system 最前，2 紧跟角色设定字段后）
+  - position=1：激活条目以 **user 消息**形式插到历史倒数第 depth+1 条之前（depth=0 = 最新一条前）；
+    渲染文本前缀 `[世界书] `，发送前的历史组装统一处理
+  - keysecondary 的 AND 语义、probability 随机、recursive 3 层迭代、scanDepth 截断：
+    逐条写**单元测试**（≥4 条）证明生效
+- 旧条目缺字段 → 默认值兼容（secondary 空、probability 100、position 0、recursive false、scanDepth 50）
+
+## 4. 角色卡导出（本批唯一允许的新依赖：share_plus）
+- 角色编辑页右上 overflow 菜单新增「导出角色卡」→ 底部弹窗选格式：
+  - **JSON**：按 chara_card_v2 规范重建（data 全字段 + 有内嵌世界书则带 character_book）
+  - **PNG**：仅当该角色有原始 PNG 卡图（导入时存的图片字节仍在）——读原图字节，
+    替换/新增 `tEXt chara` chunk 为新 JSON 的 base64（注意 zTXt 原文若存在则移除），
+    CRC 正确计算；**没有原图的角色不显示 PNG 选项**
+  - JSON 导入的角色只有 JSON 选项
+- 落盘到 `getTemporaryDirectory()`，文件名 `<角色名>.json` / `<角色名>.png`
+  （非法路径字符替换为 `_`）
+- `share_plus` 的 `Share.shareXFiles([...])` 弹系统分享面板（微信/QQ/保存文件随意），
+  取消则无动作；分享前后都要删临时文件的话用完即删（下次导出重新生成）
+- pubspec 依赖只允许新增 share_plus 这一个；AndroidManifest 若需 query 权限按 share_plus
+  官方 README 加（package visibility）
+
+## 禁止
+- 不动群聊/单聊行为、摘要/自动继续逻辑、v0.5 设计系统；不改 gradle/图标
+- 除 share_plus 外新依赖 0 个
+
+## 环境
+- `export PATH="/c/Users/28351/Desktop/Project/flutter/bin:$PATH"`
+- 构建前 `export FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn`
+- `version: 0.7.0+1`
+
+## 完成标准
+1. `flutter analyze` 0 issues
+2. `flutter test` 现有 35 条全过 + 新增（世界书引擎 ≥4、迁移 ≥2、导出 JSON 结构 ≥1）
+3. `flutter build apk --release` 成功
+4. 输出：改动清单 + 迁移逻辑说明 + 引擎生效核对表 + 已知简化点
