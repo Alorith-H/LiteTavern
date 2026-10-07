@@ -2,19 +2,27 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/world_info.dart';
+import '../services/hit_stats.dart';
 import '../services/storage.dart';
 import '../widgets/common.dart';
 
 /// 世界书条目列表页：查看 / 启停 / 编辑 / 新增 / 删除（用户导入的世界书）。
 /// 保存写回 `worldbooks/<id>.json`；content 非空校验在编辑弹窗内完成。
+///
+/// [convId] 非空时，每行副文本显示该对话的命中率（`本对话 3/12 · 25%`）；
+/// 无发送记录（旧会话无 hitStats）不显示。
 class WorldBookEntriesScreen extends StatefulWidget {
   final String bookId;
   final WorldInfo book;
+
+  /// 来源会话 id（单聊 = 角色 id）；null = 不显示命中率
+  final String? convId;
 
   const WorldBookEntriesScreen({
     super.key,
     required this.bookId,
     required this.book,
+    this.convId,
   });
 
   @override
@@ -24,10 +32,22 @@ class WorldBookEntriesScreen extends StatefulWidget {
 class _WorldBookEntriesScreenState extends State<WorldBookEntriesScreen> {
   late final List<WorldInfoEntry> _entries;
 
+  /// 该对话的命中率统计（null = 无记录不显示）
+  HitStats? _hitStats;
+
   @override
   void initState() {
     super.initState();
     _entries = List.of(widget.book.entries);
+    _loadHitStats();
+  }
+
+  Future<void> _loadHitStats() async {
+    final convId = widget.convId;
+    if (convId == null || convId.isEmpty) return;
+    final data = await Storage.loadConversationData(convId);
+    if (!mounted) return;
+    setState(() => _hitStats = data.hitStats);
   }
 
   /// 变更后写回原世界书文件。
@@ -338,6 +358,7 @@ class _WorldBookEntriesScreenState extends State<WorldBookEntriesScreen> {
         if (k.trim().isNotEmpty) k.trim(),
     ];
     final updated = WorldInfoEntry(
+      id: current?.id, // 保留稳定 id（命中率 key 不因编辑而作废）
       keys: parsedKeys,
       keysSecondary: parsedSecondary,
       content: content,
@@ -393,6 +414,9 @@ class _WorldBookEntriesScreenState extends State<WorldBookEntriesScreen> {
               separatorBuilder: (_, _) => const Divider(height: 1),
               itemBuilder: (context, i) {
                 final e = _entries[i];
+                // 本对话命中率（无发送记录不显示）
+                final rate = _hitStats?.rateLine(entryKeyOf(e));
+                final preview = _preview(e);
                 // 行直接铺在背景上（无卡片）：关键词 + 预览 + 启停开关
                 return InkWell(
                   onTap: () => _showEntryDialog(e),
@@ -415,7 +439,9 @@ class _WorldBookEntriesScreenState extends State<WorldBookEntriesScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                _preview(e),
+                                rate == null
+                                    ? preview
+                                    : '本对话 $rate · $preview',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
@@ -430,6 +456,7 @@ class _WorldBookEntriesScreenState extends State<WorldBookEntriesScreen> {
                           value: !e.disabled,
                           onChanged: (v) {
                             setState(() => _entries[i] = WorldInfoEntry(
+                                  id: e.id,
                                   keys: e.keys,
                                   keysSecondary: e.keysSecondary,
                                   content: e.content,

@@ -211,11 +211,11 @@ void main() {
     expect(messages[2].content, '讲个故事');
   });
 
-  test('token 估算：中文 0.6、其余 0.25', () {
+  test('token 估算：CJK 1.0、其余 0.25（v0.8.0 占用口径）', () {
     expect(estimateTokens(''), 0);
-    expect(estimateTokens('你好'), 2); // ceil(2 * 0.6) = 2
-    expect(estimateTokens('ab'), 1); // ceil(2 * 0.25) = 1
-    expect(estimateTokens('a你'), 1); // ceil(0.6 + 0.25) = 1
+    expect(estimateTokens('你好'), 2); // ceil(2 * 1.0) = 2
+    expect(estimateTokens('ab'), 1); // ceil(2 / 4) = 1
+    expect(estimateTokens('a你'), 2); // ceil(1 + 1/4) = 2
   });
 
   test('消息 token 字段随 JSON 持久化', () {

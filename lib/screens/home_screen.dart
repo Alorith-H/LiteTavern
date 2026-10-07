@@ -10,6 +10,7 @@ import '../services/card_downloader.dart';
 import '../services/card_parser.dart';
 import '../services/storage.dart';
 import '../widgets/common.dart';
+import 'card_creator_screen.dart';
 import 'chat_screen.dart';
 import 'character_edit_screen.dart';
 import 'create_group_screen.dart';
@@ -251,7 +252,8 @@ class _HomeScreenState extends State<HomeScreen> {
         return firstLine.split('\n').first;
       });
 
-  /// FAB：底部弹窗选择"从文件导入 / 从链接下载"。
+  /// FAB / 空态按钮：底部弹窗三选
+  /// "从文件导入 / 从链接下载 / AI 创建角色卡"。
   void _showImportSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -260,6 +262,7 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
+              leading: const Icon(Icons.description_outlined),
               title: const Text('从文件导入'),
               subtitle: const Text('选择本地 .png / .json 角色卡'),
               onTap: () {
@@ -268,6 +271,7 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             ),
             ListTile(
+              leading: const Icon(Icons.link_outlined),
               title: const Text('从链接下载'),
               subtitle: const Text('输入 URL，下载 .png / .json 角色卡'),
               onTap: () {
@@ -275,10 +279,27 @@ class _HomeScreenState extends State<HomeScreen> {
                 _showDownloadDialog();
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.auto_awesome_outlined),
+              title: const Text('AI 创建角色卡'),
+              subtitle: const Text('和 AI 聊几句，生成角色卡再微调'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _openCardCreator();
+              },
+            ),
           ],
         ),
       ),
     );
+  }
+
+  /// 打开 AI 创建器；返回后刷新列表（可能已入库新角色）。
+  Future<void> _openCardCreator() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const CardCreatorScreen()),
+    );
+    _reload();
   }
 
   void _showDownloadDialog() {
@@ -352,7 +373,21 @@ class _HomeScreenState extends State<HomeScreen> {
                     onChanged: (v) => setState(() => _query = v),
                   ),
                 ),
-                Expanded(child: _buildList(scheme)),
+                // 单人/群聊切换：内容区 250ms 交叉淡入（easeOutCubic）。
+                // child 换 key 触发切换，两份列表不同时构建
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 250),
+                    transitionBuilder: (child, animation) => FadeTransition(
+                      opacity: CurvedAnimation(
+                        parent: animation,
+                        curve: Curves.easeOutCubic,
+                      ),
+                      child: child,
+                    ),
+                    child: _buildList(scheme, key: ValueKey(_tab)),
+                  ),
+                ),
               ],
             ),
       floatingActionButton: _tab == 0
@@ -497,11 +532,12 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildGroupList(ColorScheme scheme) {
-    if (_groups.isEmpty) return _buildGroupEmpty(scheme);
+  Widget _buildGroupList(ColorScheme scheme, {Key? key}) {
+    if (_groups.isEmpty) return _buildGroupEmpty(scheme, key: key);
     final list = _visibleGroups;
     if (list.isEmpty) {
       return Center(
+        key: key,
         child: Text(
           '没有匹配的群聊',
           style: TextStyle(fontSize: 15, color: scheme.onSurfaceVariant),
@@ -509,6 +545,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
     return RefreshIndicator(
+      key: key,
       onRefresh: _reload,
       child: ListView.separated(
         padding: const EdgeInsets.fromLTRB(0, 4, 0, 88),
@@ -520,8 +557,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildGroupEmpty(ColorScheme scheme) {
+  Widget _buildGroupEmpty(ColorScheme scheme, {Key? key}) {
     return Center(
+      key: key,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),
         child: Column(
@@ -553,12 +591,14 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildList(ColorScheme scheme) {
-    if (_tab == 1) return _buildGroupList(scheme);
-    if (_characters.isEmpty) return _buildEmpty(scheme);
+  /// [key] = AnimatedSwitcher 的切换键（tab 变化 → 换 key → 交叉淡入）。
+  Widget _buildList(ColorScheme scheme, {Key? key}) {
+    if (_tab == 1) return _buildGroupList(scheme, key: key);
+    if (_characters.isEmpty) return _buildEmpty(scheme, key: key);
     final list = _visibleCharacters;
     if (list.isEmpty) {
       return Center(
+        key: key,
         child: Text(
           '没有匹配的角色',
           style: TextStyle(fontSize: 15, color: scheme.onSurfaceVariant),
@@ -568,6 +608,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // 角色行：56dp 圆角方形头像（圆角 12）+ 名字 15sp w600 + 一行简介
     // 13sp 次要色；行间 hairline divider 左缩进 84 对齐文字。
     return RefreshIndicator(
+      key: key,
       onRefresh: _reload,
       child: ListView.separated(
         padding: const EdgeInsets.fromLTRB(0, 4, 0, 88),
@@ -626,8 +667,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildEmpty(ColorScheme scheme) {
+  Widget _buildEmpty(ColorScheme scheme, {Key? key}) {
     return Center(
+      key: key,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),
         child: Column(

@@ -24,6 +24,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _nameCtrl;
   late final TextEditingController _maxTokensCtrl;
+  late final TextEditingController _contextWindowCtrl;
   late double _temperature;
   late double _topP;
   late double _chatFontSize;
@@ -63,6 +64,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _nameCtrl = TextEditingController(text: AppSettings.userName);
     _maxTokensCtrl = TextEditingController(text: '${AppSettings.maxTokens}');
+    _contextWindowCtrl =
+        TextEditingController(text: '${AppSettings.contextWindow}');
     _temperature = AppSettings.temperature.clamp(0.0, 2.0).toDouble();
     _topP = AppSettings.topP.clamp(0.0, 1.0).toDouble();
     _chatFontSize = AppSettings.chatFontSize;
@@ -80,6 +83,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void dispose() {
     _nameCtrl.dispose();
     _maxTokensCtrl.dispose();
+    _contextWindowCtrl.dispose();
     _hexCtrl.dispose();
     super.dispose();
   }
@@ -328,6 +332,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             },
           ),
           const _SubLine('每次发送保留最近多少条消息'),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _contextWindowCtrl,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            decoration: const InputDecoration(
+              labelText: '模型上下文窗口',
+              helperText: '模型单次能装下的最大 token，超了会自动压缩\n0 = 关闭占用%与自动压缩',
+              helperMaxLines: 2,
+            ),
+            onChanged: (v) => AppSettings.contextWindow = int.tryParse(v) ?? 0,
+          ),
           const SizedBox(height: 8),
           const Divider(height: 1),
           _stepperRow(
@@ -875,7 +891,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('版本 v0.7.0'),
+            Text('版本 v0.8.0'),
             SizedBox(height: 10),
             Text('简洁明了的 AI 角色扮演聊天 App，兼容 SillyTavern 角色卡与世界书。'),
           ],

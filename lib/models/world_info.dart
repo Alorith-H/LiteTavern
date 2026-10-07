@@ -1,5 +1,9 @@
 /// 世界书条目（SillyTavern World Info 格式，容错解析）。
 class WorldInfoEntry {
+  /// 条目稳定标识（v0.8.0 命中率统计用）：
+  /// 对象形式世界书的 map key 或条目自带 `id` 字段；数组形式通常无 id（null）。
+  final String? id;
+
   /// 主关键词（别名 keys）
   final List<String> keys;
 
@@ -23,6 +27,7 @@ class WorldInfoEntry {
   final double groupWeight;
 
   const WorldInfoEntry({
+    this.id,
     required this.keys,
     required this.keysSecondary,
     required this.content,
@@ -37,8 +42,18 @@ class WorldInfoEntry {
     required this.groupWeight,
   });
 
-  factory WorldInfoEntry.fromJson(Map<String, dynamic> json) {
+  /// [objectId] = 对象形式世界书的 map key（SillyTavern 里即条目 id），
+  /// 条目自带 `id` 字段时优先。
+  factory WorldInfoEntry.fromJson(Map<String, dynamic> json,
+      {String? objectId}) {
+    final ownId = json['id'];
+    final id = ownId is String
+        ? ownId
+        : ownId is num
+            ? ownId.toString()
+            : objectId;
     return WorldInfoEntry(
+      id: id,
       keys: _strList(json['key'] ?? json['keys']),
       keysSecondary: _strList(json['keysecondary'] ?? json['key_secondary']),
       content: json['content'] is String ? json['content'] as String : '',
@@ -56,6 +71,8 @@ class WorldInfoEntry {
 
   Map<String, dynamic> toJson() {
     return {
+      // id 非空才写（命中率统计的稳定标识，编辑往返不丢）
+      if (id != null && id!.isNotEmpty) 'id': id,
       'key': keys,
       'keysecondary': keysSecondary,
       'content': content,
@@ -100,12 +117,15 @@ class WorldInfo {
     final raw = json['entries'];
     final entries = <WorldInfoEntry>[];
     if (raw is Map) {
-      // 对象形式：key 为条目 id
-      for (final v in raw.values) {
+      // 对象形式：key 为条目 id（透传给 entry.id，供命中率统计）
+      raw.forEach((key, v) {
         if (v is Map<String, dynamic>) {
-          entries.add(WorldInfoEntry.fromJson(v));
+          entries.add(WorldInfoEntry.fromJson(
+            v,
+            objectId: key is String ? key : key.toString(),
+          ));
         }
-      }
+      });
     } else if (raw is List) {
       for (final v in raw) {
         if (v is Map<String, dynamic>) {
@@ -125,8 +145,11 @@ class WorldInfo {
       'name': name,
       'description': description,
       'entries': {
+        // 有 id 的条目用 id 作 map key（ST 惯例，且命中率 key 往返稳定），
+        // 无 id 沿用下标
         for (var i = 0; i < entries.length; i++)
-          '$i': entries[i].toJson(),
+          (entries[i].id?.isNotEmpty == true ? entries[i].id! : '$i'):
+              entries[i].toJson(),
       },
     };
   }

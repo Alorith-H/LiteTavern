@@ -2,6 +2,7 @@ import 'dart:math';
 
 import '../models/chat_message.dart';
 import '../models/world_info.dart';
+import 'hit_stats.dart';
 import 'macros.dart';
 
 /// 一条激活的世界词条目：宏替换后的内容 + 来源世界书名 +
@@ -12,12 +13,29 @@ class ActivatedEntry {
   final int position;
   final int depth;
 
+  /// 条目稳定标识（命中率统计 key，见 hit_stats.entryKeyOf）
+  final String entryKey;
+
+  /// 展示名：首关键词，空关键词时用内容预览
+  final String label;
+
   const ActivatedEntry({
     required this.source,
     required this.content,
     this.position = 0,
     this.depth = 0,
+    this.entryKey = '',
+    this.label = '',
   });
+}
+
+/// 条目展示名：首关键词；无关键词时取内容前 16 字（压平换行）。
+String entryLabelOf(WorldInfoEntry e) {
+  final first = e.keys.isNotEmpty ? e.keys.first.trim() : '';
+  if (first.isNotEmpty) return first;
+  final flat = e.content.replaceAll('\n', ' ').trim();
+  if (flat.isEmpty) return '未命名条目';
+  return flat.length <= 16 ? flat : '${flat.substring(0, 16)}…';
 }
 
 /// 世界书关键词激活引擎。
@@ -146,6 +164,8 @@ class WorldInfoEngine {
                   applyMacros(t.$2.content, charName: charName, userName: userName),
               position: t.$2.position,
               depth: t.$2.depth,
+              entryKey: entryKeyOf(t.$2),
+              label: entryLabelOf(t.$2),
             ))
         .toList();
   }

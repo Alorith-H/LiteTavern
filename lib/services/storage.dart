@@ -9,14 +9,18 @@ import '../models/chat_message.dart';
 import '../models/chat_group.dart';
 import '../models/character_card.dart';
 import '../models/world_info.dart';
+import 'hit_stats.dart';
 import 'summarize.dart';
 
-/// 会话文件内容：消息列表 + 可选的早期摘要。
+/// 会话文件内容：消息列表 + 可选的早期摘要 + 可选的世界书命中率统计。
 class ConversationData {
   final List<ChatMessage> messages;
   final ChatSummary? summary;
 
-  const ConversationData({required this.messages, this.summary});
+  /// 旧会话无此字段 → null（界面不显示命中率，不迁移）。
+  final HitStats? hitStats;
+
+  const ConversationData({required this.messages, this.summary, this.hitStats});
 }
 
 /// 文件存储：角色 / 对话 / 世界书 / 群聊（纯 JSON，无数据库）。
@@ -152,9 +156,14 @@ class Storage {
         final summary = summaryRaw is Map<String, dynamic>
             ? ChatSummary.fromJson(summaryRaw)
             : null;
+        final statsRaw = decoded['hitStats'];
+        final hitStats = statsRaw is Map<String, dynamic>
+            ? HitStats.fromJson(statsRaw)
+            : null;
         return ConversationData(
           messages: messages,
           summary: summary != null && summary.isEmpty ? null : summary,
+          hitStats: hitStats != null && hitStats.isEmpty ? null : hitStats,
         );
       }
       return ConversationData(messages: <ChatMessage>[]);
@@ -166,19 +175,23 @@ class Storage {
   static Future<List<ChatMessage>> loadConversation(String convId) async =>
       (await loadConversationData(convId)).messages;
 
-  /// 写会话。无摘要时保持旧的数组格式（单聊文件字节不变）；
-  /// 有摘要时写 `{messages, summary}` 对象。
+  /// 写会话。无摘要且无命中率统计时保持旧的数组格式（单聊文件字节不变）；
+  /// 有摘要或命中率统计时写 `{messages, summary?, hitStats?}` 对象。
   static Future<void> saveConversation(
     String convId,
     List<ChatMessage> messages, {
     ChatSummary? summary,
+    HitStats? hitStats,
   }) async {
     final file = _convFile(convId);
-    final data = summary == null || summary.isEmpty
+    final hasSummary = summary != null && !summary.isEmpty;
+    final hasStats = hitStats != null && !hitStats.isEmpty;
+    final data = !hasSummary && !hasStats
         ? messages.map((m) => m.toJson()).toList()
         : <String, dynamic>{
             'messages': [for (final m in messages) m.toJson()],
-            'summary': summary.toJson(),
+            if (hasSummary) 'summary': summary.toJson(),
+            if (hasStats) 'hitStats': hitStats.toJson(),
           };
     await file.writeAsString(jsonEncode(data), flush: true);
   }
@@ -763,6 +776,16 @@ class AppSettings {
   static const _kChatFontSize = 'chat_font_size';
   static const _kHistoryLimit = 'context_history_limit';
   static const _kShowTimestamps = 'show_timestamps';
+  static const _kContextWindow = 'model_context_window';
+
+  /// 模型上下文窗口（token），默认 65536；
+  /// 0 = 关闭上下文占用%显示与发送前自动压缩。
+  /// 默认值只在这里写一次，各处一律读本 getter。
+  static int get contextWindow =>
+      (_sp.getInt(_kContextWindow) ?? 65536).clamp(0, 1 << 30).toInt();
+
+  static set contextWindow(int v) =>
+      _sp.setInt(_kContextWindow, v.clamp(0, 1 << 30).toInt());
 
   /// 聊天气泡字号（sp），13–20，默认 15（读取时钳制为整数步进值）
   static double get chatFontSize {

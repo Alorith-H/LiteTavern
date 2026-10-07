@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -14,10 +15,26 @@ import '../widgets/common.dart';
 import 'world_book_entries_screen.dart';
 
 /// 角色编辑页：编辑名字/简介/性格/场景/开场白，管理世界书挂载。
+///
+/// 两种进入方式：
+/// - [CharacterEditScreen]：编辑已入库角色（按 [charId] 读存储）
+/// - [CharacterEditScreen.draft]：预览编辑一张内存卡（AI 创建器产出，
+///   未保存态 —— 点「保存」才走同一套入库流程并生成 id）
 class CharacterEditScreen extends StatefulWidget {
+  /// 已入库角色 id；draft 模式为空串
   final String charId;
 
-  const CharacterEditScreen({super.key, required this.charId});
+  /// 未保存的内存卡（draft 模式非空，跳过存储读取）
+  final CharacterCard? initialCard;
+
+  const CharacterEditScreen({super.key, required this.charId})
+      : initialCard = null;
+
+  const CharacterEditScreen.draft({super.key, required CharacterCard card})
+      : charId = '',
+        initialCard = card;
+
+  bool get isDraft => initialCard != null;
 
   @override
   State<CharacterEditScreen> createState() => _CharacterEditScreenState();
@@ -27,6 +44,9 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
   CharacterCard? _card;
   bool _loading = true;
   bool _saving = false;
+
+  /// 新选的头像图片（保存时随卡一起落盘；null = 用卡原图/首字占位）
+  Uint8List? _pendingAvatar;
 
   /// 已导入的全部世界书 (id, 世界书)
   List<(String, WorldInfo)> _worldBooks = [];
@@ -62,7 +82,9 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
   }
 
   Future<void> _load() async {
-    final card = await Storage.loadCharacter(widget.charId);
+    // draft：用创建器传入的内存卡，不读存储（保存时才入库生成 id）
+    final card =
+        widget.initialCard ?? await Storage.loadCharacter(widget.charId);
     if (!mounted) return;
     if (card == null) {
       Navigator.of(context).pop();
@@ -109,9 +131,36 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
       scenario: _scenarioCtrl.text,
       firstMes: _firstMesCtrl.text,
     );
-    await Storage.saveCharacter(updated);
+    final saved = await Storage.saveCharacter(updated);
+    // 新头像：与保存同一时机落盘（draft 卡此时才有 id）
+    final avatar = _pendingAvatar;
+    if (avatar != null) {
+      await Storage.saveAvatar(saved.id, avatar);
+    }
     if (!mounted) return;
     Navigator.of(context).pop(true);
+  }
+
+  /// 点头像 → 选一张图片做头像（仅暂存，随「保存」入库）。
+  Future<void> _pickAvatar() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final file = result.files.single;
+      final bytes = file.bytes ??
+          (file.path != null ? await File(file.path!).readAsBytes() : null);
+      if (bytes == null || bytes.isEmpty) return;
+      if (!mounted) return;
+      setState(() => _pendingAvatar = bytes);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('这张图片读不出来，换一张试试')),
+      );
+    }
   }
 
   // ---------------------------------------------------------- 导出 --
@@ -231,8 +280,11 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
     return rows;
   }
 
-  Future<void> _persistMounts() =>
-      Storage.saveWorldBookMounts(widget.charId, _mounts);
+  Future<void> _persistMounts() {
+    // draft 卡还没有 id，挂载关系等保存入库后再说（此处不落盘）
+    if (widget.isDraft) return Future.value();
+    return Storage.saveWorldBookMounts(widget.charId, _mounts);
+  }
 
   /// 条目页返回后刷新世界书列表（条数可能变化）。
   Future<void> _reloadWorldBooks() async {
@@ -246,7 +298,12 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
     if (hit.isEmpty) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => WorldBookEntriesScreen(bookId: id, book: hit.first.$2),
+        builder: (_) => WorldBookEntriesScreen(
+          bookId: id,
+          book: hit.first.$2,
+          // 条目页显示「本对话命中率」用的会话 id（draft 无会话 → 不显示）
+          convId: widget.isDraft ? null : widget.charId,
+        ),
       ),
     );
     await _reloadWorldBooks();
@@ -417,10 +474,26 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
             Center(
               child: Column(
                 children: [
-                  CharacterAvatar(id: card.id, name: _nameCtrl.text, size: 88),
+                  GestureDetector(
+                    onTap: _pickAvatar,
+                    child: _pendingAvatar != null
+                        ? ClipOval(
+                            child: Image.memory(
+                              _pendingAvatar!,
+                              width: 88,
+                              height: 88,
+                              fit: BoxFit.cover,
+                            ),
+                          )
+                        : CharacterAvatar(
+                            id: card.id,
+                            name: _nameCtrl.text,
+                            size: 88,
+                          ),
+                  ),
                   const SizedBox(height: 8),
                   Text(
-                    '头像来自角色卡原图（无原图时为名字首字）',
+                    '点头像可选图片作为头像（随保存生效）；无头像时显示名字首字',
                     style: TextStyle(
                       fontSize: AppType.caption,
                       color: scheme.onSurfaceVariant,

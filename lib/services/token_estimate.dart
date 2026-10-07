@@ -1,6 +1,7 @@
 // token 估算与格式化（provider 未返回 usage 时的本地兜底）。
 
-/// 估算 token 数：`ceil(中文字符数 * 0.6 + 其余字符数 * 0.25)`。
+/// 估算 token 数：`ceil(CJK 字符数 * 1.0 + 非 CJK 字符数 / 4)`
+///（v0.8.0 上下文占用口径，与占用% / 满压缩判断共用同一函数）。
 int estimateTokens(String text) {
   var cjk = 0;
   var other = 0;
@@ -11,7 +12,7 @@ int estimateTokens(String text) {
       other++;
     }
   }
-  return (cjk * 0.6 + other * 0.25).ceil();
+  return (cjk + other / 4).ceil();
 }
 
 /// 中文（含 CJK 标点 / 全角字符）判定。

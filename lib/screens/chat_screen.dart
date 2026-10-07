@@ -10,9 +10,12 @@ import '../models/character_card.dart';
 import '../models/world_info.dart';
 import '../services/api_client.dart';
 import '../services/chat_export.dart';
+import '../services/context_usage.dart';
+import '../services/hit_stats.dart';
 import '../services/macros.dart';
 import '../services/prompt_builder.dart';
 import '../services/storage.dart';
+import '../services/stream_throttle.dart';
 import '../services/summarize.dart';
 import '../services/token_estimate.dart';
 import '../services/world_info_engine.dart';
@@ -58,6 +61,25 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// 早期对话摘要（随会话持久化）
   ChatSummary? _summary;
+
+  /// 世界书条目命中率统计（v0.8.0，随会话持久化；null = 旧会话无记录）
+  HitStats? _hitStats;
+
+  /// 待记录一次真实发送的命中率（仅 [_doSend] 置位，[_runOnce] 消费一次 ——
+  /// 群聊整轮 / 自动继续只算 1 次；预览与重新生成不计）
+  bool _statsPending = false;
+
+  /// 上下文占用（v0.8.0）：发送前满压缩的历史条数覆盖（null = 用设置值）
+  int? _historyLimitOverride;
+
+  /// 满压缩硬裁剪兜底：组装时不带摘要（历史由 [_historyLimitOverride] 限 10 条）
+  bool _ctxHardTrim = false;
+
+  /// 最近一次 API 返回的真实输入 token（上下文占用页「上次实际」）
+  int? _lastExactPrompt;
+
+  /// 发送准备管线进行中（挡住两次快速连点在微任务间隙重复发送）
+  bool _preparing = false;
 
   /// 正在生成摘要（输入栏上方进度态）
   bool _summarizing = false;
@@ -108,9 +130,11 @@ class _ChatScreenState extends State<ChatScreen> {
   DateTime _lastSave = DateTime(0);
 
   /// 流式文本缓冲：≥33ms 才落一次 setState，禁止每个 token 全列表 rebuild
-  String _streamBuf = '';
-  Timer? _flushTimer;
-  DateTime _lastFlush = DateTime.fromMillisecondsSinceEpoch(0);
+  /// （v0.8.0 抽成共享 StreamThrottle，AI 角色卡创建器复用同一实现）
+  late final StreamThrottle _throttle = StreamThrottle(
+    minIntervalMs: _kStreamFlushMs,
+    onFlush: _applyStreamBuffer,
+  );
 
   /// 本次生成的记账状态
   bool _isContinueGen = false; // 是否"继续生成"（追加到同一变体）
@@ -148,7 +172,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
-    _flushTimer?.cancel();
+    _throttle.dispose();
     _reSettleTimer?.cancel();
     _api.dispose();
     _scrollCtrl.removeListener(_onScroll);
@@ -197,6 +221,7 @@ class _ChatScreenState extends State<ChatScreen> {
       // 防御：无论来源如何都复制成可增长列表（_doSend 会 add）
       _messages = List.of(msgs);
       _summary = data.summary;
+      _hitStats = data.hitStats; // 旧会话无记录 = null（不显示命中率）
       _worldBooks = books;
       _loading = false;
       _msgCache.clear();
@@ -234,6 +259,7 @@ class _ChatScreenState extends State<ChatScreen> {
       // 防御：复制成可增长列表，杜绝任何来源的不可变列表
       _messages = List.of(data.messages);
       _summary = data.summary;
+      _hitStats = data.hitStats; // 旧会话无记录 = null（不显示命中率）
       _worldBooks = books;
       _loading = false;
       _msgCache.clear();
@@ -324,10 +350,16 @@ class _ChatScreenState extends State<ChatScreen> {
     _lastSave = now;
     final snapshot = List.of(_messages);
     final summary = _summary;
+    final hitStats = _hitStats;
     final convId = _convId;
     // 串行写入，避免并发覆盖
     _pendingSave = _pendingSave.then(
-      (_) => Storage.saveConversation(convId, snapshot, summary: summary),
+      (_) => Storage.saveConversation(
+        convId,
+        snapshot,
+        summary: summary,
+        hitStats: hitStats,
+      ),
     );
   }
 
@@ -460,10 +492,12 @@ class _ChatScreenState extends State<ChatScreen> {
   void _send() => _sendText(_inputCtrl.text);
 
   /// 发送一条用户消息（输入框发送与快捷回复共用，走正常生成流程）。
-  /// 发送前若触发长对话摘要，先走摘要管线（可取消，成败都不阻塞发送）。
+  /// 发送前先跑两条准备管线（都不计命中率）：
+  /// 1. v0.6 长对话摘要（可取消，成败都不阻塞发送）；
+  /// 2. v0.8.0 上下文满压缩（依次降级，绝不允许发送失败）。
   void _sendText(String raw) {
     final text = raw.trim();
-    if (text.isEmpty || _generating || _summarizing) return;
+    if (text.isEmpty || _generating || _summarizing || _preparing) return;
     if (!_canConfigure) {
       _promptConfigureApi();
       return;
@@ -474,11 +508,94 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       return;
     }
-    if (_summaryNeeded()) {
-      _summarizeThenSend(text);
+    _prepareAndSend(text);
+  }
+
+  /// 摘要管线 → 上下文满压缩 → 真正落消息开跑。
+  Future<void> _prepareAndSend(String text) async {
+    _preparing = true;
+    try {
+      if (_summaryNeeded()) {
+        setState(() => _summarizing = true);
+        await _runSummarize();
+        if (mounted) setState(() => _summarizing = false);
+      }
+      if (mounted && AppSettings.contextWindow > 0) {
+        await _compressIfNeeded(text);
+      }
+    } finally {
+      _preparing = false;
+    }
+    if (!mounted) return;
+    _doSend(text);
+  }
+
+  /// 发送前满压缩（v0.8.0）：发送上下文估算 > 窗口×90% 时依次降级，
+  /// 绝不允许发送失败或超窗硬拼：
+  /// 1. 历史条数减半（下限 10 条）重算；
+  /// 2. 仍超 → 走现有摘要管线（复用 v0.6 摘要逻辑与 API 配置，
+  ///    把已有摘要 + 超记忆长度的更早历史压成新摘要）；
+  /// 3. 摘要失败/仍超 → 硬裁剪兜底：仅系统提示+世界书+最近 10 条。
+  Future<void> _compressIfNeeded(String pending) async {
+    final window = AppSettings.contextWindow;
+    if (window <= 0 || !_canBuildPrompt) return;
+    if (!overContextBudget(_estimateSendTokens(pending), window)) return;
+
+    // 已是硬裁剪状态还超：系统提示+世界书本身超窗（窗口设置过小），
+    // 放行并提示，不重入降级循环
+    if (_ctxHardTrim) {
+      _toast('上下文已满，已裁剪发送');
       return;
     }
-    _doSend(text);
+
+    // 第 1 步：历史条数减半（下限 10 条），按新条数重算
+    final halved = halveHistoryLimit(_historyLimit);
+    if (halved < _historyLimit) {
+      _historyLimitOverride = halved;
+      final t = _estimateSendTokens(pending);
+      if (!overContextBudget(t, window)) {
+        _toastCompressed(t, window);
+        return;
+      }
+    }
+
+    // 第 2 步：现有摘要管线（_summarizing 进度态可取消）
+    setState(() => _summarizing = true);
+    await _runSummarize(preamble: _summary?.text);
+    if (!mounted) return;
+    setState(() => _summarizing = false);
+    final t = _estimateSendTokens(pending);
+    if (!overContextBudget(t, window)) {
+      _toastCompressed(t, window);
+      return;
+    }
+
+    // 第 3 步：兜底硬裁剪 —— 仅系统提示+世界书+最近 10 条，不带摘要
+    _historyLimitOverride = 10;
+    _ctxHardTrim = true;
+    _toast('上下文已满，已裁剪发送');
+  }
+
+  /// 发送上下文估算（当前消息 + 待发送消息，按当前压缩状态组装）。
+  /// 与真实发送走同一 [_buildWith]，口径完全一致。
+  int _estimateSendTokens(String pending) {
+    final history = List<ChatMessage>.of(_messages)
+      ..add(ChatMessage(role: 'user', content: pending, timestamp: 0));
+    final built = _buildWith(
+      history,
+      worldBooks: _worldBooks,
+      summaryText: _ctxHardTrim ? null : _summary?.text,
+    );
+    return estimateTokens(built.messages.map((m) => m.content).join('\n'));
+  }
+
+  void _toastCompressed(int tokens, int window) {
+    _toast('上下文占用过高，已自动压缩（${contextPercent(tokens, window)}%）');
+  }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   /// 实际落消息并开跑（摘要管线的下半场也走这里）。
@@ -515,6 +632,9 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     _inputCtrl.clear();
     _inputEmpty.value = true;
+    // 真实发送标记：本次用户消息触发的组装记一次命中率
+    // （群聊整轮只在首个成员的组装记 1 次；重新生成/继续生成不置位）
+    _statsPending = true;
     _save(force: true);
     _scrollToBottom();
     if (_isGroup) {
@@ -574,7 +694,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   // ----------------------------------------------------- 长对话摘要 --
 
-  int get _historyLimit => AppSettings.contextHistoryLimit;
+  /// 历史条数上限：满压缩降级期间用会话级覆盖，否则用设置值。
+  int get _historyLimit =>
+      _historyLimitOverride ?? AppSettings.contextHistoryLimit;
 
   /// 发送前是否需要摘要：开关开（调用方已查）且超窗且摘要为空/已过期。
   bool _summaryNeeded() =>
@@ -595,7 +717,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// 跑一次摘要（发送前管线与菜单手动触发共用）。
   /// 成功写入 summary 并返回 true；失败/取消/超时(30s) 返回 false。
-  Future<bool> _runSummarize() async {
+  /// [preamble] 非空时（v0.8.0 满压缩第 2 步）：把已有摘要一并交给
+  /// 模型，和更早历史压成一份新摘要；否则只总结超记忆长度的早期消息。
+  Future<bool> _runSummarize({String? preamble}) async {
     final early = earlyMessages(_messages, _historyLimit);
     if (early.isEmpty) return false;
     final transcript = buildSummaryTranscript(
@@ -603,6 +727,10 @@ class _ChatScreenState extends State<ChatScreen> {
       userName: _macroUserName,
       nameOf: _nameOf,
     );
+    final user = (preamble == null || preamble.trim().isEmpty)
+        ? transcript
+        : '已有摘要：${preamble.trim()}\n\n'
+            '以下是尚未纳入摘要的更早对话，请把两者合并成一份新摘要：\n$transcript';
     try {
       final raw = await _api
           .summarize(
@@ -611,7 +739,7 @@ class _ChatScreenState extends State<ChatScreen> {
             model: AppSettings.model,
             system: '你是对话摘要助手。把用户给出的早期对话压缩成不超过300字的中文摘要，'
                 '只保留关键情节、人物关系与未决事项，不要任何前缀或解释，直接输出摘要。',
-            user: transcript,
+            user: user,
             temperature: 0.4,
           )
           .timeout(const Duration(seconds: 30));
@@ -630,15 +758,6 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (_) {
       return false;
     }
-  }
-
-  /// 触发摘要后继续发送：无论成功、失败还是取消，都按现状直接发送。
-  Future<void> _summarizeThenSend(String text) async {
-    setState(() => _summarizing = true);
-    await _runSummarize();
-    if (!mounted) return;
-    setState(() => _summarizing = false);
-    _doSend(text);
   }
 
   /// 菜单「立即总结早期对话」：同一管线，只总结不发送。
@@ -681,31 +800,14 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   /// 流式 delta 入缓冲：距上次刷新 ≥33ms 立即刷，否则合并到一个定时器里刷。
-  void _enqueueDelta(String delta) {
-    _streamBuf += delta;
-    final since = DateTime.now().difference(_lastFlush).inMilliseconds;
-    if (since >= _kStreamFlushMs) {
-      _flushStream();
-    } else {
-      _flushTimer ??= Timer(
-        Duration(milliseconds: _kStreamFlushMs - since),
-        _flushStream,
-      );
-    }
-  }
+  void _enqueueDelta(String delta) => _throttle.enqueue(delta);
+
+  /// 立即把缓冲刷进最后一条 AI 消息（停止/出错/收尾时保证不丢字）。
+  void _flushStream() => _throttle.flush();
 
   /// 把缓冲文本写进最后一条 AI 消息并刷新一次 UI（一帧多 token 只 setState 一次）。
-  void _flushStream() {
-    _flushTimer?.cancel();
-    _flushTimer = null;
-    _lastFlush = DateTime.now();
-    if (_streamBuf.isEmpty) return;
-    if (!mounted) {
-      _streamBuf = '';
-      return;
-    }
-    final buf = _streamBuf;
-    _streamBuf = '';
+  void _applyStreamBuffer(String buf) {
+    if (!mounted || buf.isEmpty) return;
     setState(() {
       final i = _messages.length - 1;
       if (i < 0 || _messages[i].role != 'assistant') return;
@@ -739,7 +841,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 _messages.last.role == 'assistant'
             ? _messages.last.content.length
             : 0;
-        _streamBuf = '';
+        _throttle.reset();
       });
       final ok = await _runOnce();
       if (!ok || !mounted) return false;
@@ -773,6 +875,17 @@ class _ChatScreenState extends State<ChatScreen> {
     _lastSystemText = built.systemText;
     _lastActivated = built.activated;
 
+    // 命中率记账：只在真实 API 发送的组装点消费一次（_doSend 置位）。
+    // 摘要生成、上下文占用预览、统计页/注入页的组装都不走这里，不计数；
+    // 群聊整轮首个成员消费后，后续成员与自动继续不再计。
+    if (_statsPending) {
+      _statsPending = false;
+      final stats = (_hitStats ?? const HitStats())
+          .record(built.activated.map((a) => a.entryKey));
+      setState(() => _hitStats = stats);
+      _save(force: true);
+    }
+
     // 继续生成：在现有 messages 末尾附加 system 指令，结果追加到同一消息
     final toSend = List<PromptMessage>.of(built.messages);
     if (_isContinueGen) {
@@ -801,6 +914,7 @@ class _ChatScreenState extends State<ChatScreen> {
       onUsage: (p, c) {
         exactPrompt = p;
         exactCompletion = c;
+        _lastExactPrompt = p; // 上下文占用页「上次实际」
       },
       onError: (error) {
         if (!mounted || token != _genToken) return;
@@ -841,27 +955,60 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   /// 组装本次发送的 prompt（单聊 / 群聊分流），带早期摘要。
-  PromptBuildResult _buildPrompt() {
+  /// 硬裁剪兜底期间不带摘要（历史条数由 [_historyLimitOverride] 限 10）。
+  PromptBuildResult _buildPrompt() => _buildWith(
+        _messages,
+        worldBooks: _worldBooks,
+        summaryText: _ctxHardTrim ? null : _summary?.text,
+      );
+
+  /// 按指定历史/世界书/摘要组装（实际发送、占用明细与压缩估算共用，
+  /// 保证估算口径与真实发送完全一致）。
+  PromptBuildResult _buildWith(
+    List<ChatMessage> history, {
+    required List<WorldInfo> worldBooks,
+    required String? summaryText,
+  }) {
     if (_isGroup) {
-      final last = _messages.isEmpty ? null : _messages.last;
+      final last = history.isEmpty ? null : history.last;
       final speaker =
           (last != null && last.role == 'assistant') ? last.senderName : null;
       return PromptBuilder.buildGroup(
         members: _members,
-        history: _messages,
-        worldBooks: _worldBooks,
+        history: history,
+        worldBooks: worldBooks,
         userName: _macroUserName,
         speakerName: speaker,
-        summaryText: _summary?.text,
+        summaryText: summaryText,
+        historyLimit: _historyLimit,
       );
     }
     return PromptBuilder.build(
       card: _card!,
-      history: _messages,
-      worldBooks: _worldBooks,
+      history: history,
+      worldBooks: worldBooks,
       userName: _macroUserName,
-      summaryText: _summary?.text,
+      summaryText: summaryText,
+      historyLimit: _historyLimit,
     );
+  }
+
+  /// 上下文占用明细：裸组装（仅系统+历史）→ 带世界书 → 完整，差值拆分；
+  /// 三段之和恒等于完整组装的估算（展示与压缩阈值同口径）。
+  ContextBreakdown? _contextBreakdown() {
+    if (!_canBuildPrompt) return null;
+    final bare = _buildWith(
+      _messages,
+      worldBooks: const [],
+      summaryText: null,
+    );
+    final withWb = _buildWith(
+      _messages,
+      worldBooks: _worldBooks,
+      summaryText: null,
+    );
+    final full = _buildPrompt();
+    return ContextBreakdown.of(bare: bare, withWb: withWb, full: full);
   }
 
   /// 群聊：剥掉内容开头的「名字: 」头（只在首次生成后调用）。
@@ -1017,6 +1164,7 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
     if (_messages.isEmpty || _messages.last.role != 'assistant') return;
+    _statsPending = false; // 重新生成不算真实发送，不计命中率
     setState(() {
       _messages[_messages.length - 1] = _prepVariantSlot(_messages.last);
       _generating = true;
@@ -1037,6 +1185,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     final idx = _messages.indexOf(failed);
     if (idx < 0) return;
+    _statsPending = false; // 重试不算真实发送，不计命中率
 
     if (idx == _messages.length - 1) {
       // 末条失败：复用空变体槽或追加新变体，原地重试
@@ -1103,6 +1252,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _promptConfigureApi();
       return;
     }
+    _statsPending = false; // 继续生成不算真实发送，不计命中率
     setState(() {
       _generating = true;
       _followScroll = true;
@@ -1181,6 +1331,9 @@ class _ChatScreenState extends State<ChatScreen> {
         ];
       }
       _summary = null; // 清空即不再需要早期摘要
+      _hitStats = null; // 清空对话同时清零本对话命中率
+      _historyLimitOverride = null; // 历史已重置，满压缩覆盖一并复位
+      _ctxHardTrim = false;
       _msgCache.clear();
       _cacheLen = -1;
     });
@@ -1275,6 +1428,13 @@ class _ChatScreenState extends State<ChatScreen> {
               onTap: () {
                 Navigator.pop(ctx);
                 _showInjection();
+              },
+            ),
+            ListTile(
+              title: const Text('上下文占用'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showContextUsage();
               },
             ),
             ListTile(
@@ -1419,7 +1579,129 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  /// 查看发送内容：最近一次实际发送的 system 全文 + 激活条目数/来源。
+  /// 上下文占用（v0.8.0）：明细拆分 + 占用条 + 合计/窗口百分比。
+  /// 窗口为 0 时只显示明细（设置里的 0 = 关闭占用%与自动压缩）。
+  /// 估算不持久化，每次打开现算；上次 API 返回的真实输入 token 单独展示。
+  void _showContextUsage() {
+    final window = AppSettings.contextWindow;
+    final bd = _contextBreakdown();
+    final exact = _lastExactPrompt;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        final scheme = Theme.of(ctx).colorScheme;
+        if (bd == null) {
+          return AlertDialog(
+            title: const Text('上下文占用'),
+            content: const Text('对话还没准备好'),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('好的'),
+              ),
+            ],
+          );
+        }
+        final total = bd.total;
+        final over = overContextBudget(total, window);
+        final ratio = window > 0 ? (total / window).clamp(0.0, 1.0) : 0.0;
+        return AlertDialog(
+          title: const Text('上下文占用'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _statLine('系统提示（角色卡+规则）',
+                  '≈${formatTokenCount(bd.systemTokens)}'),
+              _statLine('世界书', '≈${formatTokenCount(bd.worldBookTokens)}'),
+              _statLine('摘要', '≈${formatTokenCount(bd.summaryTokens)}'),
+              _statLine('历史 ${bd.historyCount} 条',
+                  '≈${formatTokenCount(bd.historyTokens)}'),
+              const Divider(height: 18),
+              _statLine('合计', '≈${formatTokenCount(total)} tokens'),
+              if (window > 0) ...[
+                const SizedBox(height: 10),
+                // 占用条：主色填充，超 90% 预算转为错误色
+                Container(
+                  height: 8,
+                  width: double.maxFinite,
+                  decoration: BoxDecoration(
+                    color: scheme.primary.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: FractionallySizedBox(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: ratio,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: over ? scheme.error : scheme.primary,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '${formatTokenCount(total)} / ${formatTokenCount(window)}'
+                  ' = ${contextPercent(total, window)}%',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ] else ...[
+                const SizedBox(height: 8),
+                Text(
+                  '已关闭占用百分比（模型上下文窗口为 0）',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+              if (exact != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  '上次实际：$exact',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('好的'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// 「本对话命中率」行：只列本对话激活过的条目（从未命中的不列）。
+  /// key 与统计一致（entryKeyOf：有 id 用 id，否则 关键词|插入顺序），
+  /// 去重防止同一条目在多本书/内嵌+挂载重复出现。
+  List<String> _hitRateRows() {
+    final stats = _hitStats;
+    if (stats == null || stats.sends <= 0) return const [];
+    final rows = <String>[];
+    final seen = <String>{};
+    for (final book in _worldBooks) {
+      for (final e in book.entries) {
+        final key = entryKeyOf(e);
+        if (stats.hitsOf(key) <= 0 || !seen.add(key)) continue;
+        rows.add('${entryLabelOf(e)} ${stats.rateLine(key)}');
+      }
+    }
+    return rows;
+  }
+
+  /// 查看发送内容：最近一次实际发送的 system 全文 + 激活条目数/来源
+  /// + 本对话命中率（仅列出激活过的条目）。
   void _showInjection() {
     final system = _lastSystemText;
     showDialog<void>(
@@ -1443,6 +1725,7 @@ class _ChatScreenState extends State<ChatScreen> {
         }
         final sourceLine =
             bySource.entries.map((e) => '${e.key} ${e.value} 条').join('、');
+        final hitRows = _hitRateRows();
         final scheme = Theme.of(ctx).colorScheme;
         return AlertDialog(
           title: const Text('查看发送内容'),
@@ -1461,6 +1744,38 @@ class _ChatScreenState extends State<ChatScreen> {
                   '来源：$sourceLine',
                   style: TextStyle(
                       fontSize: 12, color: scheme.onSurfaceVariant),
+                ),
+              ],
+              // 本对话命中率：命中过的条目各一行「名字 3/12 · 25%」
+              if (hitRows.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                const Text(
+                  '本对话命中率',
+                  style: TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 150),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (final row in hitRows)
+                          Padding(
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 2),
+                            child: Text(
+                              row,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
               ],
               const SizedBox(height: 10),
