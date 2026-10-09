@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../models/character_card.dart';
+import '../services/active_generations.dart';
 import '../services/api_client.dart';
 import '../services/generated_card.dart';
 import '../services/prompt_builder.dart';
@@ -67,21 +68,13 @@ character_book 规范（仅当角色涉及专有名词、地点、世界观规�
 /// 「继续生成」追加的系统指令。
 const String _kContinueHint = '接着刚才的内容继续输出，不要重复已输出的部分，不要解释。';
 
-/// 创建器里的一条消息（内存态，不落库；文本可变以便流式追加）。
-class _CreatorMsg {
-  _CreatorMsg({required this.isUser, this.text = ''});
-
-  final bool isUser;
-  String text;
-  String? error;
-
-  bool get isEmpty => text.trim().isEmpty;
-}
-
 /// AI 角色卡创建器（v0.8.0）：采访式对话收集设定 → 一键生成纯 JSON 卡
 /// → 打开现有编辑页预览（内存卡、未保存态）→ 复用现有保存入库流程。
 ///
-/// 对话不持久化（退出即弃，顶栏菜单「清空对话」）。
+/// 对话为内存态（不写存储文件），消息类型与后台生成管理器共用
+/// [CreatorMsg]。v0.10.0：采访流式请求交给管理器（key = [creatorKey]），
+/// 退出页面请求继续在后台跑、重进自动接管显示；顶栏菜单「清空对话」
+/// 即时清空页面内存并取消/移除管理器任务（不给旧会话复活的机会）。
 /// 使用激活 API 配置与激活预设参数（temperature/topP/maxTokens）。
 class CardCreatorScreen extends StatefulWidget {
   const CardCreatorScreen({super.key});
@@ -91,8 +84,9 @@ class CardCreatorScreen extends StatefulWidget {
 }
 
 class _CardCreatorScreenState extends State<CardCreatorScreen> {
-  /// 采访对话（仅内存，不写任何存储）
-  final List<_CreatorMsg> _msgs = [];
+  /// 采访对话（仅内存，不写任何存储）。v0.10.0：非 final —— 重进时
+  /// 整体换成后台任务持有的会话列表（见 [_adoptPendingJob]）。
+  List<CreatorMsg> _msgs = [];
 
   final _inputCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
@@ -130,16 +124,74 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
   void initState() {
     super.initState();
     _scrollCtrl.addListener(_onScroll);
+    _adoptPendingJob();
   }
 
   @override
   void dispose() {
+    // v0.10.0：只解绑后台生成的 UI 监听，不取消请求 —— 采访在后台
+    // 继续跑，重进本页由 _adoptPendingJob 接管显示。
+    ActiveGenerations.instance.of(ActiveGenerations.creatorKey)?.detach();
     _throttle.dispose();
     _api.dispose();
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
     _inputEmpty.dispose();
     super.dispose();
+  }
+
+  /// 重进接管（v0.10.0）：管理器里还有 creator 任务时，内存会话以任务
+  /// 持有的列表为准（含离线期间的增量），再绑定回调继续显示。
+  /// 任务已在后台跑完（done=true，等的就是这次接管）→ 直接移交释放 key。
+  void _adoptPendingJob() {
+    final mgr = ActiveGenerations.instance;
+    final job = mgr.of(ActiveGenerations.creatorKey);
+    if (job == null) return;
+    final session = job.creatorSession;
+    final target = job.creatorTarget;
+    if (session == null || target == null) {
+      mgr.remove(ActiveGenerations.creatorKey); // 防御：数据不齐即放弃
+      return;
+    }
+    _msgs = session;
+    target.text = job.fullText; // 离线期间的增量以任务权威缓冲为准
+    target.error = job.error;
+    if (job.done) {
+      mgr.remove(ActiveGenerations.creatorKey); // 移交完成，释放同 key
+    } else {
+      _generating = true;
+      _stopped = false;
+      _sentAdvanced = job.sentAdvanced;
+      final token = ++_genToken;
+      job.attach(
+        onDelta: (delta) {
+          if (!mounted || token != _genToken) return;
+          _throttle.enqueue(delta);
+        },
+        onError: (error) {
+          if (!mounted || token != _genToken) return;
+          _throttle.flush();
+          setState(() {
+            if (_msgs.isNotEmpty && !_msgs.last.isUser) {
+              _msgs.last.error = error;
+            }
+          });
+          _lastErrorAdvanced = job.sentAdvanced;
+        },
+        onDone: (_) {
+          if (!mounted || token != _genToken) return;
+          _throttle.flush();
+          setState(() {
+            _generating = false;
+            _stopped = false;
+          });
+          _followBottom();
+        },
+      );
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _followBottom();
+    });
   }
 
   // ------------------------------------------------------------- 滚动 --
@@ -175,8 +227,8 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
       if (_msgs.isNotEmpty && !_msgs.last.isUser && _msgs.last.isEmpty) {
         _msgs.removeLast();
       }
-      _msgs.add(_CreatorMsg(isUser: true, text: text));
-      _msgs.add(_CreatorMsg(isUser: false));
+      _msgs.add(CreatorMsg(isUser: true, text: text));
+      _msgs.add(CreatorMsg(isUser: false));
       _generating = true;
       _stopped = false;
     });
@@ -208,14 +260,16 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
     }
     setState(() {
       if (_msgs.isNotEmpty && !_msgs.last.isUser) _msgs.removeLast();
-      _msgs.add(_CreatorMsg(isUser: false));
+      _msgs.add(CreatorMsg(isUser: false));
       _generating = true;
       _stopped = false;
     });
     _runChat();
   }
 
-  /// 一次采访流式请求。对话不落库，只走内存 + 节流刷新。
+  /// 一次采访流式请求（v0.10.0：交给后台生成管理器，key = creator）。
+  /// 对话只走内存 + 节流刷新；页面退出请求继续跑，重进由
+  /// [_adoptPendingJob] 接管显示；本页（发起方）await 任务结束收尾。
   Future<void> _runChat({bool isContinue = false}) async {
     final token = ++_genToken;
     _throttle.reset();
@@ -233,19 +287,29 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
     // v0.9.0：统一走激活预设的完整参数集（高级字段默认不进 body）
     final sampling = AppSettings.activePreset.sampling;
     _sentAdvanced = !sampling.isDefault;
-    await _api.streamChat(
-      baseUrl: AppSettings.baseUrl,
-      apiKey: AppSettings.apiKey,
-      model: AppSettings.model,
-      messages: [
-        const PromptMessage(role: 'system', content: _kInterviewSystem),
-        ...history,
-      ],
-      temperature: AppSettings.temperature,
-      topP: AppSettings.topP,
-      maxTokens: AppSettings.maxTokens,
-      stream: AppSettings.streaming,
-      sampling: sampling,
+    final target = _msgs.last;
+    final job = ActiveGenerations.instance.start(
+      key: ActiveGenerations.creatorKey,
+      kind: GenKind.creator,
+      request: GenRequest(
+        baseUrl: AppSettings.baseUrl,
+        apiKey: AppSettings.apiKey,
+        model: AppSettings.model,
+        messages: [
+          const PromptMessage(role: 'system', content: _kInterviewSystem),
+          ...history,
+        ],
+        temperature: AppSettings.temperature,
+        topP: AppSettings.topP,
+        maxTokens: AppSettings.maxTokens,
+        stream: AppSettings.streaming,
+        sampling: sampling,
+      ),
+      initialText: target.text,
+      creatorSession: _msgs,
+      creatorTarget: target,
+      isContinue: isContinue,
+      sentAdvanced: _sentAdvanced,
       onDelta: (delta) {
         if (!mounted || token != _genToken) return;
         _throttle.enqueue(delta);
@@ -260,8 +324,18 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
         });
         _lastErrorAdvanced = _sentAdvanced;
       },
-      onDone: () {},
     );
+    // 同 key 已有进行中的任务（防重入兜底，正常被 _generating 挡住）
+    if (job == null) {
+      if (mounted) {
+        setState(() {
+          _generating = false;
+          _stopped = false;
+        });
+      }
+      return;
+    }
+    await job.finished;
     _throttle.flush();
     if (!mounted || token != _genToken) return; // 已被停止，_stop 已收尾
     setState(() {
@@ -273,8 +347,14 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
 
   void _stop() {
     _genToken++;
-    _api.cancel();
-    _throttle.flush(); // 并入停止前已到达的文本，不丢字
+    // 页面内停止 = 管理器执行取消；随即释放同 key（收尾是异步的，
+    // 不挡住紧接着的重试/继续）。已到文本由下方 flush 并入，不丢字。
+    final job = ActiveGenerations.instance.of(ActiveGenerations.creatorKey);
+    if (job != null) {
+      job.cancel();
+      ActiveGenerations.instance.remove(ActiveGenerations.creatorKey);
+    }
+    _throttle.flush();
     if (!mounted) return;
     setState(() {
       _generating = false;
@@ -295,7 +375,15 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
 
   void _clearChat() {
     _genToken++;
-    _api.cancel();
+    // 即时清空（v0.10.0）：页面内存立即清 + 管理器任务一并取消移除。
+    // 创建器会话为内存态不写存储文件，任务在册就可能把旧会话原样
+    // 复活给下次重进 —— 必须同帧掐掉；_msgs 与任务持有的是同一个列表，
+    // clear 之后旧会话即为空，后台收尾不会再移交任何内容。
+    final job = ActiveGenerations.instance.of(ActiveGenerations.creatorKey);
+    if (job != null) {
+      job.cancel();
+      ActiveGenerations.instance.remove(ActiveGenerations.creatorKey);
+    }
     _throttle.reset();
     if (!mounted) return;
     setState(() {

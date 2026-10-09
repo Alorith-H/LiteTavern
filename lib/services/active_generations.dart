@@ -190,12 +190,12 @@ class GenerationJob {
       } catch (_) {
         // 落库失败不阻塞移交（页面重进仍可按现有读取逻辑处理）
       }
-      owner._jobs.remove(key);
+      owner._removeIfCurrent(this);
       final onDone = _cb?.onDone;
       onDone?.call(this);
     } else if (_cb != null) {
       // 创建器：有绑定页面 → 会话已在此页手里，任务即刻移交。
-      owner._jobs.remove(key);
+      owner._removeIfCurrent(this);
       final onDone = _cb?.onDone;
       onDone?.call(this);
     }
@@ -264,6 +264,12 @@ class ActiveGenerations {
 
   /// 显式移除任务（创建器接管后清空对话等特殊路径）。
   void remove(String key) => _jobs.remove(key);
+
+  /// 收尾时的移除：仅当 [job] 仍是该 key 的当前任务。页面停止/清空会先
+  /// 显式 remove 再由旧任务异步收尾 —— 旧任务不得误删其间新发起的任务。
+  void _removeIfCurrent(GenerationJob job) {
+    if (identical(_jobs[job.key], job)) _jobs.remove(job.key);
+  }
 
   /// 发起一次生成。[runner] 仅测试注入（默认 ApiClient 流式请求）。
   /// 返回 null = 同 key 已有进行中的任务（防重入，与现状一致）。

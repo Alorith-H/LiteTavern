@@ -183,6 +183,9 @@ class _ChatScreenState extends State<ChatScreen> {
     // v0.10.0：只解绑后台生成的 UI 监听，不取消请求 —— 生成在后台跑完，
     // 完成由管理器落库；重进本页时 _load 里的接管逻辑恢复显示。
     ActiveGenerations.instance.of(_convId)?.detach();
+    // 已排队的节流快照不再落盘：避免它晚于管理器后台落库执行，
+    // 把权威全文回写成部分文本（见 _save）
+    _saveAborted = true;
     _throttle.dispose();
     _reSettleTimer?.cancel();
     _api.dispose();
@@ -301,6 +304,73 @@ class _ChatScreenState extends State<ChatScreen> {
     _locateInitial();
   }
 
+  /// 生成中重进接管（v0.10.0）：目标消息以任务权威缓冲 fullText 整段
+  /// 替换（磁盘上可能只是部分文本），随后 [GenerationJob.attach] 绑定
+  /// 流式回调继续显示，任务结束由 onDone 收尾（发起页 await finished
+  /// 的编排已随页面销毁作废，避免双跑）。
+  /// 目标占位消息找不到（会话已被清空）时不接管，与落库同判据。
+  List<ChatMessage> _adoptJob(List<ChatMessage> msgs, GenerationJob job) {
+    final out = List<ChatMessage>.of(msgs);
+    final ts = job.targetTs;
+    var idx = -1;
+    if (ts != null) {
+      for (var i = out.length - 1; i >= 0; i--) {
+        final m = out[i];
+        if (m.role != 'assistant') continue;
+        if (m.timestamp == ts &&
+            (job.targetSender == null || m.senderId == job.targetSender)) {
+          idx = i;
+          break;
+        }
+      }
+    }
+    if (idx < 0) return out; // 目标不在 → 不接管
+    out[idx] = out[idx].copyWith(content: job.fullText, error: job.error);
+
+    // 记账状态对齐发起页（token 记账、自动继续判断、失败提示沿用任务快照）
+    _throttle.reset();
+    _generating = true;
+    _isContinueGen = job.isContinue;
+    _genStartLen = job.genStartLen;
+    _tokensApplied = false;
+    _genFailed = false;
+    _statsPending = false;
+    _lastPrompt = job.prompt;
+    _sentAdvanced = job.sentAdvanced;
+    _lastErrorAdvanced = job.error != null && job.sentAdvanced;
+
+    // 之后到达的增量才进页面镜像（fullText 已含接管前的全部文本）
+    final token = ++_genToken;
+    job.attach(
+      onDelta: (delta) {
+        if (!mounted || token != _genToken) return;
+        _enqueueDelta(delta);
+      },
+      onError: (error) {
+        if (!mounted || token != _genToken) return;
+        _flushStream();
+        setState(() {
+          final i = _messages.length - 1;
+          if (i < 0 || _messages[i].role != 'assistant') return;
+          _messages[i] = _messages[i].copyWith(error: error);
+        });
+        _genFailed = true;
+        _lastErrorAdvanced = job.sentAdvanced;
+      },
+      onDone: (j) {
+        if (!mounted || token != _genToken) return;
+        _flushStream();
+        setState(() {
+          _generating = false;
+          _applyTokens(j.exactPrompt, j.exactCompletion);
+        });
+        _save(force: true);
+        _followBottom();
+      },
+    );
+    return out;
+  }
+
   /// 群聊合并世界书：各成员 enabled 挂载（跨成员去重）+ 各自卡内嵌。
   Future<List<WorldInfo>> _loadWorldBooksForGroup(
       List<CharacterCard> members) async {
@@ -375,6 +445,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _pendingSave = Future.value();
 
+  /// 页面已 dispose：排队中的快照不再写盘（v0.10.0，见 dispose）
+  bool _saveAborted = false;
+
   void _save({bool force = false}) {
     if (!_isGroup && _card == null) return;
     if (_isGroup && _group == null) return;
@@ -386,14 +459,15 @@ class _ChatScreenState extends State<ChatScreen> {
     final hitStats = _hitStats;
     final convId = _convId;
     // 串行写入，避免并发覆盖
-    _pendingSave = _pendingSave.then(
-      (_) => Storage.saveConversation(
+    _pendingSave = _pendingSave.then((_) {
+      if (_saveAborted) return Future<void>.value();
+      return Storage.saveConversation(
         convId,
         snapshot,
         summary: summary,
         hitStats: hitStats,
-      ),
-    );
+      );
+    });
   }
 
   // ----------------------------------------------------------- 滚动 --
@@ -718,7 +792,10 @@ class _ChatScreenState extends State<ChatScreen> {
   /// 生成收尾：关掉进行中状态并落盘（单次操作与轮转共用）。
   void _finishGeneration() {
     if (!mounted) return;
-    if (_generating) {
+    // 停止/清空后立刻重发的竞态：同 key 已有新一轮任务时 `_generating`
+    // 归新一轮管，本链只负责落盘，不得把新任务的进行中状态关掉。
+    final busy = ActiveGenerations.instance.has(_convId);
+    if (_generating && !busy) {
       setState(() => _generating = false);
     }
     _save(force: true);
@@ -1154,7 +1231,13 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _stop() {
     _genToken++;
-    _api.cancel();
+    // 页面内停止 = 管理器执行取消（与 dispose 只解绑相对）。随即显式
+    // 释放同 key：取消收尾是异步的，别挡住紧接着的再次发送。
+    final job = ActiveGenerations.instance.of(_convId);
+    if (job != null) {
+      job.cancel();
+      ActiveGenerations.instance.remove(_convId);
+    }
     // 并入停止前已到达的文本，保证不丢字
     _flushStream();
     if (!mounted) return;
@@ -1371,6 +1454,16 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
     );
     if (ok != true || !mounted) return;
+    // 生成中清空（v0.10.0）：取消在途任务并立即释放同 key —— 目标占位
+    // 已随清空消失，后台收尾不会把旧内容写回（_persist 找不到目标即跳过）；
+    // 作废页内回调，杜绝流式文本追加进新开场白。
+    final job = ActiveGenerations.instance.of(_convId);
+    if (job != null) {
+      job.cancel();
+      ActiveGenerations.instance.remove(_convId);
+    }
+    _genToken++;
+    _throttle.reset();
     final card = _card;
     setState(() {
       // 群聊没有开场白；单聊回到 first_mes
@@ -1389,6 +1482,8 @@ class _ChatScreenState extends State<ChatScreen> {
       _hitStats = null; // 清空对话同时清零本对话命中率
       _historyLimitOverride = null; // 历史已重置，满压缩覆盖一并复位
       _ctxHardTrim = false;
+      _generating = false; // 生成已取消，立即恢复可发送
+      _isContinueGen = false;
       _msgCache.clear();
       _cacheLen = -1;
     });
