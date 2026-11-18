@@ -8,11 +8,12 @@ import '../models/chat_group.dart';
 import '../models/character_card.dart';
 import '../services/active_generations.dart';
 import '../services/card_downloader.dart';
-import '../services/card_parser.dart';
+import '../services/card_importer.dart';
 import '../services/storage.dart';
 import '../widgets/common.dart';
 import '../widgets/segmented_toggle.dart';
 import 'card_creator_screen.dart';
+import 'card_market_screen.dart';
 import 'chat_screen.dart';
 import 'character_edit_screen.dart';
 import 'create_group_screen.dart';
@@ -106,11 +107,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// 解析 + 入库 + snackbar（文件导入与链接下载共用）。
   Future<void> _importBytes(Uint8List bytes, String name) async {
-    final parsed = CardParser.parse(bytes, name);
-    final card = await Storage.saveCharacter(parsed.card);
-    if (parsed.pngBytes != null) {
-      await Storage.saveAvatar(card.id, parsed.pngBytes!);
-    }
+    final card = await importCardBytes(bytes, filename: name);
     await _reload();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -259,8 +256,8 @@ class _HomeScreenState extends State<HomeScreen> {
         return firstLine.split('\n').first;
       });
 
-  /// FAB / 空态按钮：底部弹窗三选
-  /// "从文件导入 / 从链接下载 / AI 创建角色卡"。
+  /// FAB / 空态按钮：底部弹窗四选
+  /// "角色卡市场 / 从文件导入 / 从链接下载 / AI 创建角色卡"。
   void _showImportSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -268,6 +265,15 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            ListTile(
+              leading: const Icon(Icons.storefront_outlined),
+              title: const Text('角色卡市场'),
+              subtitle: const Text('在线浏览公开角色卡，一键下载导入'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _openMarket();
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.description_outlined),
               title: const Text('从文件导入'),
@@ -305,6 +311,14 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _openCardCreator() async {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const CardCreatorScreen()),
+    );
+    _reload();
+  }
+
+  /// 打开角色卡市场；返回后刷新列表（市场里可能已导入新角色）。
+  Future<void> _openMarket() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const CardMarketScreen()),
     );
     _reload();
   }

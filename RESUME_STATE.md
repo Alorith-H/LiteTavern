@@ -1,17 +1,32 @@
-# 交接状态：v0.10.0 已完成并通过验证（2026-11-18 更新）
+# 交接状态：v0.11.0 角色卡市场（2026-11-18 更新）
 
-> 一句话：`task_spec_v9.txt` / `task_spec_v10.txt` 的全部功能已落地，analyze 清零、
-> 测试 114 条全过、release APK 构建成功；本轮修了 4 处收尾问题。
-> 唯一未做的是**真机验证**——本机没有 Android 设备/模拟器，见「待验证」。
+> v0.10.0：`task_spec_v9.txt` / `task_spec_v10.txt` 全部功能已落地，analyze 清零、
+> 测试 114 条全过、release APK 构建成功；本轮修了 4 处收尾问题（commit `6d33486`）。
+> v0.11.0（当前）：新增「角色卡市场」——App 内浏览 Chub.ai 公开角色卡并一键下载导入，
+> 功能已实现，analyze 清零、测试 +124 全过、release APK 构建成功；**仍未做真机验证**
+> （本机无 Android 设备/模拟器，见「待验证」）。
+
+## v0.11.0 角色卡市场（本轮新增）
+
+- 入口：主页右下 FAB / 空态按钮 → 底部弹窗「角色卡市场」→ `CardMarketScreen`
+- 数据源：`Chub.ai`（`https://api.chub.ai/search`，免鉴权、默认只看 SFW、空关键词取热门），
+  下载标准卡文件 `chara_card_v2.png`（PNG 内嵌 chara V2）→ 复用 `CardParser` 入库
+- 新增文件：`lib/services/card_market.dart`（源抽象 + Chub 实现 + 客户端 + 错误映射）、
+  `lib/services/card_importer.dart`（`importCardBytes` 统一入库：文件/链接/市场共用）、
+  `lib/screens/card_market_screen.dart`（搜索防抖、两列网格、滚动加载、详情底部弹窗、
+  下载并导入、空/错态、署名）、`test/card_market_test.dart`（10 例）
+- 改动：`home_screen.dart`（市场入口 + `_importBytes` 改用 `importCardBytes`）、
+  `pubspec.yaml:5` → `0.11.0+2`、`lib/app_info.dart` → `0.11.0`
+- 更多来源调研与合规说明见 `docs/card_market_sources.md`
 
 ## 仓库状态
 
 - 分支 `dev`，远端 `origin = https://github.com/Alorith-H/LiteTavern.git`（GCM 凭据可用）
 - 基线 commit `6553062`（2026-10-09「feat: v0.10.0 …；110测试」），与 origin/dev 同步
 - 本轮改动见 `git log -1` / `git status`（版本文案、摘要参数、删除会话清理、测试与文档）
-- `pubspec.yaml:5` → `version: 0.10.0+1`；包名 `com.alorith.litetavern`
-- 产物：`build\app\outputs\flutter-apk\app-release.apk`（57.5 MB，
-  `output-metadata.json` versionCode 1 / versionName 0.10.0）
+- `pubspec.yaml:5` → `version: 0.11.0+2`；包名 `com.alorith.litetavern`
+- 产物：`build\app\outputs\flutter-apk\app-release.apk`（57.6 MB，
+  `output-metadata.json` versionCode 2 / versionName 0.11.0）
 
 ## 规格落地结论（对照两份 spec 逐条核过）
 
@@ -58,7 +73,7 @@
 | 项目 | 命令 | 结果 |
 |---|---|---|
 | 静态分析 | `flutter analyze` | **No issues found!**（28.2s） |
-| 单元/组件测试 | `flutter test` | **+114 All tests passed!**（exit 0） |
+| 单元/组件测试 | `flutter test` | **+124 All tests passed!**（exit 0，v0.11.0 新增 10 例） |
 | Release 构建 | `flutter build apk --release` | **成功**，57.5 MB，57.9s |
 | 装机/真机 | — | **未执行**：无 Android 设备，见下 |
 
@@ -78,6 +93,8 @@ NDK 版本不匹配（`android/app/build.gradle.kts:19` 写 27.0.12077973，插�
 4. 退出不中断：发消息→立刻返回主页→重进会话，应看到仍在生成 + 停止按钮可点；
    生成中杀进程→数据丢失（spec 允许）
 5. 删除会话时若正在后台生成，删除后不应被写回
+6. 角色卡市场：FAB → 角色卡市场 → 首屏应出热门卡（需联网）→ 搜索关键词 →
+   点卡看详情 → 「下载并导入」→ 返回主页出现新角色；断开网络时应显示中文错误而不是崩溃
 
 ## 已知边界（有意保留，不阻塞发布）
 
