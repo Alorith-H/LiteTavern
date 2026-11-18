@@ -36,6 +36,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late int _autoContinue;
   late bool _autoSummarize;
   late bool _streaming;
+  late bool _autoCandidates;
 
   /// 当前主题色 seed 与自定义 HEX 输入
   late int _seed;
@@ -78,6 +79,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _autoContinue = AppSettings.autoContinueCount;
     _autoSummarize = AppSettings.autoSummarize;
     _streaming = AppSettings.streaming;
+    _autoCandidates = AppSettings.autoReplyCandidates;
     _seed = AppSettings.themeSeed;
     _hexCtrl = TextEditingController(text: _seedToHex(_seed));
     _loadWorldBooks();
@@ -375,6 +377,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onChanged: (v) {
               setState(() => _streaming = v);
               AppSettings.streaming = v;
+            },
+          ),
+          const Divider(height: 1),
+          _switchRow(
+            title: '自动生成回复',
+            subtitle: '单聊生效：每次先生成 3 个候选，由你挑一条采用',
+            value: _autoCandidates,
+            onChanged: (v) {
+              setState(() => _autoCandidates = v);
+              AppSettings.autoReplyCandidates = v;
             },
           ),
           const Divider(height: 1),

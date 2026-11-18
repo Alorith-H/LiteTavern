@@ -15,12 +15,14 @@ import '../services/context_usage.dart';
 import '../services/hit_stats.dart';
 import '../services/macros.dart';
 import '../services/prompt_builder.dart';
+import '../services/sampling_params.dart';
 import '../services/storage.dart';
 import '../services/stream_throttle.dart';
 import '../services/summarize.dart';
 import '../services/token_estimate.dart';
 import '../services/world_info_engine.dart';
 import '../widgets/common.dart';
+import '../widgets/reply_candidates_sheet.dart';
 import 'character_edit_screen.dart';
 import 'settings_screen.dart';
 
@@ -102,6 +104,10 @@ class _ChatScreenState extends State<ChatScreen> {
   final _inputCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   final _api = ApiClient();
+
+  /// 候选回复模式（v0.12.0）进行中的独立请求客户端：
+  /// 每个候选一条独立连接，停止/离开页面时统一取消。
+  final List<ApiClient> _candidateClients = [];
 
   bool _generating = false;
   bool _followScroll = true;
@@ -187,6 +193,11 @@ class _ChatScreenState extends State<ChatScreen> {
     // 把权威全文回写成部分文本（见 _save）
     _saveAborted = true;
     _throttle.dispose();
+    // 候选回复（v0.12.0）：页面私有请求，离开即取消（与后台生成相反）
+    for (final c in _candidateClients) {
+      c.dispose();
+    }
+    _candidateClients.clear();
     _reSettleTimer?.cancel();
     _api.dispose();
     _scrollCtrl.removeListener(_onScroll);
@@ -747,7 +758,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_isGroup) {
       _runGroupRound(targets);
     } else {
-      _generateSingle();
+      _runSingleReply();
     }
   }
 
@@ -798,6 +809,244 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_generating && !busy) {
       setState(() => _generating = false);
     }
+    _save(force: true);
+    _followBottom();
+  }
+
+  // ------------------------------------------------ 候选回复（v0.12.0） --
+
+  /// 一次候选生成几条
+  static const int _kCandidateCount = 3;
+
+  /// 单聊单次回复入口：开着「自动生成回复」走候选，否则走原流式。
+  /// 群聊轮转始终流式；重新生成 / 重试同样遵循该开关。
+  Future<void> _runSingleReply() {
+    if (!_isGroup && AppSettings.autoReplyCandidates) {
+      return _generateCandidatesSingle();
+    }
+    return _generateSingle();
+  }
+
+  /// 候选模式：并行取 [_kCandidateCount] 个非流式候选，
+  /// 弹选择器让用户挑一条写进占位消息（其余候选存进 variants 可横滑）。
+  /// 不经过 ActiveGenerations —— 同 key 单任务模型装不下并行候选，
+  /// 因此离开页面会取消本次候选（已落库的正文与普通回复一致）。
+  Future<void> _generateCandidatesSingle() async {
+    final token = ++_genToken;
+    _tokensApplied = false;
+    _genFailed = false;
+    _isContinueGen = false;
+    _genStartLen = 0;
+
+    final built = _buildPrompt();
+    _lastSystemText = built.systemText;
+    _lastActivated = built.activated;
+    // 命中率记账：与流式模式同一口径（真实发送的组装记 1 次）
+    if (_statsPending) {
+      _statsPending = false;
+      final stats = (_hitStats ?? const HitStats())
+          .record(built.activated.map((a) => a.entryKey));
+      setState(() => _hitStats = stats);
+      _save(force: true);
+    }
+    final sampling = AppSettings.activePreset.sampling;
+    _sentAdvanced = !sampling.isDefault;
+    _lastPrompt = built.messages;
+
+    var results = await _fetchCandidates(built.messages, sampling);
+    if (!mounted || token != _genToken) return;
+
+    var current = _usableCandidates(results);
+    if (current.isEmpty) {
+      _failCandidates(results);
+      return;
+    }
+
+    final picked = await showReplyCandidatesSheet(
+      context,
+      candidates: [for (final r in current) r.text.trim()],
+      characterName: _card?.name ?? '角色',
+      onRegenerate: () async {
+        final batch = await _fetchCandidates(built.messages, sampling);
+        if (!mounted || token != _genToken) {
+          throw StateError('已取消');
+        }
+        final usable = _usableCandidates(batch);
+        if (usable.isEmpty) {
+          throw Exception(batch.first.error ?? '换一批失败，请重试');
+        }
+        results = batch;
+        current = usable;
+        return [for (final r in usable) r.text.trim()];
+      },
+    );
+    // 换一批期间被停止 / 页面已销毁：占位由 _stop 收尾，这里不再写
+    if (!mounted || token != _genToken) return;
+
+    if (picked == null || picked < 0 || picked >= current.length) {
+      // 关闭不选：占位标错误可重试，不落任何正文
+      setState(() {
+        final i = _messages.length - 1;
+        if (i >= 0 && _messages[i].role == 'assistant') {
+          _messages[i] = _messages[i].copyWith(error: '未选择候选回复');
+        }
+      });
+      _genFailed = true;
+      _finishCandidateRun();
+      return;
+    }
+
+    _applyCandidateChoice(current, picked);
+    _finishCandidateRun();
+  }
+
+  /// 并行取一批候选（每个候选一条独立连接，seed 已设置时按序号偏移）。
+  Future<List<_CandidateResult>> _fetchCandidates(
+    List<PromptMessage> messages,
+    SamplingParams sampling,
+  ) {
+    return Future.wait([
+      for (var i = 0; i < _kCandidateCount; i++)
+        _fetchOneCandidate(messages, sampling.forCandidate(i)),
+    ]);
+  }
+
+  /// 单条候选：非流式请求全文 + usage。
+  /// 候选各自独立 ApiClient —— 共用会被 cancel 互相干扰。
+  Future<_CandidateResult> _fetchOneCandidate(
+    List<PromptMessage> messages,
+    SamplingParams sampling,
+  ) async {
+    final client = ApiClient();
+    _candidateClients.add(client);
+    final buf = StringBuffer();
+    int? promptTokens;
+    int? completionTokens;
+    String? error;
+    try {
+      await client.streamChat(
+        baseUrl: AppSettings.baseUrl,
+        apiKey: AppSettings.apiKey,
+        model: AppSettings.model,
+        messages: messages,
+        temperature: AppSettings.temperature,
+        topP: AppSettings.topP,
+        maxTokens: AppSettings.maxTokens,
+        stream: false,
+        sampling: sampling,
+        onDelta: buf.write,
+        onError: (e) => error = e,
+        onDone: () {},
+        onUsage: (p, c) {
+          promptTokens = p;
+          completionTokens = c;
+        },
+      );
+    } catch (e) {
+      error ??= '请求失败：$e';
+    } finally {
+      _candidateClients.remove(client);
+      client.dispose();
+    }
+    var text = buf.toString();
+    if (error == null && text.trim().isEmpty) error = '模型返回为空';
+    return _CandidateResult(
+      text: text,
+      promptTokens: promptTokens,
+      completionTokens: completionTokens,
+      error: error,
+    );
+  }
+
+  List<_CandidateResult> _usableCandidates(List<_CandidateResult> results) =>
+      [for (final r in results) if (r.usable) r];
+
+  /// 全部候选失败：占位标错误（与原失败气泡一致，可点重试）。
+  void _failCandidates(List<_CandidateResult> results) {
+    var err = '候选生成失败，请重试';
+    for (final r in results) {
+      final e = r.error;
+      if (e != null && e.isNotEmpty) {
+        err = e;
+        break;
+      }
+    }
+    _lastErrorAdvanced = _sentAdvanced;
+    setState(() {
+      final i = _messages.length - 1;
+      if (i >= 0 && _messages[i].role == 'assistant') {
+        _messages[i] = _messages[i].copyWith(error: err);
+      }
+    });
+    _genFailed = true;
+    _finishCandidateRun();
+  }
+
+  /// 采用第 [picked] 个候选：正文 + 全部候选存 variants（可横滑切换），
+  /// token 记账按三条候选的总花销写（与多次重生成累加口径一致）。
+  /// 重新生成时保留旧变体：既有非空变体在前，新候选追加在后。
+  void _applyCandidateChoice(List<_CandidateResult> list, int picked) {
+    final i = _messages.length - 1;
+    if (i < 0) return;
+    final m = _messages[i];
+    final sent = _lastPrompt;
+    final promptEstimate =
+        sent == null ? 0 : estimateTokens(sent.map((x) => x.content).join('\n'));
+
+    // 既有变体（占位空槽不算，与 _prepVariantSlot 的清理口径一致）
+    final variants = <String>[];
+    final usage = <VariantUsage>[];
+    final existing = m.variants.isEmpty
+        ? [if (m.content.isNotEmpty) m.content]
+        : m.variants;
+    for (var k = 0; k < existing.length; k++) {
+      final text = existing[k];
+      if (text.isEmpty) continue;
+      variants.add(text);
+      usage.add(k < m.variantUsage.length ? m.variantUsage[k] : VariantUsage.empty);
+    }
+    final baseCount = variants.length;
+
+    var promptTotal = 0;
+    var completionTotal = 0;
+    var estimated = false;
+    for (final r in list) {
+      final text = r.text.trim();
+      if (text.isEmpty) continue;
+      variants.add(text);
+      final hasUsage = r.promptTokens != null && r.completionTokens != null;
+      if (!hasUsage) estimated = true;
+      final p = r.promptTokens ?? promptEstimate;
+      final c = r.completionTokens ?? estimateTokens(text);
+      promptTotal += p;
+      completionTotal += c;
+      usage.add(VariantUsage(prompt: p, completion: c, estimated: !hasUsage));
+    }
+    if (baseCount + picked >= variants.length) return;
+    setState(() {
+      _messages[i] = m.copyWith(
+        content: variants[baseCount + picked],
+        variants: variants,
+        variantIndex: baseCount + picked,
+        variantUsage: usage,
+        promptTokens: (m.promptTokens ?? 0) + promptTotal,
+        completionTokens: (m.completionTokens ?? 0) + completionTotal,
+        tokensEstimated: m.tokensEstimated || estimated,
+      );
+      _msgCache.clear();
+    });
+    _tokensApplied = true;
+    _save(force: true);
+  }
+
+  /// 候选模式收尾：释放连接、关进行中状态并落盘。
+  void _finishCandidateRun() {
+    for (final c in List<ApiClient>.of(_candidateClients)) {
+      c.dispose();
+    }
+    _candidateClients.clear();
+    if (!mounted) return;
+    setState(() => _generating = false);
     _save(force: true);
     _followBottom();
   }
@@ -1233,6 +1482,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _stop() {
     _genToken++;
+    // 候选模式（v0.12.0）：取消这一批的独立连接
+    for (final c in List<ApiClient>.of(_candidateClients)) {
+      c.cancel();
+    }
     // 页面内停止 = 管理器执行取消（与 dispose 只解绑相对）。随即显式
     // 释放同 key：取消收尾是异步的，别挡住紧接着的再次发送。
     final job = ActiveGenerations.instance.of(_convId);
@@ -1313,7 +1566,7 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     _save(force: true);
     _followBottom();
-    await _generateSingle();
+    await _runSingleReply();
   }
 
   /// 失败气泡里的重试。
@@ -1337,7 +1590,7 @@ class _ChatScreenState extends State<ChatScreen> {
       });
       _save(force: true);
       _followBottom();
-      await _generateSingle();
+      await _runSingleReply();
       return;
     }
 
@@ -1379,7 +1632,7 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     _save(force: true);
     _followBottom();
-    await _generateSingle();
+    await _runSingleReply();
   }
 
   /// 继续生成：在同一条 AI 消息末尾流式追加文本。
@@ -2640,4 +2893,22 @@ class _SwipeVariantWrapState extends State<_SwipeVariantWrap>
       ),
     );
   }
+}
+
+/// 候选回复的一次生成结果（v0.12.0）：正文 + 真实 usage + 失败原因。
+class _CandidateResult {
+  const _CandidateResult({
+    required this.text,
+    this.promptTokens,
+    this.completionTokens,
+    this.error,
+  });
+
+  final String text;
+  final int? promptTokens;
+  final int? completionTokens;
+  final String? error;
+
+  /// 可用 = 没报错且有正文
+  bool get usable => error == null && text.trim().isNotEmpty;
 }

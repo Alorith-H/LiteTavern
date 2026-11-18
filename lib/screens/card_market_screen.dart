@@ -11,8 +11,8 @@ import '../widgets/common.dart';
 
 /// 角色卡市场（v0.11.0）：搜索公开角色卡库、看图文详情、一键下载入库。
 ///
-/// 交互：顶部搜索（400ms 防抖，空关键词 = 热门）→ 两列封面网格
-/// （滚动到底自动加载下一页）→ 点卡片看详情 → 下载并导入。
+/// 交互：顶部搜索（400ms 防抖，空关键词 = 热门）→ 筛选行（排序/标签/长度）
+/// → 两列封面网格（滚动到底自动加载下一页）→ 点卡片看详情 → 下载并导入。
 /// 入库走 [importCardBytes]（与文件导入/链接下载同一条路径）。
 class CardMarketScreen extends StatefulWidget {
   const CardMarketScreen({super.key});
@@ -29,7 +29,7 @@ class _CardMarketScreenState extends State<CardMarketScreen> {
 
   Timer? _debounce;
 
-  /// 请求代次：关键词/刷新会让旧响应作废（防竞态覆盖）。
+  /// 请求代次：关键词/筛选/刷新会让旧响应作废（防竞态覆盖）。
   int _seq = 0;
   bool _loading = true;
   bool _loadingMore = false;
@@ -37,6 +37,9 @@ class _CardMarketScreenState extends State<CardMarketScreen> {
   int _page = 1;
   int _total = 0;
   String _query = '';
+
+  /// 当前筛选条件（排序 / 标签 / token 长度）。
+  MarketFilters _filters = MarketFilters.none;
 
   @override
   void initState() {
@@ -71,6 +74,39 @@ class _CardMarketScreenState extends State<CardMarketScreen> {
 
   Future<void> _reload() => _load(page: 1, replace: true);
 
+  /// 应用新的筛选条件：页码回 1、列表重置（[_seq] 竞态机制沿用）。
+  void _applyFilters(MarketFilters next) {
+    if (next == _filters) return;
+    setState(() {
+      _filters = next;
+      _page = 1;
+    });
+    _reload();
+  }
+
+  Future<void> _pickTopics() async {
+    final tags = await showDialog<List<String>>(
+      context: context,
+      builder: (_) => _TopicFilterDialog(initial: _filters.topics),
+    );
+    if (tags == null || !mounted) return;
+    _applyFilters(_filters.copyWith(topics: tags));
+  }
+
+  Future<void> _pickTokenRange() async {
+    final range = await showModalBottomSheet<_TokenRange>(
+      context: context,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (_) =>
+          _TokenRangeSheet(current: _TokenRange.fromFilters(_filters)),
+    );
+    if (range == null || !mounted) return;
+    _applyFilters(
+      _filters.copyWith(minTokens: range.minTokens, maxTokens: range.maxTokens),
+    );
+  }
+
   Future<void> _load({required int page, required bool replace}) async {
     final seq = ++_seq;
     if (replace) {
@@ -80,7 +116,11 @@ class _CardMarketScreenState extends State<CardMarketScreen> {
       });
     }
     try {
-      final result = await _client.search(query: _query, page: page);
+      final result = await _client.search(
+        query: _query,
+        page: page,
+        filters: _filters,
+      );
       if (!mounted || seq != _seq) return;
       setState(() {
         if (replace) _cards.clear();
@@ -175,6 +215,7 @@ class _CardMarketScreenState extends State<CardMarketScreen> {
               ),
             ),
           ),
+          _buildFilterBar(scheme),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
             child: Row(
@@ -200,6 +241,110 @@ class _CardMarketScreenState extends State<CardMarketScreen> {
     );
   }
 
+  /// 筛选行：排序 ChoiceChip（相关/热门/新上架）+ 标签、长度弹出入口 + 清除。
+  Widget _buildFilterBar(ColorScheme scheme) {
+    return SizedBox(
+      height: 44,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        children: [
+          _sortChip('相关', 'relevance'),
+          const SizedBox(width: 6),
+          _sortChip('热门', 'popular'),
+          const SizedBox(width: 6),
+          _sortChip('新上架', 'newest'),
+          const SizedBox(width: 10),
+          _entryChip(
+            scheme: scheme,
+            icon: Icons.sell_outlined,
+            label: _filters.topics.isEmpty
+                ? '标签'
+                : '标签：${_filters.topics.join('+')}',
+            active: _filters.topics.isNotEmpty,
+            onPressed: _pickTopics,
+          ),
+          const SizedBox(width: 6),
+          _entryChip(
+            scheme: scheme,
+            icon: Icons.straighten_outlined,
+            label: _tokenRangeLabel(),
+            active: _filters.minTokens != null || _filters.maxTokens != null,
+            onPressed: _pickTokenRange,
+          ),
+          if (_filters.isNotEmpty) ...[
+            const SizedBox(width: 2),
+            Center(
+              child: TextButton(
+                onPressed: () => _applyFilters(MarketFilters.none),
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(0, 30),
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  foregroundColor: scheme.onSurfaceVariant,
+                  textStyle: Theme.of(context).textTheme.labelLarge
+                      ?.copyWith(fontSize: 12),
+                ),
+                child: const Text('清除'),
+              ),
+            ),
+          ],
+          const SizedBox(width: 4),
+        ],
+      ),
+    );
+  }
+
+  Widget _sortChip(String label, String sort) {
+    return Center(
+      child: ChoiceChip(
+        label: Text(label),
+        selected: _filters.sort == sort,
+        onSelected: (_) => _applyFilters(_filters.copyWith(sort: sort)),
+        showCheckmark: false,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        visualDensity: VisualDensity.compact,
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        labelStyle: const TextStyle(fontSize: 12),
+      ),
+    );
+  }
+
+  Widget _entryChip({
+    required ColorScheme scheme,
+    required IconData icon,
+    required String label,
+    required bool active,
+    required VoidCallback onPressed,
+  }) {
+    return Center(
+      child: ActionChip(
+        avatar: Icon(
+          icon,
+          size: 15,
+          color: active ? scheme.onSecondaryContainer : scheme.onSurfaceVariant,
+        ),
+        label: Text(label, maxLines: 1),
+        onPressed: onPressed,
+        backgroundColor: active ? scheme.secondaryContainer : null,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        visualDensity: VisualDensity.compact,
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        labelStyle: TextStyle(
+          fontSize: 12,
+          color: active ? scheme.onSecondaryContainer : null,
+        ),
+      ),
+    );
+  }
+
+  /// 长度入口文案：不限时只显示「长度」，否则显示当前预设。
+  String _tokenRangeLabel() {
+    final range = _TokenRange.fromFilters(_filters);
+    return range == _TokenRange.any ? '长度' : '长度：${range.shortLabel}';
+  }
+
   Widget _buildBody(ColorScheme scheme) {
     if (_loading && _cards.isEmpty) {
       return const Center(child: CircularProgressIndicator());
@@ -218,7 +363,9 @@ class _CardMarketScreenState extends State<CardMarketScreen> {
       return _StatusView(
         icon: Icons.travel_explore_outlined,
         title: '没有找到角色卡',
-        message: _query.isEmpty
+        message: _filters.isNotEmpty
+            ? '当前筛选条件下没有结果，试试放宽标签或长度限制'
+            : _query.isEmpty
             ? '换个网络再试试，或稍后刷新'
             : '试试更短的关键词，例如角色名、题材或标签',
         actionLabel: '刷新',
@@ -593,6 +740,147 @@ class _Stat extends StatelessWidget {
         const SizedBox(width: 3),
         Text(text, style: TextStyle(fontSize: 11.5, color: color)),
       ],
+    );
+  }
+}
+
+/// 标签筛选对话框：英文逗号分隔，去空、去重，最多 3 个。
+class _TopicFilterDialog extends StatefulWidget {
+  final List<String> initial;
+
+  const _TopicFilterDialog({required this.initial});
+
+  @override
+  State<_TopicFilterDialog> createState() => _TopicFilterDialogState();
+}
+
+class _TopicFilterDialogState extends State<_TopicFilterDialog> {
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.initial.join(','));
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    Navigator.of(context).pop(MarketFilters.parseTopics(_ctrl.text));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('标签筛选'),
+      content: TextField(
+        controller: _ctrl,
+        autofocus: true,
+        textInputAction: TextInputAction.done,
+        onSubmitted: (_) => _submit(),
+        decoration: const InputDecoration(
+          hintText: '英文标签，如 Fantasy,OC',
+          helperText: '多个标签用逗号分隔（需同时满足），最多 3 个',
+          helperMaxLines: 2,
+          isDense: true,
+          border: OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('确定')),
+      ],
+    );
+  }
+}
+
+/// 长度筛选预设（对应卡片 tokens 数）。
+enum _TokenRange {
+  any('不限', '不限', null, null),
+  short('短（<1k tokens）', '短', null, 999),
+  medium('中（1k–3k tokens）', '中', 1000, 3000),
+  long('长（>3k tokens）', '长', 3001, null);
+
+  const _TokenRange(
+    this.label,
+    this.shortLabel,
+    this.minTokens,
+    this.maxTokens,
+  );
+
+  /// 弹窗里的完整文案。
+  final String label;
+
+  /// 筛选行 chip 上的短文案。
+  final String shortLabel;
+
+  final int? minTokens;
+  final int? maxTokens;
+
+  /// 由筛选项反推当前预设（不匹配时按「不限」）。
+  static _TokenRange fromFilters(MarketFilters filters) {
+    for (final range in values) {
+      if (range.minTokens == filters.minTokens &&
+          range.maxTokens == filters.maxTokens) {
+        return range;
+      }
+    }
+    return any;
+  }
+}
+
+/// 长度筛选底部弹窗：不限 / 短 / 中 / 长。
+class _TokenRangeSheet extends StatelessWidget {
+  final _TokenRange current;
+
+  const _TokenRangeSheet({required this.current});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SafeArea(
+      top: false,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+            child: Text(
+              '按长度筛选',
+              style: TextStyle(
+                fontSize: AppType.section,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          for (final range in _TokenRange.values)
+            ListTile(
+              dense: true,
+              leading: Icon(
+                range == current
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                size: 20,
+                color: range == current
+                    ? scheme.primary
+                    : scheme.onSurfaceVariant,
+              ),
+              title: Text(range.label, style: const TextStyle(fontSize: 14)),
+              onTap: () => Navigator.of(context).pop(range),
+            ),
+          const SizedBox(height: 8),
+        ],
+      ),
     );
   }
 }

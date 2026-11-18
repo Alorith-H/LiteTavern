@@ -58,6 +58,19 @@ class SamplingParams {
         if (stop.isNotEmpty) 'stop': stop,
       };
 
+  /// 派生第 [index] 个候选回复的采样参数（v0.12.0）。
+  /// seed 已设置时按 +index 偏移，让同一 prompt 的多个候选真正不同；
+  /// seed 为空（随机）时保持为空。
+  SamplingParams forCandidate(int index) => SamplingParams(
+        frequencyPenalty: frequencyPenalty,
+        presencePenalty: presencePenalty,
+        repetitionPenalty: repetitionPenalty,
+        topK: topK,
+        minP: minP,
+        seed: seed == null ? null : seed! + index,
+        stop: stop,
+      );
+
   /// 停止词归一化：两端去空白、丢空行、最多 [maxStopCount] 条。
   static List<String> normalizeStop(Iterable<String> lines) {
     final result = <String>[];

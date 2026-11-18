@@ -2,9 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:litetavern/screens/card_market_screen.dart';
 import 'package:litetavern/services/card_export.dart';
 import 'package:litetavern/services/card_importer.dart';
 import 'package:litetavern/services/card_market.dart';
@@ -60,7 +62,12 @@ Uint8List _minimalPng() {
   out.add(<int>[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
   void chunk(String type, List<int> data) {
     final n = data.length;
-    out.add(<int>[(n >> 24) & 0xFF, (n >> 16) & 0xFF, (n >> 8) & 0xFF, n & 0xFF]);
+    out.add(<int>[
+      (n >> 24) & 0xFF,
+      (n >> 16) & 0xFF,
+      (n >> 8) & 0xFF,
+      n & 0xFF,
+    ]);
     out.add(type.codeUnits);
     out.add(data);
     out.add(const <int>[0, 0, 0, 0]);
@@ -72,18 +79,18 @@ Uint8List _minimalPng() {
 }
 
 Map<String, dynamic> _cardJson(String name) => <String, dynamic>{
-      'spec': 'chara_card V2',
-      'spec_version': '2.0',
-      'data': <String, dynamic>{
-        'name': name,
-        'description': '来自市场的简介',
-        'personality': '沉稳',
-        'scenario': '酒馆',
-        'first_mes': '晚上好。',
-        'mes_example': '',
-        'tags': <String>['Fantasy'],
-      },
-    };
+  'spec': 'chara_card V2',
+  'spec_version': '2.0',
+  'data': <String, dynamic>{
+    'name': name,
+    'description': '来自市场的简介',
+    'personality': '沉稳',
+    'scenario': '酒馆',
+    'first_mes': '晚上好。',
+    'mes_example': '',
+    'tags': <String>['Fantasy'],
+  },
+};
 
 void main() {
   group('Chub 搜索请求地址', () {
@@ -107,6 +114,185 @@ void main() {
     });
   });
 
+  group('筛选条件（MarketFilters）', () {
+    const source = ChubSource();
+
+    test('sort 默认 relevance：有词不带 sort，空词仍浏览热门（旧行为不回归）', () {
+      final withQuery = source.searchUri(query: '  love  ', page: 1);
+      expect(withQuery.queryParameters['search'], 'love');
+      expect(withQuery.queryParameters.containsKey('sort'), isFalse);
+
+      final browse = source.searchUri(query: '   ', page: 1);
+      expect(browse.queryParameters['sort'], 'star_count');
+    });
+
+    test('sort=popular → star_count（有关键词也以指定排序为准）', () {
+      final uri = source.searchUri(
+        query: 'love',
+        page: 1,
+        filters: const MarketFilters(sort: 'popular'),
+      );
+      expect(uri.queryParameters['sort'], 'star_count');
+    });
+
+    test('sort=newest → created_at（空关键词也以指定排序为准）', () {
+      final uri = source.searchUri(
+        query: '',
+        page: 3,
+        filters: const MarketFilters(sort: 'newest'),
+      );
+      expect(uri.queryParameters['sort'], 'created_at');
+      expect(uri.queryParameters['page'], '3');
+      expect(uri.queryParameters['nsfw'], 'false');
+    });
+
+    test('topics 逗号拼接（服务端 AND 语义）；无标签不带参数', () {
+      final uri = source.searchUri(
+        query: '',
+        page: 1,
+        filters: const MarketFilters(topics: ['Fantasy', 'OC']),
+      );
+      expect(uri.queryParameters['topics'], 'Fantasy,OC');
+
+      final none = source.searchUri(query: '', page: 1);
+      expect(none.queryParameters.containsKey('topics'), isFalse);
+    });
+
+    test('min/max tokens 映射 min_tokens / max_tokens（未设则不出现）', () {
+      final both = source.searchUri(
+        query: 'x',
+        page: 1,
+        filters: const MarketFilters(minTokens: 1000, maxTokens: 3000),
+      );
+      expect(both.queryParameters['min_tokens'], '1000');
+      expect(both.queryParameters['max_tokens'], '3000');
+
+      final onlyMin = source.searchUri(
+        query: 'x',
+        page: 1,
+        filters: const MarketFilters(minTokens: 3001),
+      );
+      expect(onlyMin.queryParameters['min_tokens'], '3001');
+      expect(onlyMin.queryParameters.containsKey('max_tokens'), isFalse);
+
+      final none = source.searchUri(query: 'x', page: 1);
+      expect(none.queryParameters.containsKey('min_tokens'), isFalse);
+      expect(none.queryParameters.containsKey('max_tokens'), isFalse);
+    });
+
+    test('排序 + 标签 + 长度可叠加，且 nsfw 永远 false', () {
+      final uri = source.searchUri(
+        query: ' love ',
+        page: 2,
+        filters: const MarketFilters(
+          sort: 'newest',
+          topics: ['Fantasy', 'OC'],
+          minTokens: 1000,
+          maxTokens: 3000,
+        ),
+      );
+      expect(uri.queryParameters['search'], 'love');
+      expect(uri.queryParameters['page'], '2');
+      expect(uri.queryParameters['first'], '${source.pageSize}');
+      expect(uri.queryParameters['sort'], 'created_at');
+      expect(uri.queryParameters['topics'], 'Fantasy,OC');
+      expect(uri.queryParameters['min_tokens'], '1000');
+      expect(uri.queryParameters['max_tokens'], '3000');
+      expect(uri.queryParameters['nsfw'], 'false');
+    });
+
+    test('MarketFilters：默认值、==/hashCode、copyWith（含清空 tokens）', () {
+      expect(const MarketFilters(), MarketFilters.none);
+      expect(MarketFilters.none.isEmpty, isTrue);
+
+      const f = MarketFilters(
+        sort: 'popular',
+        topics: ['Fantasy'],
+        minTokens: 1000,
+        maxTokens: 3000,
+      );
+      expect(f.isEmpty, isFalse);
+      const same = MarketFilters(
+        sort: 'popular',
+        topics: ['Fantasy'],
+        minTokens: 1000,
+        maxTokens: 3000,
+      );
+      expect(f, same);
+      expect(f.hashCode, same.hashCode);
+
+      expect(f.copyWith(sort: 'relevance').sort, 'relevance');
+      expect(f.copyWith(sort: 'relevance').topics, ['Fantasy']);
+      final cleared = f.copyWith(minTokens: null, maxTokens: null);
+      expect(cleared.minTokens, isNull);
+      expect(cleared.maxTokens, isNull);
+      expect(cleared.topics, ['Fantasy']);
+    });
+
+    test('parseTopics：中英文逗号、去空、去重（忽略大小写）、最多 3 个', () {
+      expect(MarketFilters.parseTopics(' Fantasy , OC ,, fantasy '), [
+        'Fantasy',
+        'OC',
+      ]);
+      expect(MarketFilters.parseTopics('a，b，c，d'), ['a', 'b', 'c']);
+      expect(MarketFilters.parseTopics('   '), isEmpty);
+      expect(MarketFilters.parseTopics('Fantasy'), ['Fantasy']);
+    });
+  });
+
+  group('CardMarketClient：筛选条件透传', () {
+    /// 返回固定搜索响应，并记录请求 URL。
+    (CardMarketClient, List<Uri>) mockClientUnderTest() {
+      final seen = <Uri>[];
+      final client = CardMarketClient(
+        httpClient: MockClient((request) async {
+          seen.add(request.url);
+          return http.Response.bytes(
+            utf8.encode(_searchBody),
+            200,
+            headers: const {'content-type': 'application/json'},
+          );
+        }),
+      );
+      return (client, seen);
+    }
+
+    test('filters 被正确带进请求 URL（MockClient 断言，不联网）', () async {
+      final (client, seen) = mockClientUnderTest();
+      await client.search(
+        query: 'tavern',
+        page: 2,
+        filters: const MarketFilters(
+          sort: 'newest',
+          topics: ['Fantasy', 'OC'],
+          minTokens: 1000,
+          maxTokens: 3000,
+        ),
+      );
+      expect(seen, hasLength(1));
+      final params = seen.single.queryParameters;
+      expect(params['search'], 'tavern');
+      expect(params['page'], '2');
+      expect(params['sort'], 'created_at');
+      expect(params['topics'], 'Fantasy,OC');
+      expect(params['min_tokens'], '1000');
+      expect(params['max_tokens'], '3000');
+      expect(params['nsfw'], 'false');
+      client.dispose();
+    });
+
+    test('不传 filters 时保持旧行为：无 topics/长度参数、空词热门', () async {
+      final (client, seen) = mockClientUnderTest();
+      await client.search(query: '', page: 1);
+      final params = seen.single.queryParameters;
+      expect(params['sort'], 'star_count');
+      expect(params.containsKey('topics'), isFalse);
+      expect(params.containsKey('min_tokens'), isFalse);
+      expect(params.containsKey('max_tokens'), isFalse);
+      client.dispose();
+    });
+  });
+
   group('搜索响应归一化', () {
     test('字段映射：作者取 fullPath 前缀、tagline/描述、统计数字', () {
       final page = const ChubSource().parseSearch(_searchBody);
@@ -123,7 +309,10 @@ void main() {
       expect(card.topics, ['Fantasy', 'OC']); // 空标签丢弃
       expect(card.nsfw, isFalse);
       expect(card.source, 'Chub.ai');
-      expect(card.pageUrl, 'https://chub.ai/characters/Elefre/tavern-manager-a7f0');
+      expect(
+        card.pageUrl,
+        'https://chub.ai/characters/Elefre/tavern-manager-a7f0',
+      );
       expect(
         card.downloadUrl,
         'https://avatars.charhub.io/avatars/Elefre/tavern-manager-a7f0/chara_card_v2.png',
@@ -149,7 +338,9 @@ void main() {
         () => const ChubSource().parseSearch('not json'),
         throwsA(isA<CardMarketException>()),
       );
-      final empty = const ChubSource().parseSearch('{"data":{"count":0,"nodes":[]}}');
+      final empty = const ChubSource().parseSearch(
+        '{"data":{"count":0,"nodes":[]}}',
+      );
       expect(empty.cards, isEmpty);
       expect(empty.total, 0);
     });
@@ -229,6 +420,85 @@ void main() {
         () => importCardBytes(Uint8List.fromList([1, 2, 3])),
         throwsA(isA<FormatException>()),
       );
+    });
+  });
+
+  group('市场页筛选 UI（widget）', () {
+    /// 首屏会发一次请求：测试环境里 dart:io 被 flutter_test 拦截并立即失败，
+    /// 不会联网；筛选行不依赖请求结果，可直接断言。
+    Future<void> settle(WidgetTester tester) async {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+
+    testWidgets('筛选行：默认「相关」，切热门后出现「清除」，清除后复位', (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: CardMarketScreen()));
+      await settle(tester);
+
+      expect(find.text('相关'), findsOneWidget);
+      expect(find.text('热门'), findsOneWidget);
+      expect(find.text('新上架'), findsOneWidget);
+      expect(find.text('标签'), findsOneWidget);
+      expect(find.text('长度'), findsOneWidget);
+      expect(find.text('清除'), findsNothing);
+
+      final chips = tester
+          .widgetList<ChoiceChip>(find.byType(ChoiceChip))
+          .toList();
+      expect(chips, hasLength(3));
+      expect(chips.first.selected, isTrue);
+
+      await tester.tap(find.widgetWithText(ChoiceChip, '热门'));
+      await settle(tester);
+      expect(find.text('清除'), findsOneWidget);
+      expect(
+        tester
+            .widgetList<ChoiceChip>(find.byType(ChoiceChip))
+            .toList()[1]
+            .selected,
+        isTrue,
+      );
+
+      await tester.tap(find.widgetWithText(TextButton, '清除'));
+      await settle(tester);
+      expect(find.text('清除'), findsNothing);
+      expect(
+        tester
+            .widgetList<ChoiceChip>(find.byType(ChoiceChip))
+            .toList()[0]
+            .selected,
+        isTrue,
+      );
+    });
+
+    testWidgets('标签对话框（去空去重）与长度弹窗：结果回显在 chip 上', (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: CardMarketScreen()));
+      await settle(tester);
+
+      await tester.tap(find.widgetWithText(ActionChip, '标签'));
+      await settle(tester);
+      expect(find.text('标签筛选'), findsOneWidget);
+      expect(find.text('英文标签，如 Fantasy,OC'), findsOneWidget);
+
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.byType(TextField),
+        ),
+        ' Fantasy , OC ,, fantasy ',
+      );
+      await tester.tap(find.widgetWithText(FilledButton, '确定'));
+      await settle(tester);
+      expect(find.text('标签：Fantasy+OC'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(ActionChip, '长度'));
+      await settle(tester);
+      expect(find.text('按长度筛选'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(ListTile, '中（1k–3k tokens）'));
+      await settle(tester);
+      expect(find.text('长度：中'), findsOneWidget);
+      expect(find.text('清除'), findsOneWidget);
     });
   });
 }

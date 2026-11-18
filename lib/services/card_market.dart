@@ -138,6 +138,107 @@ class MarketSearchPage {
   const MarketSearchPage({required this.total, required this.cards});
 }
 
+/// 市场筛选条件（不可变值对象）：排序 + 标签 + token 长度区间。
+///
+/// 默认值（[MarketFilters.none]）等价于 v0.11.0 的旧行为：
+/// 有关键词按相关度、无关键词浏览热门、不限标签与长度。
+class MarketFilters {
+  /// 排序方式：
+  /// - `relevance`（默认）：不加 `sort` 参数，交给服务端按相关度排；
+  /// - `popular`：`sort=star_count`；
+  /// - `newest`：`sort=created_at`。
+  final String sort;
+
+  /// 标签（英文，如 `Fantasy`）。多个标签**同时满足**（服务端 AND 语义）。
+  final List<String> topics;
+
+  /// 最少 tokens；null = 不限。
+  final int? minTokens;
+
+  /// 最多 tokens；null = 不限。
+  final int? maxTokens;
+
+  const MarketFilters({
+    this.sort = 'relevance',
+    this.topics = const <String>[],
+    this.minTokens,
+    this.maxTokens,
+  });
+
+  /// 无筛选（默认值）。
+  static const MarketFilters none = MarketFilters();
+
+  /// 是否未设置任何筛选（用于「清除筛选」按钮显隐）。
+  bool get isEmpty =>
+      sort == 'relevance' &&
+      topics.isEmpty &&
+      minTokens == null &&
+      maxTokens == null;
+
+  bool get isNotEmpty => !isEmpty;
+
+  /// 解析用户输入的标签串：英文/中文逗号分隔，去空、去重（忽略大小写，保序），
+  /// 最多保留 [max] 个（服务端多标签为 AND 语义，过多会把结果收窄到 0）。
+  static List<String> parseTopics(String raw, {int max = 3}) {
+    final out = <String>[];
+    for (final part in raw.replaceAll('，', ',').split(',')) {
+      final tag = part.trim();
+      if (tag.isEmpty) continue;
+      final lower = tag.toLowerCase();
+      if (out.any((t) => t.toLowerCase() == lower)) continue;
+      out.add(tag);
+      if (out.length >= max) break;
+    }
+    return out;
+  }
+
+  static const Object _unset = Object();
+
+  /// 复制并替换部分字段；[minTokens]/[maxTokens] 传 null 表示「清空」。
+  MarketFilters copyWith({
+    String? sort,
+    List<String>? topics,
+    Object? minTokens = _unset,
+    Object? maxTokens = _unset,
+  }) {
+    return MarketFilters(
+      sort: sort ?? this.sort,
+      topics: topics ?? this.topics,
+      minTokens: identical(minTokens, _unset)
+          ? this.minTokens
+          : minTokens as int?,
+      maxTokens: identical(maxTokens, _unset)
+          ? this.maxTokens
+          : maxTokens as int?,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! MarketFilters) return false;
+    if (other.sort != sort ||
+        other.minTokens != minTokens ||
+        other.maxTokens != maxTokens ||
+        other.topics.length != topics.length) {
+      return false;
+    }
+    for (var i = 0; i < topics.length; i++) {
+      if (other.topics[i] != topics[i]) return false;
+    }
+    return true;
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(sort, Object.hashAll(topics), minTokens, maxTokens);
+
+  @override
+  String toString() =>
+      'MarketFilters(sort: $sort, topics: $topics, '
+      'minTokens: $minTokens, maxTokens: $maxTokens)';
+}
+
 /// 角色卡数据源抽象：搜索 + 下载。新增来源只需实现这两个能力。
 abstract class CardMarketSource {
   /// UI 展示名（如 `Chub.ai`）。
@@ -150,7 +251,13 @@ abstract class CardMarketSource {
   int get pageSize;
 
   /// 搜索第 [page] 页（1 起）。[query] 为空表示「浏览热门」。
-  Uri searchUri({required String query, required int page});
+  ///
+  /// [filters] 为筛选条件；默认 [MarketFilters.none] 保持旧行为。
+  Uri searchUri({
+    required String query,
+    required int page,
+    MarketFilters filters = MarketFilters.none,
+  });
 
   /// 解析搜索响应体（JSON 文本）为统一结构；坏数据尽量跳过而不是整体失败。
   MarketSearchPage parseSearch(String body);
@@ -175,18 +282,43 @@ class ChubSource implements CardMarketSource {
   @override
   int get pageSize => 24;
 
+  /// 排序取值 → Chub 的 `sort` 参数。
+  static const _sortParams = <String, String>{
+    'popular': 'star_count',
+    'newest': 'created_at',
+  };
+
   @override
-  Uri searchUri({required String query, required int page}) {
+  Uri searchUri({
+    required String query,
+    required int page,
+    MarketFilters filters = MarketFilters.none,
+  }) {
     final q = query.trim();
-    return Uri.https('api.chub.ai', '/search', {
+    final params = <String, String>{
       'search': q,
       'first': '$pageSize',
       'page': '$page',
       // 市场只浏览 SFW（NSFW 版块不在此功能的可用范围内）
       'nsfw': 'false',
-      // 空关键词 = 浏览热门；有关键词时交给服务端按相关度排序
-      if (q.isEmpty) 'sort': 'star_count',
-    });
+    };
+    // 多标签为 AND 语义（已实测：topics=Fantasy,OC → count 1425）
+    if (filters.topics.isNotEmpty) {
+      params['topics'] = filters.topics.join(',');
+    }
+    final minTokens = filters.minTokens;
+    if (minTokens != null && minTokens > 0) {
+      params['min_tokens'] = '$minTokens';
+    }
+    final maxTokens = filters.maxTokens;
+    if (maxTokens != null && maxTokens > 0) {
+      params['max_tokens'] = '$maxTokens';
+    }
+    // 空关键词 = 浏览热门；显式 popular/newest 时以用户选择为准；
+    // 有关键词 + relevance 时不带 sort（交给服务端按相关度排）。
+    final sort = _sortParams[filters.sort] ?? (q.isEmpty ? 'star_count' : '');
+    if (sort.isNotEmpty) params['sort'] = sort;
+    return Uri.https('api.chub.ai', '/search', params);
   }
 
   @override
@@ -225,10 +357,8 @@ class ChubSource implements CardMarketSource {
 
 /// 市场客户端：搜索/分页/下载。持有 http.Client，页面 dispose 时释放。
 class CardMarketClient {
-  CardMarketClient({
-    this.source = const ChubSource(),
-    http.Client? httpClient,
-  }) : _http = httpClient ?? http.Client();
+  CardMarketClient({this.source = const ChubSource(), http.Client? httpClient})
+    : _http = httpClient ?? http.Client();
 
   final CardMarketSource source;
   final http.Client _http;
@@ -238,9 +368,10 @@ class CardMarketClient {
   Future<MarketSearchPage> search({
     required String query,
     required int page,
+    MarketFilters filters = MarketFilters.none,
   }) async {
     if (_closed) throw const CardMarketException('市场已关闭');
-    final uri = source.searchUri(query: query, page: page);
+    final uri = source.searchUri(query: query, page: page, filters: filters);
     try {
       final response = await _http
           .get(uri, headers: const {'Accept': 'application/json'})

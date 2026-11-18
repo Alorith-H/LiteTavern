@@ -854,6 +854,14 @@ class AppSettings {
   static set streaming(bool v) => _sp.setBool(_kStreaming, v);
   static const _kStreaming = 'streaming';
 
+  /// 自动生成回复候选（v0.12.0）：开启后单聊每次先生成 3 个候选，
+  /// 由用户挑一个落库；群聊与非候选模式不受影响。默认关。
+  static bool get autoReplyCandidates =>
+      _sp.getBool(_kAutoReplyCandidates) ?? false;
+  static set autoReplyCandidates(bool v) =>
+      _sp.setBool(_kAutoReplyCandidates, v);
+  static const _kAutoReplyCandidates = 'auto_reply_candidates';
+
   /// 设置是否已加载（未初始化时读取默认值，供纯逻辑模块兜底）
   static bool get initialized => _ready;
 
