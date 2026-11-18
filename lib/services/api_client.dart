@@ -31,6 +31,31 @@ Map<String, dynamic> buildChatRequestBody({
       ...sampling.toBodyFields(),
     };
 
+/// 组装摘要 / 生成角色卡等一次性请求体（纯函数，单测直接打这里）。
+/// v0.9.0：与聊天同走激活预设的完整参数集（temperature / top_p +
+/// 高级采样字段）；高级字段为默认值时完全不出现。
+Map<String, dynamic> buildSummaryRequestBody({
+  required String model,
+  required String system,
+  required String user,
+  required double temperature,
+  required double topP,
+  required int maxTokens,
+  SamplingParams sampling = const SamplingParams(),
+}) =>
+    {
+      'model': model,
+      'messages': [
+        {'role': 'system', 'content': system},
+        {'role': 'user', 'content': user},
+      ],
+      'stream': true,
+      'temperature': temperature,
+      'top_p': topP,
+      'max_tokens': maxTokens,
+      ...sampling.toBodyFields(),
+    };
+
 /// OpenAI 兼容 API 流式客户端（支持取消）。
 class ApiClient {
   http.Client? _client;
@@ -203,7 +228,8 @@ class ApiClient {
 
   /// 生成长对话摘要（v0.6.0）。流式收集但不做 UI 逐字刷新，
   /// 返回完整文本；被 [cancel] 取消时返回 ''。
-  /// 复用同一套 API 配置，temperature 由调用方传（建议 0.4）。
+  /// 复用同一套 API 配置；temperature/topP 由调用方传激活预设值（v0.9.0
+  /// 起统一走预设完整参数集），高级字段默认不进 body。
   Future<String> summarize({
     required String baseUrl,
     required String apiKey,
@@ -211,6 +237,7 @@ class ApiClient {
     required String system,
     required String user,
     double temperature = 0.4,
+    double topP = 1.0,
     int maxTokens = 512,
     SamplingParams sampling = const SamplingParams(),
   }) async {
@@ -224,17 +251,15 @@ class ApiClient {
       final request = http.Request('POST', uri);
       request.headers['Content-Type'] = 'application/json';
       request.headers['Authorization'] = 'Bearer $apiKey';
-      request.body = jsonEncode({
-        'model': model,
-        'messages': [
-          {'role': 'system', 'content': system},
-          {'role': 'user', 'content': user},
-        ],
-        'stream': true,
-        'temperature': temperature,
-        'max_tokens': maxTokens,
-        ...sampling.toBodyFields(),
-      });
+      request.body = jsonEncode(buildSummaryRequestBody(
+        model: model,
+        system: system,
+        user: user,
+        temperature: temperature,
+        topP: topP,
+        maxTokens: maxTokens,
+        sampling: sampling,
+      ));
       final response =
           await client.send(request).timeout(const Duration(seconds: 15));
       if (_cancelled) return '';

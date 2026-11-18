@@ -419,6 +419,7 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
             system: _kCardJsonSystem,
             user: _transcript(),
             temperature: AppSettings.temperature,
+            topP: AppSettings.topP,
             maxTokens: maxT,
             sampling: AppSettings.activePreset.sampling,
           )

@@ -850,7 +850,9 @@ class _ChatScreenState extends State<ChatScreen> {
             system: '你是对话摘要助手。把用户给出的早期对话压缩成不超过300字的中文摘要，'
                 '只保留关键情节、人物关系与未决事项，不要任何前缀或解释，直接输出摘要。',
             user: user,
-            temperature: 0.4,
+            // v0.9.0：摘要同样走激活预设的完整参数集（含 top_p）
+            temperature: AppSettings.temperature,
+            topP: AppSettings.topP,
             sampling: AppSettings.activePreset.sampling,
           )
           .timeout(const Duration(seconds: 30));

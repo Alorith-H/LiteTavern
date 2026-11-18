@@ -311,6 +311,73 @@ void main() {
     });
   });
 
+  // ------------------------------------------ 摘要走预设完整参数集 --
+  group('摘要请求（buildSummaryRequestBody）：与聊天同走激活预设参数集', () {
+    Map<String, dynamic> body({double temperature = 0.8, double topP = 0.9}) =>
+        buildSummaryRequestBody(
+          model: 'm',
+          system: 's',
+          user: 'u',
+          temperature: temperature,
+          topP: topP,
+          maxTokens: 512,
+        );
+
+    test('默认高级采样：body 只含基础字段（temperature/top_p/max_tokens）',
+        () {
+      final b = body();
+      expect(
+        b.keys.toSet(),
+        {
+          'model',
+          'messages',
+          'stream',
+          'temperature',
+          'top_p',
+          'max_tokens',
+        },
+      );
+      expect(b['temperature'], 0.8);
+      expect(b['top_p'], 0.9); // v0.9 缺口修复：摘要也带 top_p
+      expect(b['max_tokens'], 512);
+      expect(b['stream'], isTrue);
+    });
+
+    test('非默认高级采样字段逐项进入 body', () {
+      final b = buildSummaryRequestBody(
+        model: 'm',
+        system: 's',
+        user: 'u',
+        temperature: 0.7,
+        topP: 0.95,
+        maxTokens: 4096,
+        sampling: const SamplingParams(
+          frequencyPenalty: 0.5,
+          presencePenalty: 0.25,
+          topK: 40,
+          minP: 0.05,
+          seed: 42,
+          stop: ['END'],
+        ),
+      );
+      expect(b['frequency_penalty'], 0.5);
+      expect(b['presence_penalty'], 0.25);
+      expect(b['top_k'], 40);
+      expect(b['min_p'], 0.05);
+      expect(b['seed'], 42);
+      expect(b['stop'], ['END']);
+      expect(b['temperature'], 0.7);
+      expect(b['top_p'], 0.95);
+    });
+
+    test('system/user 进 messages，顺序固定', () {
+      final b = body();
+      final msgs = (b['messages'] as List).cast<Map>();
+      expect(msgs.map((m) => m['role']), ['system', 'user']);
+      expect(msgs.map((m) => m['content']), ['s', 'u']);
+    });
+  });
+
   // ---------------------------------------------- 分段控件滑动动画 --
   group('单人/群聊分段按钮：胶囊高亮平滑滑动', () {
     Widget host({int initial = 0, ValueChanged<int>? onChanged}) {

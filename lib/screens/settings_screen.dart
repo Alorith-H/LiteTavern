@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../app_info.dart';
 import '../main.dart';
 import '../models/world_info.dart';
 import '../services/storage.dart';
@@ -924,7 +925,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('版本 v0.8.0'),
+            Text('版本 v$kAppVersion'),
             SizedBox(height: 10),
             Text('简洁明了的 AI 角色扮演聊天 App，兼容 SillyTavern 角色卡与世界书。'),
           ],

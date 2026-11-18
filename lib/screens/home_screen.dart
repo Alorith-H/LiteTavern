@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../models/chat_group.dart';
 import '../models/character_card.dart';
+import '../services/active_generations.dart';
 import '../services/card_downloader.dart';
 import '../services/card_parser.dart';
 import '../services/storage.dart';
@@ -169,6 +170,9 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
     if (ok != true) return;
+    // 先注销该会话的后台生成任务（若还在跑），再删存储：避免后台完成
+    // 回写把刚删掉的会话复活（任务收尾时找不到目标会自动放弃）。
+    ActiveGenerations.instance.remove(card.id);
     await Storage.deleteCharacter(card.id);
     await _reload();
   }
@@ -200,6 +204,8 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
     if (ok != true) return;
+    // 同角色删除：先注销后台生成任务再删存储，防止收尾回写复活会话。
+    ActiveGenerations.instance.remove(Storage.groupConvId(group.id));
     await Storage.deleteGroup(group.id);
     await _reload();
   }
