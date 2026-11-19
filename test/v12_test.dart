@@ -1,15 +1,15 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:litetavern/services/prompt_builder.dart';
+import 'package:litetavern/services/reply_suggestions.dart';
 import 'package:litetavern/services/sampling_params.dart';
 import 'package:litetavern/services/storage.dart';
-import 'package:litetavern/widgets/reply_candidates_sheet.dart';
 
 void main() {
-  // ---------------------------------------------- 候选采样参数派生 --
+  // ---------------------------------------------- 建议采样参数派生 --
   group('SamplingParams.forCandidate', () {
-    test('默认参数 + seed 为空：三个候选都是默认参数（请求不带高级字段）', () {
+    test('默认参数 + seed 为空：三条建议都是默认参数（请求不带高级字段）', () {
       const base = SamplingParams();
       for (var i = 0; i < 3; i++) {
         final p = base.forCandidate(i);
@@ -67,7 +67,7 @@ void main() {
       expect(sp.getBool('auto_reply_candidates'), isFalse);
     });
 
-    test('旧数据无该键时回落到关闭（不误开候选模式）', () async {
+    test('旧数据无该键时回落到关闭（不误开自动建议）', () async {
       SharedPreferences.setMockInitialValues({'streaming': false});
       await AppSettings.init();
       expect(AppSettings.autoReplyCandidates, isFalse);
@@ -75,91 +75,77 @@ void main() {
     });
   });
 
-  // -------------------------------------------------- 候选选择器 UI --
-  group('候选回复选择器', () {
-    Future<ValueNotifier<int?>> openSheet(
-      WidgetTester tester, {
-      List<String> candidates = const ['甲', '乙', '丙'],
-      Future<List<String>> Function()? onRegenerate,
-    }) async {
-      final picked = ValueNotifier<int?>(null);
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: Builder(
-            builder: (ctx) => Center(
-              child: ElevatedButton(
-                onPressed: () async {
-                  picked.value = await showReplyCandidatesSheet(
-                    ctx,
-                    candidates: candidates,
-                    characterName: '小酒',
-                    onRegenerate: onRegenerate,
-                  );
-                },
-                child: const Text('打开'),
-              ),
-            ),
-          ),
-        ),
-      ));
-      await tester.tap(find.text('打开'));
-      await tester.pumpAndSettle();
-      return picked;
-    }
+  // ------------------------------------------ 建议请求的 messages 组装 --
+  group('建议请求：appendSuggestionInstruction', () {
+    test('在末尾追加一条 user 角色指令，原 messages 不被修改', () {
+      const base = [
+        PromptMessage(role: 'system', content: '你是助手'),
+        PromptMessage(role: 'assistant', content: '你好'),
+      ];
 
-    testWidgets('展示全部候选与角色名，点选一条返回下标', (tester) async {
-      final picked = await openSheet(tester);
-      expect(find.text('选择一条回复'), findsOneWidget);
-      expect(find.text('小酒 生成了 3 个候选，点选一条采用'), findsOneWidget);
-      expect(find.text('候选 1'), findsOneWidget);
-      expect(find.text('候选 3'), findsOneWidget);
-      expect(find.text('甲'), findsOneWidget);
+      final out = appendSuggestionInstruction(base);
 
-      await tester.tap(find.text('乙'));
-      await tester.pumpAndSettle();
-      // 弹层已关闭，回调返回选中的下标 1
-      expect(find.text('选择一条回复'), findsNothing);
-      expect(picked.value, 1);
+      expect(out.length, base.length + 1);
+      expect(out.last.role, 'user');
+      expect(out.last.content, kSuggestionInstruction);
+      // 前两条原样保留、顺序不变
+      expect(out[0].role, 'system');
+      expect(out[0].content, '你是助手');
+      expect(out[1].role, 'assistant');
+      // 指令里明确要求「以用户身份」并「只输出这句话」
+      expect(kSuggestionInstruction.contains('用户'), isTrue);
+      expect(kSuggestionInstruction.contains('只输出'), isTrue);
     });
 
-    testWidgets('「换一批」重新请求并替换候选列表', (tester) async {
-      var calls = 0;
-      await openSheet(
-        tester,
-        onRegenerate: () async {
-          calls++;
-          return ['丁', '戊', '己'];
-        },
-      );
-      expect(find.text('甲'), findsOneWidget);
-      expect(find.text('换一批'), findsOneWidget);
+    test('空对话也能组装出单条指令', () {
+      final out = appendSuggestionInstruction(const []);
+      expect(out.length, 1);
+      expect(out.single.role, 'user');
+    });
+  });
 
-      await tester.tap(find.text('换一批'));
-      await tester.pumpAndSettle();
-
-      expect(calls, 1);
-      expect(find.text('丁'), findsOneWidget);
-      expect(find.text('甲'), findsNothing);
+  // ------------------------------------------------ 建议文本清洗 --
+  group('建议文本清洗：normalizeSuggestion', () {
+    test('去首尾空白、换行压成单行', () {
+      expect(normalizeSuggestion('  今晚的酒不错\n\n要不要再来一杯？ '),
+          '今晚的酒不错 要不要再来一杯？');
     });
 
-    testWidgets('换一批失败时展示错误且保留原候选', (tester) async {
-      await openSheet(
-        tester,
-        onRegenerate: () async => throw Exception('网络错误：超时'),
-      );
-      await tester.tap(find.text('换一批'));
-      await tester.pumpAndSettle();
-
-      expect(find.textContaining('网络错误：超时'), findsOneWidget);
-      expect(find.text('甲'), findsOneWidget);
+    test('去掉「建议：」「用户回复：」等前缀', () {
+      expect(normalizeSuggestion('建议：走吧'), '走吧');
+      expect(normalizeSuggestion('用户回复: 我等你'), '我等你');
+      expect(normalizeSuggestion('回复：好'), '好');
     });
 
-    testWidgets('关闭弹层不返回下标（不落正文）', (tester) async {
-      await openSheet(tester);
-      // 点遮罩关闭
-      await tester.tapAt(const Offset(5, 5));
-      await tester.pumpAndSettle();
-      expect(find.text('选择一条回复'), findsNothing);
+    test('去掉成对包裹的引号（中英文都处理）', () {
+      expect(normalizeSuggestion('"今晚不醉不归"'), '今晚不醉不归');
+      expect(normalizeSuggestion('“那就明天见”'), '那就明天见');
+      expect(normalizeSuggestion('「再来一杯」'), '再来一杯');
+      // 只去掉成对首尾，句中引号保留
+      expect(normalizeSuggestion('他说"好"，我笑了'), '他说"好"，我笑了');
+    });
+
+    test('空串 / 纯空白返回空', () {
+      expect(normalizeSuggestion(''), '');
+      expect(normalizeSuggestion('   \n\t '), '');
+    });
+  });
+
+  group('建议文本清洗：normalizeSuggestions', () {
+    test('丢弃空串、按原文去重（保序）', () {
+      final out = normalizeSuggestions([
+        ' 好 ',
+        '',
+        '好',
+        '建议：走吧',
+        '   ',
+        '再来一杯',
+      ]);
+      expect(out, ['好', '走吧', '再来一杯']);
+    });
+
+    test('全部无效时返回空列表', () {
+      expect(normalizeSuggestions(['', '  ', '\n']), isEmpty);
     });
   });
 }

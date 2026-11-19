@@ -382,7 +382,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const Divider(height: 1),
           _switchRow(
             title: '自动生成回复',
-            subtitle: '单聊生效：每次先生成 3 个候选，由你挑一条采用',
+            subtitle: '单聊生效：AI 回复后自动给出 3 条你可发送的话，点选即发出',
             value: _autoCandidates,
             onChanged: (v) {
               setState(() => _autoCandidates = v);

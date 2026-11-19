@@ -15,6 +15,7 @@ import '../services/context_usage.dart';
 import '../services/hit_stats.dart';
 import '../services/macros.dart';
 import '../services/prompt_builder.dart';
+import '../services/reply_suggestions.dart';
 import '../services/sampling_params.dart';
 import '../services/storage.dart';
 import '../services/stream_throttle.dart';
@@ -22,7 +23,7 @@ import '../services/summarize.dart';
 import '../services/token_estimate.dart';
 import '../services/world_info_engine.dart';
 import '../widgets/common.dart';
-import '../widgets/reply_candidates_sheet.dart';
+import '../widgets/reply_suggestions_bar.dart';
 import 'character_edit_screen.dart';
 import 'settings_screen.dart';
 
@@ -105,9 +106,18 @@ class _ChatScreenState extends State<ChatScreen> {
   final _scrollCtrl = ScrollController();
   final _api = ApiClient();
 
-  /// 候选回复模式（v0.12.0）进行中的独立请求客户端：
-  /// 每个候选一条独立连接，停止/离开页面时统一取消。
-  final List<ApiClient> _candidateClients = [];
+  /// 用户侧建议回复（v0.12.1）进行中的独立请求客户端：
+  /// 每条建议一条连接（共用会互相 cancel），离开页面时统一释放。
+  final List<ApiClient> _suggestClients = [];
+
+  /// 当前一批建议（可直接发送）；空 = 不渲染建议条。
+  List<String> _suggestions = const [];
+
+  /// 建议请求进行中（建议条显示行内 loading）。
+  bool _suggesting = false;
+
+  /// 建议请求代次：发新消息 / 停止 / 重开时自增，旧响应作废。
+  int _suggestSeq = 0;
 
   bool _generating = false;
   bool _followScroll = true;
@@ -193,11 +203,12 @@ class _ChatScreenState extends State<ChatScreen> {
     // 把权威全文回写成部分文本（见 _save）
     _saveAborted = true;
     _throttle.dispose();
-    // 候选回复（v0.12.0）：页面私有请求，离开即取消（与后台生成相反）
-    for (final c in _candidateClients) {
+    // 建议回复（v0.12.1）：页面私有请求，离开即释放（与后台生成相反）
+    _suggestSeq++;
+    for (final c in _suggestClients) {
       c.dispose();
     }
-    _candidateClients.clear();
+    _suggestClients.clear();
     _reSettleTimer?.cancel();
     _api.dispose();
     _scrollCtrl.removeListener(_onScroll);
@@ -750,6 +761,8 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     _inputCtrl.clear();
     _inputEmpty.value = true;
+    // 发出新消息：上一批建议作废（否则会按旧上下文继续展示）
+    _clearSuggestions();
     // 真实发送标记：本次用户消息触发的组装记一次命中率
     // （群聊整轮只在首个成员的组装记 1 次；重新生成/继续生成不置位）
     _statsPending = true;
@@ -758,7 +771,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_isGroup) {
       _runGroupRound(targets);
     } else {
-      _runSingleReply();
+      _generateSingle();
     }
   }
 
@@ -811,118 +824,65 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     _save(force: true);
     _followBottom();
+    // 回复完成：开着「自动生成回复」时补一批用户侧建议（失败静默）
+    _maybeSuggestReplies();
   }
 
-  // ------------------------------------------------ 候选回复（v0.12.0） --
+  // ---------------------------------------- 用户侧建议回复（v0.12.1） --
 
-  /// 一次候选生成几条
-  static const int _kCandidateCount = 3;
+  /// 一批生成几条建议
+  static const int _kSuggestionCount = 3;
 
-  /// 单聊单次回复入口：开着「自动生成回复」走候选，否则走原流式。
-  /// 群聊轮转始终流式；重新生成 / 重试同样遵循该开关。
-  Future<void> _runSingleReply() {
-    if (!_isGroup && AppSettings.autoReplyCandidates) {
-      return _generateCandidatesSingle();
-    }
-    return _generateSingle();
-  }
-
-  /// 候选模式：并行取 [_kCandidateCount] 个非流式候选，
-  /// 弹选择器让用户挑一条写进占位消息（其余候选存进 variants 可横滑）。
-  /// 不经过 ActiveGenerations —— 同 key 单任务模型装不下并行候选，
-  /// 因此离开页面会取消本次候选（已落库的正文与普通回复一致）。
-  Future<void> _generateCandidatesSingle() async {
-    final token = ++_genToken;
-    _tokensApplied = false;
-    _genFailed = false;
-    _isContinueGen = false;
-    _genStartLen = 0;
-
+  /// 生成用户侧「可以发送的下一句」：AI 回复完成后按开关自动触发，
+  /// 也可点输入栏左侧的 ✨ 手动触发。只对单聊生效。
+  /// 建议属于锦上添花：失败静默、不占用 _generating 状态。
+  Future<void> _suggestReplies() async {
+    if (_isGroup || _suggesting || _generating || _summarizing) return;
+    final seq = ++_suggestSeq;
+    setState(() => _suggesting = true);
     final built = _buildPrompt();
-    _lastSystemText = built.systemText;
-    _lastActivated = built.activated;
-    // 命中率记账：与流式模式同一口径（真实发送的组装记 1 次）
-    if (_statsPending) {
-      _statsPending = false;
-      final stats = (_hitStats ?? const HitStats())
-          .record(built.activated.map((a) => a.entryKey));
-      setState(() => _hitStats = stats);
-      _save(force: true);
-    }
+    final messages = appendSuggestionInstruction(built.messages);
     final sampling = AppSettings.activePreset.sampling;
-    _sentAdvanced = !sampling.isDefault;
-    _lastPrompt = built.messages;
-
-    var results = await _fetchCandidates(built.messages, sampling);
-    if (!mounted || token != _genToken) return;
-
-    var current = _usableCandidates(results);
-    if (current.isEmpty) {
-      _failCandidates(results);
-      return;
-    }
-
-    final picked = await showReplyCandidatesSheet(
-      context,
-      candidates: [for (final r in current) r.text.trim()],
-      characterName: _card?.name ?? '角色',
-      onRegenerate: () async {
-        final batch = await _fetchCandidates(built.messages, sampling);
-        if (!mounted || token != _genToken) {
-          throw StateError('已取消');
-        }
-        final usable = _usableCandidates(batch);
-        if (usable.isEmpty) {
-          throw Exception(batch.first.error ?? '换一批失败，请重试');
-        }
-        results = batch;
-        current = usable;
-        return [for (final r in usable) r.text.trim()];
-      },
-    );
-    // 换一批期间被停止 / 页面已销毁：占位由 _stop 收尾，这里不再写
-    if (!mounted || token != _genToken) return;
-
-    if (picked == null || picked < 0 || picked >= current.length) {
-      // 关闭不选：占位标错误可重试，不落任何正文
-      setState(() {
-        final i = _messages.length - 1;
-        if (i >= 0 && _messages[i].role == 'assistant') {
-          _messages[i] = _messages[i].copyWith(error: '未选择候选回复');
-        }
-      });
-      _genFailed = true;
-      _finishCandidateRun();
-      return;
-    }
-
-    _applyCandidateChoice(current, picked);
-    _finishCandidateRun();
-  }
-
-  /// 并行取一批候选（每个候选一条独立连接，seed 已设置时按序号偏移）。
-  Future<List<_CandidateResult>> _fetchCandidates(
-    List<PromptMessage> messages,
-    SamplingParams sampling,
-  ) {
-    return Future.wait([
-      for (var i = 0; i < _kCandidateCount; i++)
-        _fetchOneCandidate(messages, sampling.forCandidate(i)),
+    final results = await Future.wait([
+      for (var i = 0; i < _kSuggestionCount; i++)
+        _fetchOneSuggestion(messages, sampling.forCandidate(i)),
     ]);
+    if (!mounted || seq != _suggestSeq) return;
+    setState(() {
+      _suggesting = false;
+      _suggestions = normalizeSuggestions(results);
+    });
   }
 
-  /// 单条候选：非流式请求全文 + usage。
-  /// 候选各自独立 ApiClient —— 共用会被 cancel 互相干扰。
-  Future<_CandidateResult> _fetchOneCandidate(
+  /// 作废当前建议（发新消息 / 停止 / 状态变化时调用）。
+  void _clearSuggestions() {
+    _suggestSeq++;
+    if (_suggestions.isEmpty && !_suggesting) return;
+    setState(() {
+      _suggesting = false;
+      _suggestions = const [];
+    });
+  }
+
+  /// AI 回复成功后按开关自动补一批建议（群聊 / 失败回复不触发）。
+  void _maybeSuggestReplies() {
+    if (_isGroup || !AppSettings.autoReplyCandidates) return;
+    if (_generating || _summarizing) return;
+    if (_messages.isEmpty) return;
+    final last = _messages.last;
+    if (last.role != 'assistant' || last.error != null) return;
+    if (last.content.trim().isEmpty) return;
+    _suggestReplies();
+  }
+
+  /// 单条建议：非流式请求。每条独立 ApiClient —— 共用会互相 cancel。
+  Future<String> _fetchOneSuggestion(
     List<PromptMessage> messages,
     SamplingParams sampling,
   ) async {
     final client = ApiClient();
-    _candidateClients.add(client);
+    _suggestClients.add(client);
     final buf = StringBuffer();
-    int? promptTokens;
-    int? completionTokens;
-    String? error;
     try {
       await client.streamChat(
         baseUrl: AppSettings.baseUrl,
@@ -935,120 +895,24 @@ class _ChatScreenState extends State<ChatScreen> {
         stream: false,
         sampling: sampling,
         onDelta: buf.write,
-        onError: (e) => error = e,
+        onError: (_) {},
         onDone: () {},
-        onUsage: (p, c) {
-          promptTokens = p;
-          completionTokens = c;
-        },
       );
-    } catch (e) {
-      error ??= '请求失败：$e';
+    } catch (_) {
+      // 建议失败不打扰用户：少了就少一条
     } finally {
-      _candidateClients.remove(client);
+      _suggestClients.remove(client);
       client.dispose();
     }
-    var text = buf.toString();
-    if (error == null && text.trim().isEmpty) error = '模型返回为空';
-    return _CandidateResult(
-      text: text,
-      promptTokens: promptTokens,
-      completionTokens: completionTokens,
-      error: error,
-    );
+    return buf.toString();
   }
 
-  List<_CandidateResult> _usableCandidates(List<_CandidateResult> results) =>
-      [for (final r in results) if (r.usable) r];
-
-  /// 全部候选失败：占位标错误（与原失败气泡一致，可点重试）。
-  void _failCandidates(List<_CandidateResult> results) {
-    var err = '候选生成失败，请重试';
-    for (final r in results) {
-      final e = r.error;
-      if (e != null && e.isNotEmpty) {
-        err = e;
-        break;
-      }
-    }
-    _lastErrorAdvanced = _sentAdvanced;
-    setState(() {
-      final i = _messages.length - 1;
-      if (i >= 0 && _messages[i].role == 'assistant') {
-        _messages[i] = _messages[i].copyWith(error: err);
-      }
-    });
-    _genFailed = true;
-    _finishCandidateRun();
-  }
-
-  /// 采用第 [picked] 个候选：正文 + 全部候选存 variants（可横滑切换），
-  /// token 记账按三条候选的总花销写（与多次重生成累加口径一致）。
-  /// 重新生成时保留旧变体：既有非空变体在前，新候选追加在后。
-  void _applyCandidateChoice(List<_CandidateResult> list, int picked) {
-    final i = _messages.length - 1;
-    if (i < 0) return;
-    final m = _messages[i];
-    final sent = _lastPrompt;
-    final promptEstimate =
-        sent == null ? 0 : estimateTokens(sent.map((x) => x.content).join('\n'));
-
-    // 既有变体（占位空槽不算，与 _prepVariantSlot 的清理口径一致）
-    final variants = <String>[];
-    final usage = <VariantUsage>[];
-    final existing = m.variants.isEmpty
-        ? [if (m.content.isNotEmpty) m.content]
-        : m.variants;
-    for (var k = 0; k < existing.length; k++) {
-      final text = existing[k];
-      if (text.isEmpty) continue;
-      variants.add(text);
-      usage.add(k < m.variantUsage.length ? m.variantUsage[k] : VariantUsage.empty);
-    }
-    final baseCount = variants.length;
-
-    var promptTotal = 0;
-    var completionTotal = 0;
-    var estimated = false;
-    for (final r in list) {
-      final text = r.text.trim();
-      if (text.isEmpty) continue;
-      variants.add(text);
-      final hasUsage = r.promptTokens != null && r.completionTokens != null;
-      if (!hasUsage) estimated = true;
-      final p = r.promptTokens ?? promptEstimate;
-      final c = r.completionTokens ?? estimateTokens(text);
-      promptTotal += p;
-      completionTotal += c;
-      usage.add(VariantUsage(prompt: p, completion: c, estimated: !hasUsage));
-    }
-    if (baseCount + picked >= variants.length) return;
-    setState(() {
-      _messages[i] = m.copyWith(
-        content: variants[baseCount + picked],
-        variants: variants,
-        variantIndex: baseCount + picked,
-        variantUsage: usage,
-        promptTokens: (m.promptTokens ?? 0) + promptTotal,
-        completionTokens: (m.completionTokens ?? 0) + completionTotal,
-        tokensEstimated: m.tokensEstimated || estimated,
-      );
-      _msgCache.clear();
-    });
-    _tokensApplied = true;
-    _save(force: true);
-  }
-
-  /// 候选模式收尾：释放连接、关进行中状态并落盘。
-  void _finishCandidateRun() {
-    for (final c in List<ApiClient>.of(_candidateClients)) {
-      c.dispose();
-    }
-    _candidateClients.clear();
-    if (!mounted) return;
-    setState(() => _generating = false);
-    _save(force: true);
-    _followBottom();
+  /// 点某条建议 = 采用这条作为自己的回复直接发送，并清掉这一批。
+  void _sendSuggestion(String text) {
+    final t = text.trim();
+    if (t.isEmpty) return;
+    _clearSuggestions();
+    _sendText(t);
   }
 
   // ----------------------------------------------------- 长对话摘要 --
@@ -1183,6 +1047,8 @@ class _ChatScreenState extends State<ChatScreen> {
   /// 单次操作（单聊发送 / 重生成 / 重试 / 继续生成）：
   /// 生成一轮回复并收尾 `_generating`。
   Future<void> _generateSingle({bool isContinue = false}) async {
+    // 开新一轮回复：上一批建议已过时，先清掉（回复完成会再自动生成）
+    _clearSuggestions();
     await _generate(isContinue: isContinue);
     _finishGeneration();
   }
@@ -1482,8 +1348,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _stop() {
     _genToken++;
-    // 候选模式（v0.12.0）：取消这一批的独立连接
-    for (final c in List<ApiClient>.of(_candidateClients)) {
+    // 建议回复（v0.12.1）：取消这一批的独立连接并作废结果
+    _suggestSeq++;
+    for (final c in List<ApiClient>.of(_suggestClients)) {
       c.cancel();
     }
     // 页面内停止 = 管理器执行取消（与 dispose 只解绑相对）。随即显式
@@ -1566,7 +1433,7 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     _save(force: true);
     _followBottom();
-    await _runSingleReply();
+    await _generateSingle();
   }
 
   /// 失败气泡里的重试。
@@ -1590,7 +1457,7 @@ class _ChatScreenState extends State<ChatScreen> {
       });
       _save(force: true);
       _followBottom();
-      await _runSingleReply();
+      await _generateSingle();
       return;
     }
 
@@ -1632,7 +1499,7 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     _save(force: true);
     _followBottom();
-    await _runSingleReply();
+    await _generateSingle();
   }
 
   /// 继续生成：在同一条 AI 消息末尾流式追加文本。
@@ -2700,6 +2567,17 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ),
             ],
+            // 建议回复（v0.12.1）：AI 回复后自动生成 / ✨ 手动生成，
+            // 点一条即作为自己的消息发出；生成中显示行内 loading
+            if ((_suggestions.isNotEmpty || _suggesting) && !_generating) ...[
+              ReplySuggestionsBar(
+                suggestions: _suggestions,
+                loading: _suggesting,
+                onSend: _sendSuggestion,
+                onRefresh: _suggestReplies,
+              ),
+              const SizedBox(height: 8),
+            ],
             // 快捷回复：输入框上方一排横滑 chips，点按立即发送；
             // 管理页删到空则整排隐藏，生成中置灰禁用
             if (showQuick) ...[
@@ -2727,6 +2605,29 @@ class _ChatScreenState extends State<ChatScreen> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
+                // 手动生成建议（开关打开才显示）：AI 回复后忘了自动生成、
+                // 或想换一批时点这里
+                if (AppSettings.autoReplyCandidates) ...[
+                  SizedBox(
+                    width: 34,
+                    height: 40,
+                    child: IconButton(
+                      onPressed: (_suggesting || _generating || _summarizing)
+                          ? null
+                          : _suggestReplies,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                          minWidth: 34, minHeight: 40),
+                      tooltip: '生成建议回复',
+                      icon: Icon(
+                        Icons.auto_awesome,
+                        size: 18,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                ],
                 Expanded(
                   child: TextField(
                     controller: _inputCtrl,
@@ -2895,20 +2796,3 @@ class _SwipeVariantWrapState extends State<_SwipeVariantWrap>
   }
 }
 
-/// 候选回复的一次生成结果（v0.12.0）：正文 + 真实 usage + 失败原因。
-class _CandidateResult {
-  const _CandidateResult({
-    required this.text,
-    this.promptTokens,
-    this.completionTokens,
-    this.error,
-  });
-
-  final String text;
-  final int? promptTokens;
-  final int? completionTokens;
-  final String? error;
-
-  /// 可用 = 没报错且有正文
-  bool get usable => error == null && text.trim().isNotEmpty;
-}
