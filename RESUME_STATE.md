@@ -1,105 +1,138 @@
-# 交接状态：v0.12.1 市场筛选 + 用户侧建议回复（2026-11-19 更新）
+# 交接状态：v0.13.0 建议回复纵排 + 角色卡翻译 + 市场全量筛选（2026-11-19 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
-> v0.11.0（角色卡市场）、v0.12.0（市场筛选 + 三候选）均已落地。
-> **本轮 v0.12.1**：按用户澄清修正「自动生成回复」的语义 —— 生成的是**用户自己**
-> 要发出去的话（不是 AI 的回复），挑一条即作为用户消息发出；市场筛选沿用 v0.12.0。
-> analyze 清零、测试 158 条全过、release APK 构建成功（57.7 MB）。
+> v0.11.0（角色卡市场）、v0.12.0（市场筛选 + 三候选）、v0.12.1（修正为「用户侧」建议回复）。
+> **本轮 v0.13.0**：① 建议回复条改成**纵向完整展示**（不再横向截断只看一半）；
+> ② 角色卡**翻译功能**（编辑页入口，免费翻译优先，失败按 token 报价改用模型）；
+> ③ 市场筛选补齐 Chub 全部可用条件（标签**可选可输入**）；
+> ④ 市场列表**原文 + 译文**展示（名字 / 简介 / 标签）；
+> ⑤ 市场下载的角色卡检测到非中文 → 询问是否翻译（免费 / 模型报价 / 不翻译）。
+> analyze 清零、测试 **197 条全过**、release APK 构建成功（58.1 MB）并已装机。
 
 ## 仓库状态
 
 - 分支 `dev`，远端 `origin = https://github.com/Alorith-H/LiteTavern.git`
-- `pubspec.yaml:5` → `version: 0.12.1+4`；`lib/app_info.dart` → `kAppVersion = '0.12.1'`
+- `pubspec.yaml:5` → `version: 0.13.0+5`；`lib/app_info.dart` → `kAppVersion = '0.13.0'`
   （`test/version_test.dart` 校验两者一致，防漂移）
-- 产物：`build\app\outputs\flutter-apk\app-release.apk`（57.7 MB，
-  `build\app\outputs\apk\release\output-metadata.json` versionCode 4 / versionName 0.12.1）
-- 装机状态：**本次未安装**（构建时手机未连接，`adb devices` 为空）。
-  设备重新插上后执行：
-  `adb install -r build\app\outputs\flutter-apk\app-release.apk`（仍为覆盖安装，数据保留）
+- 产物：`build\app\outputs\flutter-apk\app-release.apk`（58.1 MB，
+  `build\app\outputs\apk\release\output-metadata.json` versionCode 5 / versionName 0.13.0）
+- 装机：**已安装**到真机 `23113RKC6C`（`dumpsys` 确认 versionCode=5 / versionName=0.13.0，
+  `am start` 正常，主页 6 个角色数据完好）
 
-## v0.12.0 功能一：角色卡市场筛选（沿用）
+## 功能一：建议回复纵向完整展示
 
-- 主页 FAB「导入」→「角色卡市场」→ 搜索框下方**横向筛选行**
-- 排序 ChoiceChip：**相关**（默认，不传 `sort`）/ **热门**（`sort=star_count`）/
-  **新上架**（`sort=created_at`）；空关键词仍兜底热门
-- 「标签」：中英文逗号分隔、去空去重、最多 3 个（服务端多标签为 **AND**），chip 回显
-- 「长度」：不限 / 短（<1k）/ 中（1k–3k）/ 长（>3k tokens）→ `min_tokens` / `max_tokens`
-- 筛选变化 → 回第 1 页并沿用 `_seq` 竞态；有筛选时出现「清除」；空态文案区分有/无筛选
-- 代码：`card_market.dart` 的 `MarketFilters`（`sort`/`topics`/`minTokens`/`maxTokens`、
-  `none`、`isEmpty`、`parseTopics`、`copyWith` 用 `_unset` 哨兵支持清空、`==`/`hashCode`），
-  `searchUri`/`search` 增加 `filters` 默认参数（旧调用零改动）；
-  `test/card_market_test.dart` 22 例（全离线 MockClient）
+- `lib/widgets/reply_suggestions_bar.dart` 重写：标题行「建议回复」+ ✨ + 「换一批」；
+  每条建议**整行平铺、不设 maxLines**（长文本换行完整显示），
+  `ConstrainedBox(maxHeight: min(240, 屏高*0.32))` 内可滚动；
+  加载态「生成中…」+ 12x12 spinner 且禁用点击；空且非 loading 时完全不占位。
+- 仍只在**单聊**、开关「设置 → 生成参数 → 自动生成回复」打开时出现；
+  点一条直接作为用户消息发出；发新消息 / 停止 / 重新生成即作废旧建议。
+- 测试：`test/reply_suggestions_bar_test.dart` 9 例（纵向顺序、无横向滚动、不截断、点选/换一批/loading/空态）。
 
-## v0.12.1 功能二：自动生成「用户侧」回复（本轮修正）
+## 功能二：角色卡翻译（编辑页）
 
-- 设置：`设置 → 生成参数`，在「流式传输」下方 **自动生成回复** 开关（默认关），
-  副标题「单聊生效：AI 回复后自动给出 3 条你可发送的话，点选即发出」；
-  持久化键 `auto_reply_candidates`（`AppSettings.autoReplyCandidates`）
-- 触发：① 单聊每次 AI 回复成功后自动请求一批（`_finishGeneration` →
-  `_maybeSuggestReplies`）；② 输入栏左侧 ✨ 按钮手动触发 / 换一批（开关打开才显示）
-- 生成方式：以当前对话 prompt 为底，末尾追加元指令 `kSuggestionInstruction`
-  （明确要求「只扮演用户这一方、只输出这句话本身」），并行发 **3 个非流式请求**
-  （每条独立 `ApiClient`；seed 非空时按 `seed + 0/1/2` 偏移，见
-  `SamplingParams.forCandidate`），返回后 `normalizeSuggestion(s)` 清洗
-  （去空白/前缀/成对引号、换行压单行、去重）
-- 呈现：输入框上方「建议回复」条（`lib/widgets/reply_suggestions_bar.dart`）：
-  每条一个 ✨ ActionChip（单行省略、最宽 240）、点按**直接作为用户消息发出**；
-  末尾「换一批」；生成中显示行内 spinner + 「生成中…」并禁用
-- 边界：只对单聊生效（群聊轮转不受影响）；建议失败静默（少一条不报错）；
-  发新消息 / 停止 / 重新生成会作废旧建议；建议请求是页面私有请求，
-  离开会话页即释放，不进 `ActiveGenerations`
-- 代码：新增 `lib/services/reply_suggestions.dart`
-  （`kSuggestionInstruction` / `appendSuggestionInstruction` / `normalizeSuggestion` /
-  `normalizeSuggestions`）、`lib/widgets/reply_suggestions_bar.dart`；
-  `chat_screen.dart` 新增 `_suggestReplies` / `_fetchOneSuggestion` /
-  `_sendSuggestion` / `_clearSuggestions` / `_maybeSuggestReplies` 与
-  `_suggestClients` / `_suggestions` / `_suggesting` / `_suggestSeq` 状态；
-  **移除了 v0.12.0 的 AI 候选实现**（`reply_candidates_sheet.dart`、
-  `_generateCandidatesSingle` 等，已删除）
-- 测试：`test/v12_test.dart` 14 例（`forCandidate` 偏移、设置持久化/旧数据回落、
-  指令追加、文本清洗与去重）、`test/reply_suggestions_bar_test.dart` 9 例（渲染/点选/
-  换一批/loading 禁用/空态/超长不溢出）
+- 入口：编辑角色页 AppBar `Icons.translate`（draft 与已入库都有）→
+  `lib/widgets/card_translation_sheet.dart` 底部弹层：
+  逐段「原文（浅色、最多 6 行可展开）↔ 译文」对照（名字/简介/性格/场景/开场白/示例对话/标签），
+  标题下显示「译者：xxx · 时间：MM-dd HH:mm」。
+- 翻译策略（`lib/services/translator.dart`）：
+  **MyMemory 免费优先**（`api.mymemory.translated.net`，自动识别语言，单次 ≤500 字符自动切段，
+  全站匿名额度约 5k 字符/天）→ 失败自动换 **Google 免费端点**（常被限流）；
+  两者全挂抛 `TranslationUnavailable`，弹层弹「免费翻译暂不可用」，
+  用 `CardLocalizer.estimateTokens(card)` 报「预计约 N tokens」，
+  用户确认后才用**设置中的模型**翻译（`LlmTranslationProvider`，走 `ApiClient` 非流式、temperature 0.2）。
+- 「应用到角色卡」只回填表单（不自动保存，需点编辑页「保存」）；
+  「恢复原文」读翻译前备份回填；译文与原文备份存 `TranslationStore`。
+- 其它失败：弹层内红色错误条 + 主按钮变「重试」。
+- 内核文件：`lib/services/translator.dart`（`looksChinese` / `splitForTranslation` /
+  `TranslationService` / `MyMemoryProvider` / `GoogleFreeProvider` / `LlmTranslationProvider`）、
+  `lib/services/card_localizer.dart`（`localize` / `estimateTokens`）、
+  `lib/services/translation_store.dart`（key：`card_translations` / `card_originals` / `market_translations`）、
+  `lib/models/card_translation.dart`。
+- 测试：`test/translation_test.dart` 21 例（分词/实体反转义/额度/换源记忆/LLM 兜底/存储往返/淘汰/坏 JSON/本地化）。
 
-## 验证结果（本机实测，2026-11-19）
+## 功能三：市场筛选补齐 Chub 全部条件
 
-| 项目 | 命令 | 结果 |
+- 搜索框右侧「筛选」按钮（带激活条件数 badge），底部弹层分组：
+  - **排序** 6 种：相关（不传 sort）/ 热门（`star_count`）/ 新上架（`created_at`）/
+    最新趋势（`trending`）/ 随机（`random`）/ 名称（`name`）；空关键词仍兜底热门；
+  - **标签**：点开二级弹层，`fetchTags()` 拉 Chub 标签目录（`POST api.chub.ai/tags`，
+    失败自动回落 45 个内置标签），可搜索、可多选（**最多 8**，服务端多标签为 AND），
+    也支持手动输入（中英文逗号/顿号/分号）；
+  - **排除标签**（`exclude_tags`，输入式，最多 8）；
+  - **语言**：全部 / 中文 / 英文 / 日文 / 韩文；
+  - **长度**：不限 / 短(<1k) / 中(1k–3k) / 长(>3k)，另有自定义 min/max 数字框；
+  - **最少标签数** 0–5；**高级开关**：需要有图 / 需要有世界书 / 需要有表情。
+  - 底部「重置 / 应用」；应用后回第 1 页并沿用 `_seq` 竞态。
+- 服务层：`card_market.dart` 的 `MarketFilters`（sort/ascending/tags/excludeTags/language/
+  minTokens/maxTokens/minTags/requireImages/requireLore/requireExpressions、`parseTags`、
+  `copyWith` 支持传 null 清空、`==`）、`MarketTag{name,count}`、`fetchTags`、
+  `ChubSource.searchUri` 参数映射；`test/card_market_test.dart` 34 例（全离线 MockClient）。
+
+## 功能四：市场列表「原文 + 译文」
+
+- 结果改为**单列纵向列表**：封面 64x86 + 原名 + 译名（次要色）+ 简介（译优先，最多 3 行）+
+  标签 chips（译优先，最多 4 个 + “+N”）+ meta（作者 · ★ 星数 · 对话数）。
+- 打开页面/翻页后只**读本地译文缓存**（`MarketTranslationService.cached`，不发网络）；
+  每行「译」按钮点了才真正翻译（免费优先），翻译中行内 14x14 spinner；
+  免费失败 → 弹「免费翻译暂不可用」+「预计约 N tokens」（`estimateTokensFor([card])`），
+  确认后用模型翻译；译文缓存上限 400 条（超出按 updatedAt 淘汰到 200）。
+
+## 功能五：下载非中文卡 → 询问是否翻译
+
+- 市场详情「下载并导入」后，若 `!looksChinese('${card.name} ${card.description}')` 弹
+  「这张角色卡不是中文」：**免费翻译（默认）/ 用模型翻译（≈N tokens）/ 不翻译**。
+- 免费失败再弹报价确认 → 模型；本地化成功覆盖保存同 id 角色卡后返回导入成功；
+  任何翻译失败都**回落原卡、不阻断导入**（toast 提示）。
+
+## 验证表（2026-11-19）
+
+| 项 | 命令 | 结果 |
 |---|---|---|
-| 静态分析 | `flutter analyze` | **No issues found!** |
-| 单元/组件测试 | `flutter test` | **+158 All tests passed!** |
-| Release 构建 | `flutter build apk --release` | **成功**，57.7 MB，81.6s |
-| 装机 | `adb install -r` | **未执行**：构建时无设备连接 |
+| 静态检查 | `flutter analyze` | **No issues found!**（3.2s） |
+| 单元/组件测试 | `flutter test` | **+197 All tests passed!** |
+| Release 构建 | `flutter build apk --release` | 成功，58.1 MB，versionCode 5 / 0.13.0 |
+| 装机 | `adb install -r ...apk` | **Success**，`am start` 正常 |
 
-构建仅有两类非阻塞警告：`share_plus` 使用 KGP（未来 Flutter 会拒绝，届时升级插件）；
-NDK 版本不匹配（`android/app/build.gradle.kts:19` 写 27.0.12077973，插件建议
-28.2.13676358，不影响构建；要消除就改这行并确保对应 NDK 已安装）。
+命令环境：`C:\flutter\bin\flutter.bat`（不在 PATH），每次先设
+`$env:FLUTTER_STORAGE_BASE_URL="https://storage.flutter-io.cn"`；
+adb 在 `C:\Users\28351\Android\Sdk\platform-tools\adb.exe`（不在 PATH）。
 
-## 真机自测建议（装上新包后）
+## 真机自测清单（建议按序走）
 
-1. 设置 → 生成参数 → 打开「自动生成回复」→ 回单聊发一条消息，AI 回复后输入框
-   上方应出现 3 条带 ✨ 的建议；点一条 → 该句作为**自己的消息**发出，AI 继续回复
-2. 点「换一批」→ 建议刷新；生成中显示「生成中…」且不可点
-3. 关掉开关 → 建议条与 ✨ 按钮消失，行为回到 v0.11
-4. 市场筛选：进入市场 → 热门/新上架/标签（`Fantasy,OC`）/长度 中 → 结果收窄、
-   chip 回显、清除恢复
-5. 回归：群聊轮转、继续生成、停止、后台生成（退出会话再进）均不受影响
+1. 打开任一单聊 → 设置里开启「自动生成回复」→ 发一句 → AI 回复后输入框上方出现纵向建议卡，
+   长建议完整换行；点一条直接发出；点「换一批」换新建议。
+2. 编辑任一角色 → 右上「翻译」→ 免费翻译；断开免费源（或额度耗尽）时应弹带 token 报价的确认框。
+3. 应用译文 → 保存；再开翻译弹层可「恢复原文」。
+4. 市场页：筛选 → 排序/标签（含手动输入）/排除标签/语言/长度/最少标签/高级开关；
+   列表显示原名+译名、简介与标签译文；点「译」按需翻译。
+5. 市场下载一张英文卡 → 应询问是否翻译（免费 / 模型约 N tokens / 不翻译）。
+6. 回归：群聊正常流式回复；继续生成正常；删除会话不残留后台任务。
 
-## 已知边界（有意保留，不阻塞发布）
+## 已知边界（记录，不作为 bug）
 
-- **建议是「用户侧口吻」的引导，模型偶尔可能仍以角色口吻输出**：属于提示词层面的
-  概率问题，可在设置里关掉；未做强制校验
-- **建议消耗额外 token**：每次自动/手动生成一批 = 3 个完整请求（预期行为）
-- **离开会话页会丢弃本次建议请求**：与普通流式回复不同（后者可在后台完成落库）
-- **S3 自动继续不跨页面**（v0.10 遗留）：离开页面后完成的消息会落库，但自动继续
-  /群聊轮转的后续链条不续跑
-- **S4 创建器「生成角色卡」仍是页面私有请求**：中途退出会取消该请求
-- **S5/S6 纯 UI 细节**：预设名显示在分区标题下；top_k/stop 超范围时存裁剪值、框内文本不回写
-- **B2/B3 低风险竞态**：停止后立刻重生成时旧任务收尾写盘可能交错（`fromJson` 有自愈）
+- 免费翻译只有 MyMemory 稳定可用，匿名额度约 5k 字符/天、单次 500 字符；
+  Google 免费端点常 429。额度耗尽会走「模型报价确认」流程。
+- 标签是「整串翻译后按标点拆回」，个别标签可能保留原文（真实 API 通常能整体译好）。
+- 建议回复仍是模型生成，偶有口吻偏差；开启后每次 AI 回复额外消耗 3 次请求的 token。
+- 建议回复仅单聊；离开会话页会取消进行中的建议请求（页面私有，不进 `ActiveGenerations`）。
+- 市场列表译文只读缓存，未缓存的卡需要手动点「译」（避免整页刷请求）。
+- v0.11 之前遗留：后台完成不续跑自动继续（S3）、创建器「生成角色卡」仍页面私有请求（S4）、
+  删除会话先 remove 再异步落库的极小交错窗口（B2）、管理器落库不带变体记账（B3）。
+- 无自动化覆盖：市场标签二级弹层 / 排除标签 / 自定义长度 / require_* 控件 / 导入→本地化整链
+  （仅代码走查 + teammate 一次性冒烟，已删临时文件）。编辑页端到端 widget 测试受真实文件 IO 限制未做。
 
-## 环境
+## 主要文件索引
 
-- Flutter 3.47.6 stable：`C:\flutter\bin\flutter.bat`（不在 PATH；`dart` 同样不在）
-- 跑任何 flutter 命令前设：`$env:FLUTTER_STORAGE_BASE_URL="https://storage.flutter-io.cn"`
-- Android SDK：`C:/Users/28351/Android/Sdk`；adb 绝对路径
-  `C:\Users\28351\Android\Sdk\platform-tools\adb.exe`（不在 PATH）
-- 测试真机：`23113RKC6C`（Android 16 / API 36，arm64），需插 USB 后 `adb devices` 能看到
-- 角色卡来源与合规说明：`docs/card_market_sources.md`
+| 文件 | 作用 |
+|---|---|
+| `lib/services/translator.dart` | 免费/模型翻译源、切段、中文检测、报价 |
+| `lib/services/card_localizer.dart` | 整卡翻译、原文备份、token 估算 |
+| `lib/services/market_translation.dart` | 市场条目译文编排与缓存 |
+| `lib/services/translation_store.dart` | 译文/原文持久化与淘汰 |
+| `lib/widgets/card_translation_sheet.dart` | 编辑页翻译弹层 |
+| `lib/widgets/reply_suggestions_bar.dart` | 纵向建议回复条 |
+| `lib/services/card_market.dart` | Chub 搜索/筛选/标签目录 |
+| `lib/screens/card_market_screen.dart` | 市场页（单列、筛选、译文、导入询问） |
+| `lib/screens/chat_screen.dart` | 建议回复生成/发送、流式聊天主流程 |
+| `lib/services/reply_suggestions.dart` | 建议元指令与文本归一化 |

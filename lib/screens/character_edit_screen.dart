@@ -11,6 +11,7 @@ import '../models/character_card.dart';
 import '../models/world_info.dart';
 import '../services/card_export.dart';
 import '../services/storage.dart';
+import '../widgets/card_translation_sheet.dart';
 import '../widgets/common.dart';
 import 'world_book_entries_screen.dart';
 
@@ -161,6 +162,58 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
         const SnackBar(content: Text('这张图片读不出来，换一张试试')),
       );
     }
+  }
+
+  // ---------------------------------------------------------- 翻译 --
+
+  /// 以当前表单内容为准拼一张卡（翻译和导出都以屏幕上的内容为准）。
+  CharacterCard? _cardWithForm() {
+    final card = _card;
+    if (card == null) return null;
+    final name = _nameCtrl.text.trim();
+    return card.copyWith(
+      name: name.isEmpty ? card.name : name,
+      description: _descCtrl.text,
+      personality: _personalityCtrl.text,
+      scenario: _scenarioCtrl.text,
+      firstMes: _firstMesCtrl.text,
+    );
+  }
+
+  /// 打开翻译弹层：译文在弹层里对照展示，应用后只填表单，点「保存」才落库。
+  Future<void> _translateCard() async {
+    final card = _cardWithForm();
+    if (card == null) return;
+    await showCardTranslationSheet(
+      context,
+      card: card,
+      onApply: _applyTranslation,
+    );
+  }
+
+  /// 弹层回填：只改控制器 + 内部卡状态，不落库（等用户点「保存」）。
+  Future<void> _applyTranslation(
+    String name,
+    String description,
+    String personality,
+    String scenario,
+    String firstMes,
+  ) async {
+    _nameCtrl.text = name;
+    _descCtrl.text = description;
+    _personalityCtrl.text = personality;
+    _scenarioCtrl.text = scenario;
+    _firstMesCtrl.text = firstMes;
+    // 与表单保持一致，导出/再次翻译读到的是填好的内容（头像首字也要刷新）。
+    setState(() {
+      _card = _card?.copyWith(
+        name: name,
+        description: description,
+        personality: personality,
+        scenario: scenario,
+        firstMes: firstMes,
+      );
+    });
   }
 
   // ---------------------------------------------------------- 导出 --
@@ -438,6 +491,11 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
       appBar: AppBar(
         title: const Text('编辑角色'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.translate),
+            tooltip: '翻译',
+            onPressed: _translateCard,
+          ),
           PopupMenuButton<String>(
             tooltip: '更多',
             icon: const Icon(Icons.more_vert_outlined),
