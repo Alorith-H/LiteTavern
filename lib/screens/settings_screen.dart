@@ -353,7 +353,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
             decoration: const InputDecoration(
               labelText: '模型上下文窗口',
-              helperText: '模型单次能装下的最大 token，超了会自动压缩\n0 = 关闭占用%与自动压缩',
+              helperText: '模型单次能装下的最大 token，超了会自动压缩（默认 1000000 = 1M）\n0 = 关闭占用%与自动压缩',
               helperMaxLines: 2,
             ),
             onChanged: (v) => AppSettings.contextWindow = int.tryParse(v) ?? 0,

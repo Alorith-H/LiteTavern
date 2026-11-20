@@ -75,6 +75,39 @@ void main() {
     });
   });
 
+  // ------------------------------------------------ 上下文窗口默认 1M --
+  group('设置：上下文窗口默认 1M（v0.14.1 迁移）', () {
+    test('全新安装默认 1,000,000', () async {
+      SharedPreferences.setMockInitialValues({});
+      await AppSettings.init();
+      expect(AppSettings.contextWindow, 1000000);
+    });
+
+    test('旧默认值 65536 迁移为 1M', () async {
+      SharedPreferences.setMockInitialValues({
+        'model_context_window': 65536,
+      });
+      await AppSettings.init();
+      expect(AppSettings.contextWindow, 1000000);
+    });
+
+    test('用户自己设过的值保持不变', () async {
+      SharedPreferences.setMockInitialValues({
+        'model_context_window': 32000,
+      });
+      await AppSettings.init();
+      expect(AppSettings.contextWindow, 32000);
+    });
+
+    test('迁移只跑一次：之后再改回 65536 不会被再次覆盖', () async {
+      SharedPreferences.setMockInitialValues({});
+      await AppSettings.init();
+      AppSettings.contextWindow = 65536;
+      await AppSettings.init();
+      expect(AppSettings.contextWindow, 65536);
+    });
+  });
+
   // ------------------------------------------ 建议请求的 messages 组装 --
   group('建议请求：appendSuggestionInstruction', () {
     test('在末尾追加一条 user 角色指令，原 messages 不被修改', () {

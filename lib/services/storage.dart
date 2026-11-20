@@ -575,6 +575,7 @@ class AppSettings {
     _sp = await SharedPreferences.getInstance();
     _migrateApiConfig();
     _migrateGenPreset();
+    _migrateContextWindow1M();
     _ready = true;
   }
 
@@ -625,6 +626,19 @@ class AppSettings {
     _sp.remove(_kTemperature);
     _sp.remove(_kTopP);
     _sp.remove(_kMaxTokens);
+  }
+
+  /// v0.14.1：上下文窗口默认值从 65,536 提升到 1,000,000（1M）。
+  ///
+  /// 只迁移「没改过」的用户——键不存在，或值仍等于旧默认 65536；
+  /// 自己设过别的值的保持不变。迁移只跑一次（flag 记录）。
+  static void _migrateContextWindow1M() {
+    if (_sp.getBool(_kCtxWindow1MMigrated) ?? false) return;
+    final current = _sp.getInt(_kContextWindow);
+    if (current == null || current == 65536) {
+      _sp.setInt(_kContextWindow, 1000000);
+    }
+    _sp.setBool(_kCtxWindow1MMigrated, true);
   }
 
   // ------------------------------------------------------ API 配置 --
@@ -912,12 +926,13 @@ class AppSettings {
   static const _kHistoryLimit = 'context_history_limit';
   static const _kShowTimestamps = 'show_timestamps';
   static const _kContextWindow = 'model_context_window';
+  static const _kCtxWindow1MMigrated = 'context_window_1m_migrated';
 
-  /// 模型上下文窗口（token），默认 65536；
+  /// 模型上下文窗口（token），默认 1,000,000（1M）；
   /// 0 = 关闭上下文占用%显示与发送前自动压缩。
   /// 默认值只在这里写一次，各处一律读本 getter。
   static int get contextWindow =>
-      (_sp.getInt(_kContextWindow) ?? 65536).clamp(0, 1 << 30).toInt();
+      (_sp.getInt(_kContextWindow) ?? 1000000).clamp(0, 1 << 30).toInt();
 
   static set contextWindow(int v) =>
       _sp.setInt(_kContextWindow, v.clamp(0, 1 << 30).toInt());

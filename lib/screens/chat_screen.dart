@@ -1891,9 +1891,9 @@ class _ChatScreenState extends State<ChatScreen> {
     return total;
   }
 
-  /// 顶部上下文占用条（v0.14.0）：细进度条 + 百分比 + 已用/窗口，点开明细。
-  /// 窗口未设置（0 = 关闭占用统计）或还没准备好时整条不渲染。
-  Widget _buildContextBar(ColorScheme scheme) {
+  /// 输入栏底部一行的上下文占用提示（v0.14.0）：细进度条 + 百分比。
+  /// 刻意做得不显眼（2.5px、低透明度、9.5px 小字），点按打开明细。
+  Widget _buildContextHint(ColorScheme scheme) {
     final window = AppSettings.contextWindow;
     if (window <= 0) return const SizedBox.shrink();
     final total = _ctxBarTokens();
@@ -1901,53 +1901,36 @@ class _ChatScreenState extends State<ChatScreen> {
     final ratio = (total / window).clamp(0.0, 1.0);
     final over = overContextBudget(total, window);
     final color = over ? scheme.error : scheme.primary;
-    final labelColor = over ? scheme.error : scheme.onSurfaceVariant;
+    // 窗口很大（如 1M）时整数百分比会一直是 0%，这里低于 10% 保留一位小数
+    final rawPercent = total / window * 100;
+    final percentLabel = rawPercent < 10
+        ? rawPercent.toStringAsFixed(1)
+        : '${contextPercent(total, window)}';
     return InkWell(
       onTap: _showContextUsage,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(14, 5, 14, 6),
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: scheme.outlineVariant.withValues(alpha: 0.45),
-            ),
-          ),
-        ),
+      borderRadius: BorderRadius.circular(4),
+      child: Padding(
+        padding: const EdgeInsets.only(top: 6),
         child: Row(
           children: [
-            Icon(Icons.data_usage, size: 13, color: labelColor),
-            const SizedBox(width: 6),
-            Text(
-              '上下文',
-              style: TextStyle(fontSize: 11, color: labelColor),
-            ),
-            const SizedBox(width: 8),
             Expanded(
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(3),
+                borderRadius: BorderRadius.circular(2),
                 child: LinearProgressIndicator(
                   value: ratio,
-                  minHeight: 5,
-                  color: color,
-                  backgroundColor: scheme.surfaceContainerHighest,
+                  minHeight: 2.5,
+                  color: color.withValues(alpha: over ? 0.9 : 0.5),
+                  backgroundColor:
+                      scheme.surfaceContainerHighest.withValues(alpha: 0.5),
                 ),
               ),
             ),
             const SizedBox(width: 8),
             Text(
-              '${contextPercent(total, window)}%',
+              '上下文 $percentLabel%',
               style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: labelColor,
-              ),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              '${formatTokenCount(total)}/${formatTokenCount(window)}',
-              style: TextStyle(
-                fontSize: 10,
-                color: scheme.onSurfaceVariant.withValues(alpha: 0.75),
+                fontSize: 9.5,
+                color: scheme.onSurfaceVariant.withValues(alpha: 0.55),
               ),
             ),
           ],
@@ -2261,8 +2244,6 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       body: Column(
         children: [
-          // 上下文占用条（v0.14.0）：常驻在 AppBar 下方，点开明细
-          _buildContextBar(scheme),
           Expanded(
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,
@@ -2796,6 +2777,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ],
             ),
+            // 上下文占用提示（v0.14.0）：贴在输入栏最底部，刻意不显眼
+            _buildContextHint(scheme),
           ],
         ),
       ),
