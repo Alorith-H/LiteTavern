@@ -82,6 +82,13 @@ class _ChatScreenState extends State<ChatScreen> {
   /// 最近一次 API 返回的真实输入 token（上下文占用页「上次实际」）
   int? _lastExactPrompt;
 
+  /// 顶部上下文占用条的估算缓存（消息数/末条长度/摘要/历史条数变化时重算）
+  int? _ctxBarTotal;
+  int? _ctxBarMsgLen;
+  int? _ctxBarLastLen;
+  int? _ctxBarHistoryLimit;
+  ChatSummary? _ctxBarSummary;
+
   /// 发送准备管线进行中（挡住两次快速连点在微任务间隙重复发送）
   bool _preparing = false;
 
@@ -840,18 +847,31 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_isGroup || _suggesting || _generating || _summarizing) return;
     final seq = ++_suggestSeq;
     setState(() => _suggesting = true);
+    // 输入栏上方多出一行 → 视口变矮，把最后一条气泡重新贴到底部
+    _keepBottomVisible();
     final built = _buildPrompt();
-    final messages = appendSuggestionInstruction(built.messages);
     final sampling = AppSettings.activePreset.sampling;
     final results = await Future.wait([
       for (var i = 0; i < _kSuggestionCount; i++)
-        _fetchOneSuggestion(messages, sampling.forCandidate(i)),
+        // 每条给不同的语气/风格指令，避免三条雷同
+        _fetchOneSuggestion(
+          appendSuggestionInstruction(built.messages, styleIndex: i),
+          sampling.forCandidate(i),
+        ),
     ]);
     if (!mounted || seq != _suggestSeq) return;
     setState(() {
       _suggesting = false;
       _suggestions = normalizeSuggestions(results);
     });
+    // 建议行渲染完成后再贴一次底，避免气泡被建议条挡住
+    _keepBottomVisible();
+  }
+
+  /// 跟随状态下把最后一条气泡贴到底部（建议条/加载行出现时调用）。
+  void _keepBottomVisible() {
+    if (!_followScroll) return;
+    _scrollToBottom();
   }
 
   /// 作废当前建议（发新消息 / 停止 / 状态变化时调用）。
@@ -1851,6 +1871,91 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  /// 顶部占用条的合计 token（带缓存；口径与 [_showContextUsage] 一致）。
+  int? _ctxBarTokens() {
+    if (!_canBuildPrompt) return null;
+    final lastLen = _messages.isEmpty ? 0 : _messages.last.content.length;
+    if (_ctxBarTotal != null &&
+        _ctxBarMsgLen == _messages.length &&
+        _ctxBarLastLen == lastLen &&
+        _ctxBarHistoryLimit == _historyLimit &&
+        identical(_ctxBarSummary, _summary)) {
+      return _ctxBarTotal;
+    }
+    final total = _contextBreakdown()?.total;
+    _ctxBarMsgLen = _messages.length;
+    _ctxBarLastLen = lastLen;
+    _ctxBarHistoryLimit = _historyLimit;
+    _ctxBarSummary = _summary;
+    _ctxBarTotal = total;
+    return total;
+  }
+
+  /// 顶部上下文占用条（v0.14.0）：细进度条 + 百分比 + 已用/窗口，点开明细。
+  /// 窗口未设置（0 = 关闭占用统计）或还没准备好时整条不渲染。
+  Widget _buildContextBar(ColorScheme scheme) {
+    final window = AppSettings.contextWindow;
+    if (window <= 0) return const SizedBox.shrink();
+    final total = _ctxBarTokens();
+    if (total == null || total <= 0) return const SizedBox.shrink();
+    final ratio = (total / window).clamp(0.0, 1.0);
+    final over = overContextBudget(total, window);
+    final color = over ? scheme.error : scheme.primary;
+    final labelColor = over ? scheme.error : scheme.onSurfaceVariant;
+    return InkWell(
+      onTap: _showContextUsage,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 5, 14, 6),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: scheme.outlineVariant.withValues(alpha: 0.45),
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.data_usage, size: 13, color: labelColor),
+            const SizedBox(width: 6),
+            Text(
+              '上下文',
+              style: TextStyle(fontSize: 11, color: labelColor),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(3),
+                child: LinearProgressIndicator(
+                  value: ratio,
+                  minHeight: 5,
+                  color: color,
+                  backgroundColor: scheme.surfaceContainerHighest,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '${contextPercent(total, window)}%',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: labelColor,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              '${formatTokenCount(total)}/${formatTokenCount(window)}',
+              style: TextStyle(
+                fontSize: 10,
+                color: scheme.onSurfaceVariant.withValues(alpha: 0.75),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// 上下文占用（v0.8.0）：明细拆分 + 占用条 + 合计/窗口百分比。
   /// 窗口为 0 时只显示明细（设置里的 0 = 关闭占用%与自动压缩）。
   /// 估算不持久化，每次打开现算；上次 API 返回的真实输入 token 单独展示。
@@ -2156,6 +2261,8 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       body: Column(
         children: [
+          // 上下文占用条（v0.14.0）：常驻在 AppBar 下方，点开明细
+          _buildContextBar(scheme),
           Expanded(
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,

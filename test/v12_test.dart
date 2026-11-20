@@ -87,7 +87,9 @@ void main() {
 
       expect(out.length, base.length + 1);
       expect(out.last.role, 'user');
-      expect(out.last.content, kSuggestionInstruction);
+      // v0.14.0：指令后追加本条建议的语气/风格要求
+      expect(out.last.content, startsWith(kSuggestionInstruction));
+      expect(out.last.content, contains(kSuggestionStyles[0]));
       // 前两条原样保留、顺序不变
       expect(out[0].role, 'system');
       expect(out[0].content, '你是助手');
@@ -101,6 +103,27 @@ void main() {
       final out = appendSuggestionInstruction(const []);
       expect(out.length, 1);
       expect(out.single.role, 'user');
+    });
+
+    // v0.14.0：一批三条要三种风格，避免三条意思雷同
+    test('同一批的三条建议使用不同风格指令', () {
+      final contents = [
+        for (var i = 0; i < kSuggestionStyles.length; i++)
+          appendSuggestionInstruction(const [], styleIndex: i).single.content,
+      ];
+      expect(contents.toSet().length, kSuggestionStyles.length);
+      for (var i = 0; i < kSuggestionStyles.length; i++) {
+        expect(contents[i], contains(kSuggestionStyles[i]));
+      }
+    });
+
+    test('styleIndex 越界时取模，始终带风格要求', () {
+      final wrapped = appendSuggestionInstruction(
+        const [],
+        styleIndex: kSuggestionStyles.length,
+      ).single.content;
+      final first = appendSuggestionInstruction(const []).single.content;
+      expect(wrapped, first);
     });
   });
 
@@ -146,6 +169,20 @@ void main() {
 
     test('全部无效时返回空列表', () {
       expect(normalizeSuggestions(['', '  ', '\n']), isEmpty);
+    });
+
+    // v0.14.0：差不多的两条只留一条，避免三个选项看起来一样
+    test('高度相似的长句只保留第一条', () {
+      final out = normalizeSuggestions([
+        '我觉得我们还是先离开这里吧',
+        '我觉得我们还是先离开这里吧。',
+        '那我去叫车',
+      ]);
+      expect(out, ['我觉得我们还是先离开这里吧', '那我去叫车']);
+    });
+
+    test('短句只按完全相同去重', () {
+      expect(normalizeSuggestions(['嗯', '嗯嗯', '嗯']), ['嗯', '嗯嗯']);
     });
   });
 }
