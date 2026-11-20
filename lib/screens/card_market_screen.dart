@@ -358,7 +358,7 @@ class _CardMarketScreenState extends State<CardMarketScreen> {
                 const SizedBox(width: 5),
                 Expanded(
                   child: Text(
-                    '数据来自 ${_client.source.name} · 仅显示 SFW 内容，'
+                    '数据来自 ${_client.source.name} · 包含全部内容（含 NSFW），'
                     '角色卡与图片版权归原作者所有',
                     style: TextStyle(
                       fontSize: AppType.meta,
@@ -562,6 +562,33 @@ class _StatusView extends StatelessWidget {
   }
 }
 
+/// NSFW 标注：市场展示全部内容，敏感卡在列表/详情里明确标出。
+class _NsfwBadge extends StatelessWidget {
+  const _NsfwBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+      decoration: BoxDecoration(
+        border: Border.all(color: scheme.error.withValues(alpha: 0.65)),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        'NSFW',
+        style: TextStyle(
+          fontSize: 9.5,
+          height: 1.2,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.3,
+          color: scheme.error,
+        ),
+      ),
+    );
+  }
+}
+
 /// 单列列表的一行：封面 + 原名/译名 + 简介 + 标签 + 作者/星数/对话数 + 「译」。
 class _MarketCardRow extends StatelessWidget {
   final MarketCard card;
@@ -635,14 +662,25 @@ class _MarketCardRow extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              card.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 14.5,
-                                fontWeight: FontWeight.w600,
-                              ),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    card.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 14.5,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                if (card.nsfw) ...[
+                                  const SizedBox(width: 6),
+                                  const _NsfwBadge(),
+                                ],
+                              ],
                             ),
                             if (translatedName != null &&
                                 translatedName != card.name) ...[
@@ -957,15 +995,29 @@ class _CardDetailSheetState extends State<_CardDetailSheet> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        card.name,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          height: 1.25,
-                        ),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              card.name,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                                height: 1.25,
+                              ),
+                            ),
+                          ),
+                          if (card.nsfw) ...[
+                            const SizedBox(width: 8),
+                            const Padding(
+                              padding: EdgeInsets.only(top: 3),
+                              child: _NsfwBadge(),
+                            ),
+                          ],
+                        ],
                       ),
                       if (t != null && t.name.trim().isNotEmpty) ...[
                         const SizedBox(height: 2),

@@ -17,8 +17,8 @@ import 'card_downloader.dart';
 ///   其它来源（Character Tavern / Pygmalion 等）见 docs/card_market_sources.md，
 ///   新增来源只需实现 [CardMarketSource]。
 ///
-/// 合规：卡片内容与图片版权归各自作者所有；UI 上标注来源与作者，
-/// 仅默认浏览 SFW 内容。
+/// 合规：卡片内容与图片版权归各自作者所有；UI 上标注来源与作者；
+/// 默认展示全部内容（含 NSFW），列表中会对 NSFW 卡做标注。
 
 /// 市场请求失败（message 为可直接展示的中文原因）。
 class CardMarketException implements Exception {
@@ -386,8 +386,8 @@ abstract class CardMarketSource {
 }
 
 /// Chub.ai 数据源。实测（2026-11）：
-/// `GET https://api.chub.ai/search?search=&first=24&page=1&nsfw=false`
-/// 免鉴权 200；`nsfw=false` 只返回 SFW 卡；空关键词 + `sort=star_count`
+/// `GET https://api.chub.ai/search?search=&first=24&page=1&nsfw=true`
+/// 免鉴权 200；`nsfw=true` 返回全部内容（含 NSFW）；空关键词 + `sort=star_count`
 /// 返回全站热门；每张卡的 `max_res_url` 即 `chara_card_v2.png`。
 class ChubSource implements CardMarketSource {
   /// 仅用于可测试注入（标签目录需要 POST）；搜索/下载仍走
@@ -476,8 +476,8 @@ class ChubSource implements CardMarketSource {
     final params = <String, String>{
       'first': '$pageSize',
       'page': '$page',
-      // 市场只浏览 SFW（NSFW 版块不在此功能的可用范围内）
-      'nsfw': 'false',
+      // 展示全部内容：nsfw=true 表示不过滤（列表里对 NSFW 卡做标注）
+      'nsfw': 'true',
     };
     // 空关键词 = 浏览，不带 search
     if (q.isNotEmpty) params['search'] = q;

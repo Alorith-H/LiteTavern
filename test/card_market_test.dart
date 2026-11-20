@@ -115,14 +115,14 @@ void main() {
   group('Chub 搜索请求地址', () {
     const source = ChubSource();
 
-    test('带关键词：search/first/page/nsfw，按相关度排序（无 sort/asc）', () {
+    test('带关键词：search/first/page/nsfw=true，按相关度排序（无 sort/asc）', () {
       final uri = source.searchUri(query: '  love  ', page: 2);
       expect(uri.host, 'api.chub.ai');
       expect(uri.path, '/search');
       expect(uri.queryParameters['search'], 'love');
       expect(uri.queryParameters['first'], '${source.pageSize}');
       expect(uri.queryParameters['page'], '2');
-      expect(uri.queryParameters['nsfw'], 'false');
+      expect(uri.queryParameters['nsfw'], 'true');
       expect(uri.queryParameters.containsKey('sort'), isFalse);
       expect(uri.queryParameters.containsKey('asc'), isFalse);
     });
@@ -131,7 +131,7 @@ void main() {
       final uri = source.searchUri(query: '   ', page: 1);
       expect(uri.queryParameters.containsKey('search'), isFalse);
       expect(uri.queryParameters['sort'], 'star_count');
-      expect(uri.queryParameters['nsfw'], 'false');
+      expect(uri.queryParameters['nsfw'], 'true');
     });
   });
 
@@ -276,7 +276,7 @@ void main() {
       );
     });
 
-    test('全部筛选叠加，且 nsfw 永远 false', () {
+    test('全部筛选叠加，且 nsfw 固定 true（含全部内容）', () {
       final uri = source.searchUri(
         query: ' love ',
         page: 2,
@@ -308,7 +308,7 @@ void main() {
       expect(uri.queryParameters['require_images'], 'true');
       expect(uri.queryParameters['require_lore'], 'true');
       expect(uri.queryParameters['require_expressions'], 'true');
-      expect(uri.queryParameters['nsfw'], 'false');
+      expect(uri.queryParameters['nsfw'], 'true');
     });
   });
 
@@ -515,7 +515,7 @@ void main() {
       expect(params['require_images'], 'true');
       expect(params['require_lore'], 'true');
       expect(params['require_expressions'], 'true');
-      expect(params['nsfw'], 'false');
+      expect(params['nsfw'], 'true');
       client.dispose();
     });
 
@@ -531,7 +531,7 @@ void main() {
       expect(params.containsKey('min_tokens'), isFalse);
       expect(params.containsKey('max_tokens'), isFalse);
       expect(params.containsKey('min_tags'), isFalse);
-      expect(params['nsfw'], 'false');
+      expect(params['nsfw'], 'true');
       client.dispose();
     });
   });
@@ -720,7 +720,7 @@ void main() {
     test('正常响应 → 解析出卡片（走 MockClient，不联网）', () async {
       final client = CardMarketClient(
         httpClient: MockClient((request) async {
-          expect(request.url.queryParameters['nsfw'], 'false');
+          expect(request.url.queryParameters['nsfw'], 'true');
           return http.Response.bytes(
             utf8.encode(_searchBody),
             200,
