@@ -1891,7 +1891,7 @@ class _ChatScreenState extends State<ChatScreen> {
     return total;
   }
 
-  /// 输入栏底部一行的上下文占用提示（v0.14.0）：细进度条 + 百分比。
+  /// 输入框上方的上下文占用提示（v0.14.2）：细进度条 + 百分比。
   /// 刻意做得不显眼（2.5px、低透明度、9.5px 小字），点按打开明细。
   Widget _buildContextHint(ColorScheme scheme) {
     final window = AppSettings.contextWindow;
@@ -1910,7 +1910,7 @@ class _ChatScreenState extends State<ChatScreen> {
       onTap: _showContextUsage,
       borderRadius: BorderRadius.circular(4),
       child: Padding(
-        padding: const EdgeInsets.only(top: 6),
+        padding: const EdgeInsets.only(bottom: 6),
         child: Row(
           children: [
             Expanded(
@@ -2690,6 +2690,8 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
               const SizedBox(height: 8),
             ],
+            // 上下文占用提示（v0.14.2）：紧贴输入框上方，低调不抢注意力
+            _buildContextHint(scheme),
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
@@ -2777,8 +2779,6 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ],
             ),
-            // 上下文占用提示（v0.14.0）：贴在输入栏最底部，刻意不显眼
-            _buildContextHint(scheme),
           ],
         ),
       ),

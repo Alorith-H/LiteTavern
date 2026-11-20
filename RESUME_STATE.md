@@ -1,4 +1,4 @@
-# 交接状态：v0.14.1 三风格建议回复 + 贴合角色卡设定 + 底部低调上下文提示 + 默认 1M 窗口（2026-11-20 更新）
+# 交接状态：v0.14.2 三风格建议回复 + 贴合角色卡设定 + 输入框上方上下文提示 + 默认 1M 窗口（2026-11-20 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
 > v0.11.0（角色卡市场）、v0.12.0（市场筛选 + 三候选）、v0.12.1（修正为「用户侧」建议回复）。
@@ -18,6 +18,8 @@
 > **v0.14.0（2026-11-20）**：① 建议回复改为**三种不同语气/风格**（简短接话 / 情绪互动 / 推进剧情），并对高度相似的候选去重；② 建议条出现时**自动重新贴底**，最后一条气泡不再被建议行挡住。
 >
 > **v0.14.1（2026-11-20）**：① 上下文占用条从 AppBar 下方移到**输入栏最底部**（2.5px 细线 + 低透明度小字「上下文 0.3%」），不再显眼，点按仍打开明细；② 建议指令改为**严格贴合角色卡对用户的设定与当前剧情**，并明确「只写用户想表达的那一句、不要替角色说话」；③ AppSettings.contextWindow 默认值 **65536 → 1,000,000（1M）**，并对仍然是旧默认值的用户做一次性迁移（自己改过的不动）。版本 0.14.1+9，已装机实测。
+>
+> **v0.14.2（2026-11-20）**：上下文占用提示从输入栏底部改到**输入框正上方**一行（样式不变：2.5px 细线 + 低透明度「上下文 0.3%」，点开明细）。版本 0.14.2+10，已装机实测。
 
 ## v0.14.0 本轮变更
 
@@ -53,11 +55,11 @@
 ## 仓库状态
 
 - 分支 `dev`，远端 `origin = https://github.com/Alorith-H/LiteTavern.git`
-- `pubspec.yaml:5` → `version: 0.14.1+9`；`lib/app_info.dart` → `kAppVersion = '0.14.1'`
+- `pubspec.yaml:5` → `version: 0.14.2+10`；`lib/app_info.dart` → `kAppVersion = '0.14.2'`
   （`test/version_test.dart` 校验两者一致，防漂移）
 - 产物：`build\app\outputs\flutter-apk\app-release.apk`（58.1 MB，
-  `build\app\outputs\apk\release\output-metadata.json` versionCode 9 / versionName 0.14.1）
-- 装机：**已安装**到真机 `23113RKC6C`（`dumpsys` 确认 versionCode=9 / versionName=0.14.1，
+  `build\app\outputs\apk\release\output-metadata.json` versionCode 10 / versionName 0.14.2）
+- 装机：**已安装**到真机 `23113RKC6C`（`dumpsys` 确认 versionCode=10 / versionName=0.14.2，
   `am start` 正常，主页 6 个角色数据完好）
 
 ## 功能一：建议回复纵向完整展示
@@ -132,7 +134,7 @@
 |---|---|---|
 | 静态检查 | `flutter analyze` | **No issues found!**（3.2s） |
 | 单元/组件测试 | `flutter test` | **+208 All tests passed!** |
-| Release 构建 | `flutter build apk --release` | 成功，58.2 MB，versionCode 9 / 0.14.1 |
+| Release 构建 | `flutter build apk --release` | 成功，58.2 MB，versionCode 10 / 0.14.2 |
 | 装机 | `adb install -r ...apk` | **Success**，`am start` 正常 |
 
 命令环境：`C:\flutter\bin\flutter.bat`（不在 PATH），每次先设
