@@ -378,8 +378,11 @@ abstract class CardMarketSource {
   /// 解析搜索响应体（JSON 文本）为统一结构；坏数据尽量跳过而不是整体失败。
   MarketSearchPage parseSearch(String body);
 
-  /// 下载卡文件字节（PNG/JSON）。
-  Future<Uint8List> download(MarketCard card);
+  /// 下载卡文件字节（PNG/JSON）。[onProgress] 用于展示下载进度。
+  Future<Uint8List> download(
+    MarketCard card, {
+    DownloadProgressCallback? onProgress,
+  });
 
   /// 拉取标签目录（按热度降序）。失败时应返回内置兜底列表而不是抛异常。
   Future<List<MarketTag>> fetchTags({int limit = 200});
@@ -543,7 +546,10 @@ class ChubSource implements CardMarketSource {
   }
 
   @override
-  Future<Uint8List> download(MarketCard card) => downloadCard(card.downloadUrl);
+  Future<Uint8List> download(
+    MarketCard card, {
+    DownloadProgressCallback? onProgress,
+  }) => downloadCard(card.downloadUrl, onProgress: onProgress);
 
   @override
   Future<List<MarketTag>> fetchTags({int limit = 200}) async {
@@ -651,7 +657,11 @@ class CardMarketClient {
   }
 
   /// 下载一张卡的文件字节；失败抛 [CardDownloadException]。
-  Future<Uint8List> download(MarketCard card) => source.download(card);
+  /// [onProgress] 透传给数据源，用于 UI 展示进度。
+  Future<Uint8List> download(
+    MarketCard card, {
+    DownloadProgressCallback? onProgress,
+  }) => source.download(card, onProgress: onProgress);
 
   void dispose() {
     _closed = true;

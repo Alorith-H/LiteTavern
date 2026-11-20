@@ -832,15 +832,57 @@ class _CardDetailSheet extends StatefulWidget {
 class _CardDetailSheetState extends State<_CardDetailSheet> {
   bool _downloading = false;
   String? _error;
+  int _receivedBytes = 0;
+  int? _totalBytes;
+
+  /// 已下载百分比（服务端没给 Content-Length 时为 null，展示不确定进度）。
+  double? get _progress {
+    final total = _totalBytes;
+    if (total == null || total <= 0) return null;
+    return (_receivedBytes / total).clamp(0.0, 1.0);
+  }
+
+  String get _downloadLabel {
+    final progress = _progress;
+    if (progress == null) {
+      final kb = _receivedBytes ~/ 1024;
+      return kb > 0 ? '下载中 $kb KB' : '下载中…';
+    }
+    return '下载中 ${(progress * 100).floor()}%';
+  }
+
+  void _onDownloadProgress(int received, int? total) {
+    if (!mounted) return;
+    final known = total != null && total > 0 ? total : null;
+    // 已知总长按 1% 节流；未知总长按 64KB 节流，避免高频 setState。
+    if (known != null) {
+      final before = _progress;
+      if (before != null &&
+          (received / known * 100).floor() == (before * 100).floor()) {
+        return;
+      }
+    } else if (received - _receivedBytes < 64 * 1024 && received > 0) {
+      return;
+    }
+    setState(() {
+      _receivedBytes = received;
+      _totalBytes = known;
+    });
+  }
 
   Future<void> _import() async {
     if (_downloading) return;
     setState(() {
       _downloading = true;
       _error = null;
+      _receivedBytes = 0;
+      _totalBytes = null;
     });
     try {
-      final Uint8List bytes = await widget.client.download(widget.card);
+      final Uint8List bytes = await widget.client.download(
+        widget.card,
+        onProgress: _onDownloadProgress,
+      );
       var imported = await importCardBytes(
         bytes,
         filename: '${widget.card.name}.png',
@@ -1103,6 +1145,17 @@ class _CardDetailSheetState extends State<_CardDetailSheet> {
               ),
             ],
             const SizedBox(height: 18),
+            if (_downloading) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(3),
+                child: LinearProgressIndicator(
+                  value: _progress,
+                  minHeight: 5,
+                  backgroundColor: scheme.surfaceContainerHighest,
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
@@ -1114,7 +1167,7 @@ class _CardDetailSheetState extends State<_CardDetailSheet> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.download_outlined),
-                label: Text(_downloading ? '下载中…' : '下载并导入'),
+                label: Text(_downloading ? _downloadLabel : '下载并导入'),
               ),
             ),
             const SizedBox(height: 10),

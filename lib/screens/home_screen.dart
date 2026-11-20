@@ -122,10 +122,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// 从链接下载并导入。成功返回 null，失败返回可展示的中文原因。
-  Future<String?> _downloadFromUrl(String url) async {
+  Future<String?> _downloadFromUrl(
+    String url, [
+    DownloadProgressCallback? onProgress,
+  ]) async {
     try {
       // 按内容识别（PNG 魔数 → PNG 卡，否则按 JSON 解析）
-      final bytes = await downloadCard(url);
+      final bytes = await downloadCard(url, onProgress: onProgress);
       await _importBytes(bytes, '');
       return null;
     } on CardDownloadException catch (e) {
@@ -701,7 +704,9 @@ class _HomeScreenState extends State<HomeScreen> {
 /// "从链接下载"弹窗：输入 URL，下载中显示转圈；失败在弹窗内显示原因。
 class _LinkDownloadDialog extends StatefulWidget {
   /// 执行下载+导入；成功返回 null，失败返回可展示的中文原因。
-  final Future<String?> Function(String url) onDownload;
+  /// [onProgress] 用于展示下载进度。
+  final Future<String?> Function(String url, DownloadProgressCallback? onProgress)
+  onDownload;
 
   const _LinkDownloadDialog({required this.onDownload});
 
@@ -713,6 +718,32 @@ class _LinkDownloadDialogState extends State<_LinkDownloadDialog> {
   final _ctrl = TextEditingController();
   bool _downloading = false;
   String? _error;
+  int _receivedBytes = 0;
+  int? _totalBytes;
+
+  double? get _progress {
+    final total = _totalBytes;
+    if (total == null || total <= 0) return null;
+    return (_receivedBytes / total).clamp(0.0, 1.0);
+  }
+
+  String get _downloadLabel {
+    final progress = _progress;
+    if (progress == null) {
+      final kb = _receivedBytes ~/ 1024;
+      return kb > 0 ? '下载中 $kb KB' : '下载中…';
+    }
+    return '下载中 ${(progress * 100).floor()}%';
+  }
+
+  void _onProgress(int received, int? total) {
+    if (!mounted) return;
+    final known = total != null && total > 0 ? total : null;
+    setState(() {
+      _receivedBytes = received;
+      _totalBytes = known;
+    });
+  }
 
   @override
   void dispose() {
@@ -729,8 +760,10 @@ class _LinkDownloadDialogState extends State<_LinkDownloadDialog> {
     setState(() {
       _downloading = true;
       _error = null;
+      _receivedBytes = 0;
+      _totalBytes = null;
     });
-    final err = await widget.onDownload(url);
+    final err = await widget.onDownload(url, _onProgress);
     if (!mounted) return;
     if (err == null) {
       Navigator.of(context).pop();
@@ -748,16 +781,31 @@ class _LinkDownloadDialogState extends State<_LinkDownloadDialog> {
     return AlertDialog(
       title: const Text('从链接下载角色卡'),
       content: _downloading
-          ? const Row(
+          ? Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    ),
+                    const SizedBox(width: 14),
+                    Text(_downloadLabel),
+                  ],
                 ),
-                SizedBox(width: 14),
-                Text('下载中…'),
+                const SizedBox(height: 14),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(3),
+                  child: LinearProgressIndicator(
+                    value: _progress,
+                    minHeight: 5,
+                    backgroundColor: scheme.surfaceContainerHighest,
+                  ),
+                ),
               ],
             )
           : Column(

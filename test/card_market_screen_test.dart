@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:litetavern/models/card_translation.dart';
 import 'package:litetavern/screens/card_market_screen.dart';
+import 'package:litetavern/services/card_downloader.dart';
 import 'package:litetavern/services/card_market.dart';
 import 'package:litetavern/services/translation_store.dart';
 import 'package:litetavern/services/translator.dart';
@@ -194,7 +195,10 @@ class _FakeSource implements CardMarketSource {
       MarketSearchPage(total: cards.length, cards: cards);
 
   @override
-  Future<Uint8List> download(MarketCard card) async => Uint8List(0);
+  Future<Uint8List> download(
+    MarketCard card, {
+    DownloadProgressCallback? onProgress,
+  }) async => Uint8List(0);
 
   @override
   Future<List<MarketTag>> fetchTags({int limit = 200}) async =>

@@ -1,4 +1,4 @@
-# 交接状态：v0.13.1 建议回复纵排 + 角色卡翻译 + 市场全量筛选/全部内容（2026-11-20 更新）
+# 交接状态：v0.13.2 建议回复纵排 + 角色卡翻译 + 市场筛选/全部内容 + 下载进度（2026-11-20 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
 > v0.11.0（角色卡市场）、v0.12.0（市场筛选 + 三候选）、v0.12.1（修正为「用户侧」建议回复）。
@@ -12,15 +12,17 @@
 > **v0.13.1（2026-11-20）**：角色卡市场从「仅显示 SFW」改为**展示全部内容（含 NSFW）**，
 > 列表行与详情页对 NSFW 卡显示红色 `NSFW` 标记；服务端参数改为 `nsfw=true`（不过滤）。
 > 版本 0.13.1+6，已重新构建、装机并在真机确认市场可见 NSFW 卡。
+>
+> **v0.13.2（2026-11-20）**：市场下载与「从链接下载」都显示**下载进度**（LinearProgressIndicator + 「下载中 42%」，拿不到 Content-Length 时显示已下载 KB）；版本 0.13.2+7，已装机实测。
 
 ## 仓库状态
 
 - 分支 `dev`，远端 `origin = https://github.com/Alorith-H/LiteTavern.git`
-- `pubspec.yaml:5` → `version: 0.13.1+6`；`lib/app_info.dart` → `kAppVersion = '0.13.1'`
+- `pubspec.yaml:5` → `version: 0.13.2+7`；`lib/app_info.dart` → `kAppVersion = '0.13.2'`
   （`test/version_test.dart` 校验两者一致，防漂移）
 - 产物：`build\app\outputs\flutter-apk\app-release.apk`（58.1 MB，
-  `build\app\outputs\apk\release\output-metadata.json` versionCode 6 / versionName 0.13.1）
-- 装机：**已安装**到真机 `23113RKC6C`（`dumpsys` 确认 versionCode=6 / versionName=0.13.1，
+  `build\app\outputs\apk\release\output-metadata.json` versionCode 7 / versionName 0.13.2）
+- 装机：**已安装**到真机 `23113RKC6C`（`dumpsys` 确认 versionCode=7 / versionName=0.13.2，
   `am start` 正常，主页 6 个角色数据完好）
 
 ## 功能一：建议回复纵向完整展示
@@ -95,7 +97,7 @@
 |---|---|---|
 | 静态检查 | `flutter analyze` | **No issues found!**（3.2s） |
 | 单元/组件测试 | `flutter test` | **+197 All tests passed!** |
-| Release 构建 | `flutter build apk --release` | 成功，58.1 MB，versionCode 6 / 0.13.1 |
+| Release 构建 | `flutter build apk --release` | 成功，58.1 MB，versionCode 7 / 0.13.2 |
 | 装机 | `adb install -r ...apk` | **Success**，`am start` 正常 |
 
 命令环境：`C:\flutter\bin\flutter.bat`（不在 PATH），每次先设

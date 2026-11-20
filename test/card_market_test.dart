@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:litetavern/services/card_downloader.dart';
 import 'package:litetavern/services/card_export.dart';
 import 'package:litetavern/services/card_importer.dart';
 import 'package:litetavern/services/card_market.dart';
@@ -775,6 +776,91 @@ void main() {
       );
     });
   });
+  group('下载进度（downloadCard onProgress）', () {
+    /// 生成 3000 字节、分 [sizes] 块返回的流式响应。
+    http.Client streamingClient(Uint8List payload, List<int> sizes) {
+      final chunks = <Uint8List>[];
+      var offset = 0;
+      for (final size in sizes) {
+        final end = (offset + size) > payload.length
+            ? payload.length
+            : offset + size;
+        chunks.add(Uint8List.sublistView(payload, offset, end));
+        offset = end;
+      }
+      return MockClient.streaming(
+        (request, bodyStream) async => http.StreamedResponse(
+          Stream<Uint8List>.fromIterable(chunks),
+          200,
+          contentLength: payload.length,
+        ),
+      );
+    }
+
+    test('有 Content-Length：先报 (0, 总长)，随后单调递增到 (总长, 总长)', () async {
+      final payload = Uint8List.fromList(
+        List<int>.generate(3000, (i) => i % 256),
+      );
+      final events = <int>[];
+      final totals = <int?>[];
+      final bytes = await downloadCard(
+        'https://example.test/card.png',
+        httpClient: streamingClient(payload, [1200, 1800]),
+        onProgress: (received, total) {
+          events.add(received);
+          totals.add(total);
+        },
+      );
+      expect(bytes, payload);
+      expect(totals.every((t) => t == payload.length), isTrue);
+      expect(events.first, 0);
+      expect(events.last, payload.length);
+      for (var i = 1; i < events.length; i++) {
+        expect(events[i], greaterThanOrEqualTo(events[i - 1]));
+      }
+    });
+
+    test('无 Content-Length：total 为 null，进度仍按块回调', () async {
+      final payload = Uint8List.fromList(List<int>.generate(900, (i) => i));
+      final client = MockClient.streaming(
+        (request, bodyStream) async => http.StreamedResponse(
+          Stream<Uint8List>.fromIterable([
+            Uint8List.sublistView(payload, 0, 400),
+            Uint8List.sublistView(payload, 400, 900),
+          ]),
+          200,
+        ),
+      );
+      final events = <int>[];
+      final bytes = await downloadCard(
+        'https://example.test/card.png',
+        httpClient: client,
+        onProgress: (received, total) {
+          expect(total, isNull);
+          events.add(received);
+        },
+      );
+      expect(bytes, payload);
+      expect(events.first, 0);
+      expect(events.last, 900);
+    });
+
+    test('失败时不应把进度当成成功：404 抛 CardDownloadException', () async {
+      final client = MockClient(
+        (_) async => http.Response('not found', 404),
+      );
+      expect(
+        () => downloadCard('https://example.test/x.png', httpClient: client),
+        throwsA(
+          isA<CardDownloadException>().having(
+            (e) => e.message,
+            'message',
+            contains('404'),
+          ),
+        ),
+      );
+    });
+  });
 }
 
 /// 只用于验证 [CardMarketClient.fetchTags] 的异常兜底：fetchTags 必抛。
@@ -800,7 +886,10 @@ class _ThrowingTagsSource implements CardMarketSource {
       const MarketSearchPage(total: 0, cards: <MarketCard>[]);
 
   @override
-  Future<Uint8List> download(MarketCard card) async => Uint8List(0);
+  Future<Uint8List> download(
+    MarketCard card, {
+    DownloadProgressCallback? onProgress,
+  }) async => Uint8List(0);
 
   @override
   Future<List<MarketTag>> fetchTags({int limit = 200}) async =>

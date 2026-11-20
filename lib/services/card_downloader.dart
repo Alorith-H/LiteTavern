@@ -16,18 +16,28 @@ class CardDownloadException implements Exception {
 /// 最大下载 50MB（流式累计，超限即中断）。
 const int _maxDownloadBytes = 50 * 1024 * 1024;
 
+/// 下载进度回调：[received] 已收字节数，[total] 总字节数（服务端未给 Content-Length 时为 null）。
+typedef DownloadProgressCallback = void Function(int received, int? total);
+
 /// 从 http/https 链接下载角色卡原始字节。
 /// - 跟随重定向
 /// - 30 秒超时（连接与流式读取）
 /// - 最大 50MB 流式限制
-Future<Uint8List> downloadCard(String rawUrl) async {
+/// - 传入 [onProgress] 时按收到的 chunk 回调进度（首块前先报 `(0, total)`）
+/// - 传入 [httpClient] 时复用之（主要给测试注入；不主动 close）
+Future<Uint8List> downloadCard(
+  String rawUrl, {
+  DownloadProgressCallback? onProgress,
+  http.Client? httpClient,
+}) async {
   final url = rawUrl.trim();
   final uri = Uri.tryParse(url);
   if (url.isEmpty || uri == null || !(uri.isScheme('http') || uri.isScheme('https'))) {
     throw const CardDownloadException('请输入有效的 http/https 链接');
   }
 
-  final client = http.Client();
+  final client = httpClient ?? http.Client();
+  final ownsClient = httpClient == null;
   try {
     final request = http.Request('GET', uri)
       ..followRedirects = true
@@ -42,15 +52,18 @@ Future<Uint8List> downloadCard(String rawUrl) async {
       throw CardDownloadException('下载失败：HTTP ${response.statusCode}');
     }
 
+    final total = response.contentLength;
+    onProgress?.call(0, total);
     final builder = BytesBuilder(copy: false);
-    var total = 0;
+    var received = 0;
     await for (final chunk
         in response.stream.timeout(const Duration(seconds: 30))) {
-      total += chunk.length;
-      if (total > _maxDownloadBytes) {
+      received += chunk.length;
+      if (received > _maxDownloadBytes) {
         throw const CardDownloadException('下载失败：文件超过 50MB 限制');
       }
       builder.add(chunk);
+      onProgress?.call(received, total);
     }
     return builder.takeBytes();
   } on TimeoutException {
@@ -60,6 +73,6 @@ Future<Uint8List> downloadCard(String rawUrl) async {
   } on SocketException catch (e) {
     throw CardDownloadException('网络错误：${e.message}');
   } finally {
-    client.close();
+    if (ownsClient) client.close();
   }
 }
