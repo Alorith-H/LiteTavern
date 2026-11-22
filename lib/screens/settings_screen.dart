@@ -9,11 +9,13 @@ import '../app_info.dart';
 import '../main.dart';
 import '../models/world_info.dart';
 import '../services/storage.dart';
+import '../services/user_personas.dart';
 import '../widgets/common.dart';
 import 'advanced_settings_screen.dart';
 import 'api_config_screen.dart';
 import 'gen_presets_screen.dart';
 import 'onboarding_screen.dart';
+import 'personas_screen.dart';
 
 /// 设置页。
 class SettingsScreen extends StatefulWidget {
@@ -140,6 +142,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadWorldBooks() async {
     final list = await Storage.loadWorldBooks();
     if (mounted) setState(() => _worldBooks = list);
+  }
+
+  // ---------------------------------------------- 用户人设（v0.16.0）--
+
+  String _personaSummary() {
+    final active = PersonaStore.active;
+    if (active == null) {
+      return '未选择：点进去新建一套「你」的身份（名字 + 设定）';
+    }
+    final name = active.name.trim();
+    return active.hasDescription
+        ? '$name · 有设定，会随提示词发给模型'
+        : '$name · 只有名字，不注入设定';
+  }
+
+  Future<void> _openPersonas() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const PersonasScreen()),
+    );
+    if (!mounted) return;
+    // 选中人设会同步 userName，回来刷新称呼输入框与摘要
+    setState(() => _nameCtrl.text = AppSettings.userName);
   }
 
   Future<void> _importWorldBook() async {
@@ -479,6 +503,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           // -------------------------------------------------- 聊天 --
           const SectionHeader('聊天'),
+          _actionRow(
+            title: '用户人设',
+            subtitle: _personaSummary(),
+            onTap: _openPersonas,
+          ),
+          const Divider(height: 1),
           TextField(
             controller: _nameCtrl,
             decoration: const InputDecoration(

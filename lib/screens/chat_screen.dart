@@ -10,9 +10,12 @@ import '../models/character_card.dart';
 import '../models/world_info.dart';
 import '../services/active_generations.dart';
 import '../services/api_client.dart';
+import '../services/authors_note.dart';
 import '../services/chat_export.dart';
+import '../services/chat_export_files.dart';
 import '../services/context_usage.dart';
 import '../services/hit_stats.dart';
+import '../services/impersonate.dart';
 import '../services/macros.dart';
 import '../services/prompt_builder.dart';
 import '../services/reply_suggestions.dart';
@@ -21,9 +24,11 @@ import '../services/storage.dart';
 import '../services/stream_throttle.dart';
 import '../services/summarize.dart';
 import '../services/token_estimate.dart';
+import '../services/user_personas.dart';
 import '../services/world_info_engine.dart';
 import '../widgets/common.dart';
 import '../widgets/reply_suggestions_bar.dart';
+import 'authors_note_screen.dart';
 import 'character_edit_screen.dart';
 import 'settings_screen.dart';
 
@@ -220,6 +225,9 @@ class _ChatScreenState extends State<ChatScreen> {
       c.dispose();
     }
     _suggestClients.clear();
+    // 替我说一句（v0.16.0）：同样是页面私有请求
+    _impersonateClient?.dispose();
+    _impersonateClient = null;
     _reSettleTimer?.cancel();
     _api.dispose();
     _scrollCtrl.removeListener(_onScroll);
@@ -282,6 +290,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _summary = data.summary;
       _hitStats = data.hitStats; // 旧会话无记录 = null（不显示命中率）
       _worldBooks = books;
+      _authorNote = AuthorNoteStore.load(_convId);
       _loading = false;
       _msgCache.clear();
       _cacheLen = -1;
@@ -330,6 +339,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _summary = data.summary;
       _hitStats = data.hitStats; // 旧会话无记录 = null（不显示命中率）
       _worldBooks = books;
+      _authorNote = AuthorNoteStore.load(_convId);
       _loading = false;
       _msgCache.clear();
       _cacheLen = -1;
@@ -619,12 +629,17 @@ class _ChatScreenState extends State<ChatScreen> {
 
   // ------------------------------------------------------------- 生成 --
 
-  String get _macroUserName => AppSettings.userName;
+  /// 对话里「我」的名字（v0.16.0：优先当前用户人设，否则设置里的 userName）。
+  String get _macroUserName => PersonaStore.activeName;
+
+  /// 当前会话的作者注释（v0.16.0）；会话级，没存过回退默认值。
+  AuthorNote _authorNote = AuthorNote.empty;
 
   String _macro(String s) => applyMacros(
         s,
         charName: _card?.name ?? '',
         userName: _macroUserName,
+        personaText: PersonaStore.activeDescription,
       );
 
   bool get _canConfigure => AppSettings.apiConfigured;
@@ -1324,6 +1339,8 @@ class _ChatScreenState extends State<ChatScreen> {
         speakerName: speaker,
         summaryText: summaryText,
         historyLimit: _historyLimit,
+        personaText: PersonaStore.activeDescription,
+        authorNote: _authorNote,
       );
     }
     return PromptBuilder.build(
@@ -1333,6 +1350,8 @@ class _ChatScreenState extends State<ChatScreen> {
       userName: _macroUserName,
       summaryText: summaryText,
       historyLimit: _historyLimit,
+      personaText: PersonaStore.activeDescription,
+      authorNote: _authorNote,
     );
   }
 
@@ -1447,6 +1466,8 @@ class _ChatScreenState extends State<ChatScreen> {
     for (final c in List<ApiClient>.of(_suggestClients)) {
       c.cancel();
     }
+    // 替我说一句（v0.16.0）：停止也把这条临时请求取消
+    _impersonateClient?.cancel();
     // 页面内停止 = 管理器执行取消（与 dispose 只解绑相对）。随即显式
     // 释放同 key：取消收尾是异步的，别挡住紧接着的再次发送。
     final job = ActiveGenerations.instance.of(_convId);
@@ -1811,6 +1832,28 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
             ListTile(
+              title: const Text('导出对话文件…'),
+              subtitle: const Text('存成 .txt / .json，可分享给别人'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _exportChatFile();
+              },
+            ),
+            ListTile(
+              title: const Text('作者注释'),
+              subtitle: Text(
+                _authorNote.isActive
+                    ? (_authorNote.placement == AuthorNotePlacement.inChat
+                        ? '已启用 · 聊天内 深度 ${_authorNote.depth}'
+                        : '已启用 · 设定之后')
+                    : '未启用 · 临时给模型的额外指令',
+              ),
+              onTap: () {
+                Navigator.pop(ctx);
+                _openAuthorNote();
+              },
+            ),
+            ListTile(
               title: const Text('继续生成'),
               enabled: canContinue,
               onTap: canContinue
@@ -1869,6 +1912,110 @@ class _ChatScreenState extends State<ChatScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('对话已复制到剪贴板')),
     );
+  }
+
+  /// v0.16.0：导出成文件（.txt / .json）并交给系统分享。
+  Future<void> _exportChatFile() async {
+    if (!_isGroup && _card == null) return;
+    final asJson = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.description_outlined),
+              title: const Text('纯文本 (.txt)'),
+              subtitle: const Text('适合阅读、粘贴到别处'),
+              onTap: () => Navigator.pop(ctx, false),
+            ),
+            ListTile(
+              leading: const Icon(Icons.data_object),
+              title: const Text('JSON (.json)'),
+              subtitle: const Text('保留角色、时间与变体，便于备份'),
+              onTap: () => Navigator.pop(ctx, true),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (asJson == null || !mounted) return;
+    final title = _isGroup ? (_group?.name ?? '群聊') : _card!.name;
+    try {
+      final ok = await ChatExportFiles.shareChat(
+        charName: title,
+        userName: _macroUserName,
+        messages: _messages,
+        asJson: asJson,
+      );
+      if (!mounted || ok) return;
+      _toast('当前设备不支持分享文件');
+    } catch (e) {
+      if (!mounted) return;
+      _toast('导出失败：$e');
+    }
+  }
+
+  /// v0.16.0：打开当前会话的作者注释编辑页。
+  Future<void> _openAuthorNote() async {
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => AuthorNoteScreen(convId: _convId, title: '作者注释'),
+      ),
+    );
+    if (!mounted) return;
+    setState(() => _authorNote = AuthorNoteStore.load(_convId));
+    if (changed == true) _toast('作者注释已保存，下一条回复开始生效');
+  }
+
+  // ------------------------------------------------- 替我说一句（v0.16.0）--
+
+  bool _impersonating = false;
+  ApiClient? _impersonateClient;
+
+  /// 让模型以「我」的口吻写一句最可能发出去的话，填进输入框由用户决定是否发送。
+  Future<void> _impersonate() async {
+    if (_impersonating || _generating || _summarizing) return;
+    if (!_canConfigure) {
+      _toast('先在 设置 → 模型服务 里配置 API');
+      return;
+    }
+    final built = _buildPrompt();
+    final client = ApiClient();
+    _impersonateClient = client;
+    setState(() => _impersonating = true);
+    final buf = StringBuffer();
+    String? err;
+    try {
+      await client.streamChat(
+        baseUrl: AppSettings.baseUrl,
+        apiKey: AppSettings.apiKey,
+        model: AppSettings.model,
+        messages: withImpersonateInstruction(built.messages),
+        temperature: AppSettings.temperature,
+        topP: AppSettings.topP,
+        maxTokens: AppSettings.activePreset.maxTokens,
+        stream: false,
+        sampling: AppSettings.activePreset.sampling,
+        onDelta: buf.write,
+        onError: (e) => err = e,
+        onDone: () {},
+      );
+    } catch (e) {
+      err ??= '$e';
+    }
+    _impersonateClient = null;
+    client.dispose();
+    if (!mounted) return;
+    setState(() => _impersonating = false);
+    final text = normalizeImpersonation(buf.toString());
+    if (text.isEmpty) {
+      _toast(err == null ? '模型没有返回内容，再试一次' : '生成失败：$err');
+      return;
+    }
+    _inputCtrl.text = text;
+    _inputCtrl.selection = TextSelection.collapsed(offset: text.length);
+    _inputEmpty.value = false;
   }
 
   // ------------------------------------------------------- 统计与注入 --
@@ -2802,6 +2949,36 @@ class _ChatScreenState extends State<ChatScreen> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
+                // 替我说一句（v0.16.0）：让模型以「我」的口吻写一句候选，
+                // 只填进输入框，发不发由你决定
+                SizedBox(
+                  width: 34,
+                  height: 40,
+                  child: IconButton(
+                    onPressed: (_impersonating || _generating || _summarizing)
+                        ? null
+                        : _impersonate,
+                    padding: EdgeInsets.zero,
+                    constraints:
+                        const BoxConstraints(minWidth: 34, minHeight: 40),
+                    tooltip: '替我说一句',
+                    icon: _impersonating
+                        ? SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          )
+                        : Icon(
+                            Icons.record_voice_over_outlined,
+                            size: 18,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                  ),
+                ),
+                const SizedBox(width: 2),
                 // 手动生成建议（开关打开才显示）：AI 回复后忘了自动生成、
                 // 或想换一批时点这里
                 if (AppSettings.autoReplyCandidates) ...[

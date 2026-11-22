@@ -882,6 +882,55 @@ class AppSettings {
   static set showNsfw(bool v) => _sp.setBool(_kShowNsfw, v);
   static const _kShowNsfw = 'show_nsfw';
 
+  /// 用户人设列表（v0.16.0）：JSON 数组；null = 未配置。
+  static String? get personasJson => _sp.getString(_kPersonas);
+  static set personasJson(String? v) {
+    if (v == null || v.isEmpty) {
+      _sp.remove(_kPersonas);
+    } else {
+      _sp.setString(_kPersonas, v);
+    }
+  }
+
+  static const _kPersonas = 'user_personas';
+
+  /// 当前选中的用户人设 id（null = 未选）。
+  static String? get activePersonaId => _sp.getString(_kActivePersona);
+  static set activePersonaId(String? v) {
+    if (v == null || v.isEmpty) {
+      _sp.remove(_kActivePersona);
+    } else {
+      _sp.setString(_kActivePersona, v);
+    }
+  }
+
+  static const _kActivePersona = 'active_persona_id';
+
+  /// 作者注释（v0.16.0）：按会话 id 的 JSON map；null = 全部用默认。
+  static String? get authorNotesJson => _sp.getString(_kAuthorNotes);
+  static set authorNotesJson(String? v) {
+    if (v == null || v.isEmpty) {
+      _sp.remove(_kAuthorNotes);
+    } else {
+      _sp.setString(_kAuthorNotes, v);
+    }
+  }
+
+  static const _kAuthorNotes = 'author_notes';
+
+  /// 默认作者注释（新会话的初始值），JSON 对象；null = 无。
+  static String? get defaultAuthorNoteJson =>
+      _sp.getString(_kAuthorNoteDefault);
+  static set defaultAuthorNoteJson(String? v) {
+    if (v == null || v.isEmpty) {
+      _sp.remove(_kAuthorNoteDefault);
+    } else {
+      _sp.setString(_kAuthorNoteDefault, v);
+    }
+  }
+
+  static const _kAuthorNoteDefault = 'author_note_default';
+
   /// 设置是否已加载（未初始化时读取默认值，供纯逻辑模块兜底）
   static bool get initialized => _ready;
 

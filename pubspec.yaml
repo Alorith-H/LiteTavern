@@ -2,7 +2,7 @@ name: litetavern
 description: "轻酒馆 — 简洁的 AI 角色扮演聊天 App"
 publish_to: 'none'
 
-version: 0.15.1+13
+version: 0.16.0+14
 
 environment:
   sdk: ^3.13.5
@@ -35,3 +35,4 @@ flutter_launcher_icons:
 
 flutter:
   uses-material-design: true
+

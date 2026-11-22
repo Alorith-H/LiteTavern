@@ -1,6 +1,7 @@
 import '../models/chat_message.dart';
 import '../models/character_card.dart';
 import '../models/world_info.dart';
+import 'authors_note.dart';
 import 'macros.dart';
 import 'storage.dart';
 import 'world_info_engine.dart';
@@ -57,6 +58,9 @@ class PromptBuilder {
     required String userName,
     int? historyLimit,
     String? summaryText,
+    String? personaText,
+    AuthorNote? authorNote,
+    DateTime? now,
   }) {
     // 上下文保留条数来自设置；SharedPreferences 未初始化（如单元测试）时回退默认 40
     var limit = historyLimit ??
@@ -73,8 +77,18 @@ class PromptBuilder {
     );
     final parts = _partitionActivated(activated);
 
-    String macro(String s) =>
-        applyMacros(s, charName: charName, userName: userName);
+    String macro(String s) => applyMacros(
+          s,
+          charName: charName,
+          userName: userName,
+          personaText: personaText,
+          cardFields: {
+            'description': card.description,
+            'personality': card.personality,
+            'scenario': card.scenario,
+          },
+          now: now,
+        );
 
     final sb = StringBuffer();
     if (parts.front.isNotEmpty) {
@@ -93,6 +107,22 @@ class PromptBuilder {
     appendField(card.personality);
     appendField(card.scenario);
     appendField(card.systemPrompt);
+
+    // 用户人设（v0.16.0）：告诉模型「我是谁」
+    final persona = macro(personaText ?? '').trim();
+    if (persona.isNotEmpty) {
+      sb.writeln();
+      sb.writeln('用户「$userName」的设定：');
+      sb.writeln(persona);
+    }
+
+    // 作者注释（afterScenario）：紧跟角色设定、在示例对话之前
+    if (authorNote != null &&
+        authorNote.isActive &&
+        authorNote.placement == AuthorNotePlacement.afterScenario) {
+      sb.writeln();
+      sb.writeln('【作者注释】${macro(authorNote.promptText)}');
+    }
 
     final example = macro(card.mesExample).trim();
     if (example.isNotEmpty) {
@@ -135,6 +165,7 @@ class PromptBuilder {
     ];
     // position=1：以 user 消息形式按 depth 插入历史
     messages.addAll(_injectDepthEntries(rendered, parts.depth));
+    _insertAuthorNote(messages, authorNote, macro);
 
     return PromptBuildResult(
       messages: messages,
@@ -159,6 +190,9 @@ class PromptBuilder {
     String? speakerName,
     String? summaryText,
     int? historyLimit,
+    String? personaText,
+    AuthorNote? authorNote,
+    DateTime? now,
   }) {
     var limit = historyLimit ??
         (AppSettings.initialized ? AppSettings.contextHistoryLimit : maxHistory);
@@ -177,8 +211,13 @@ class PromptBuilder {
             ? m.senderName!.trim()
             : defaultName;
 
-    String macroFor(String text, String charName) =>
-        applyMacros(text, charName: charName, userName: userName);
+    String macroFor(String text, String charName) => applyMacros(
+          text,
+          charName: charName,
+          userName: userName,
+          personaText: personaText,
+          now: now,
+        );
 
     // 1. 合并世界书激活（每条标来源；宏用当前发言者的名字替换 {{char}}；
     //    按 position 分流：0 在最前，2 紧跟成员名册后）
@@ -214,6 +253,22 @@ class PromptBuilder {
     }
     sb.writeln();
     writeEntries(parts.after);
+
+    // 用户人设（v0.16.0）：群聊同样告诉模型「我是谁」
+    final persona = macroFor(personaText ?? '', speaker).trim();
+    if (persona.isNotEmpty) {
+      sb.writeln('用户「$userName」的设定：');
+      sb.writeln(persona);
+      sb.writeln();
+    }
+
+    // 作者注释（afterScenario）
+    if (authorNote != null &&
+        authorNote.isActive &&
+        authorNote.placement == AuthorNotePlacement.afterScenario) {
+      sb.writeln('【作者注释】${macroFor(authorNote.promptText, speaker)}');
+      sb.writeln();
+    }
 
     // 3. 对话规则（扮演当前发言者）
     sb.write(
@@ -252,12 +307,42 @@ class PromptBuilder {
     }
     // position=1：与单聊一致，按 depth 插入（不带名字前缀）
     messages.addAll(_injectDepthEntries(rendered, parts.depth));
+    _insertAuthorNote(messages, authorNote, (s) => macroFor(s, speaker));
 
     return PromptBuildResult(
       messages: messages,
       systemText: systemText,
       activated: activated,
     );
+  }
+
+  /// 作者注释（inChat，v0.16.0）：按 depth 插进历史。
+  ///
+  /// depth = 0 → 紧贴最后一条消息之后（模型最「新鲜」的位置）；
+  /// depth = 1 → 最后一条之前；depth = 4 → 倒数第 4 条之前。
+  /// 只在 [AuthorNotePlacement.inChat] 且内容非空时生效。
+  static void _insertAuthorNote(
+    List<PromptMessage> messages,
+    AuthorNote? note,
+    String Function(String) macro,
+  ) {
+    if (note == null ||
+        !note.isActive ||
+        note.placement != AuthorNotePlacement.inChat) {
+      return;
+    }
+    final text = macro(note.promptText).trim();
+    if (text.isEmpty) return;
+    final role = note.role == 'user' ? 'user' : 'system';
+    final len = messages.length;
+    final int index;
+    if (note.depth <= 0) {
+      index = len;
+    } else {
+      index = (len - note.depth).clamp(1, len).toInt();
+    }
+    if (index <= 0) return;
+    messages.insert(index, PromptMessage(role: role, content: text));
   }
 
   /// 激活条目按 position 分流（保持传入的 insertion_order 升序）：
