@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import '../app_info.dart';
 import '../main.dart';
 import '../models/world_info.dart';
+import '../services/external_links.dart';
 import '../services/storage.dart';
 import '../services/user_personas.dart';
 import '../widgets/common.dart';
@@ -27,6 +28,8 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _nameCtrl;
+  late final TextEditingController _azureKeyCtrl;
+  late final TextEditingController _azureRegionCtrl;
   late final TextEditingController _maxTokensCtrl;
   late final TextEditingController _contextWindowCtrl;
   late double _temperature;
@@ -70,6 +73,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _nameCtrl = TextEditingController(text: AppSettings.userName);
+    _azureKeyCtrl = TextEditingController(text: AppSettings.azureTranslatorKey);
+    _azureRegionCtrl =
+        TextEditingController(text: AppSettings.azureTranslatorRegion);
     _maxTokensCtrl = TextEditingController(text: '${AppSettings.maxTokens}');
     _contextWindowCtrl =
         TextEditingController(text: '${AppSettings.contextWindow}');
@@ -92,6 +98,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _azureKeyCtrl.dispose();
+    _azureRegionCtrl.dispose();
     _maxTokensCtrl.dispose();
     _contextWindowCtrl.dispose();
     _hexCtrl.dispose();
@@ -605,6 +613,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
               setState(() => _showNsfw = v);
               AppSettings.showNsfw = v;
             },
+          ),
+
+          // -------------------------------------------------- 翻译 --
+          const SectionHeader('翻译'),
+          _SubLine(
+            '角色卡和市场里的「译」按钮会用免费翻译。默认顺序：'
+            '必应（Azure Key）→ 必应网页版 → MyMemory → Google。',
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _azureKeyCtrl,
+            obscureText: true,
+            decoration: const InputDecoration(
+              labelText: '必应翻译 Key（Azure，可留空）',
+              hintText: '填了就用它翻译，速度和质量最稳',
+              helperText: 'Azure 翻译免费层每月 200 万字符；留空则用免 Key 的免费源',
+            ),
+            onChanged: (v) => AppSettings.azureTranslatorKey = v,
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _azureRegionCtrl,
+            decoration: const InputDecoration(
+              labelText: '区域（可选）',
+              hintText: '例如 eastasia；有的 Key 需要填',
+            ),
+            onChanged: (v) => AppSettings.azureTranslatorRegion = v,
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () => openExternalLink(
+                context,
+                'https://portal.azure.com/#create/Microsoft.CognitiveServicesTextTranslation',
+                title: '申请 Azure 翻译 Key',
+              ),
+              icon: const Icon(Icons.open_in_new, size: 16),
+              label: const Text('去申请必应（Azure）翻译 Key'),
+            ),
           ),
 
           // -------------------------------------------------- 聊天 --

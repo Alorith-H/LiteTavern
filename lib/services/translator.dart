@@ -2,6 +2,8 @@
 // 设置里已配置模型的额度（需先向用户报价）。
 //
 // 免费源实测（2026-11）：
+// - 必应翻译网页版（www.bing.com/translator → ttranslatev3）：免 key，
+//   质量最好，但会按 IP 风控要求人机验证 —— 首位尝试，失败即换源。
 // - MyMemory（api.mymemory.translated.net）：免 key、支持 Autodetect，
 //   单次请求上限 500 字符，匿名日额度约 5k 字符 —— 主源。
 // - Google 免费端点（translate.googleapis.com/translate_a/single）：免 key，
@@ -127,6 +129,319 @@ List<String> splitForTranslation(String text, {int max = 450}) {
   }
   flush();
   return chunks;
+}
+
+/// 必应翻译（网页版免费接口，免 Key，best-effort）。
+///
+/// 流程与浏览器一致：先打开 `/translator` 取页面里的
+/// `IG:"…"` 与 `params_AbusePreventionHelper = [key,"token",ttl]`，
+/// 再 POST `/ttranslatev3`。必应会按 IP/风控决定是否要求人机验证
+/// （返回 `{"ShowCaptcha":false}` 即被拦），此时抛
+/// [TranslationFailure]，由 [TranslationService] 自动换下一个免费源。
+class BingWebProvider extends TranslationProvider {
+  final http.Client? client;
+  final Duration timeout;
+
+  /// 页面与接口的站点（国内会 302 到 cn.bing.com，这里跟随重定向）。
+  final String site;
+
+  const BingWebProvider({
+    this.client,
+    this.timeout = const Duration(seconds: 20),
+    this.site = 'www.bing.com',
+  });
+
+  static const Map<String, String> _headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+  };
+
+  /// 令牌缓存（token 有效期 1 小时，这里提前 15 分钟刷新）。
+  static String? _cachedIg;
+  static String? _cachedKey;
+  static String? _cachedToken;
+  static DateTime? _cachedAt;
+
+  /// 测试用：清空令牌缓存。
+  static void resetCacheForTest() {
+    _cachedIg = null;
+    _cachedKey = null;
+    _cachedToken = null;
+    _cachedAt = null;
+  }
+
+  @override
+  String get id => 'bing';
+
+  @override
+  String get label => '必应翻译（免费）';
+
+  @override
+  bool get isFree => true;
+
+  @override
+  Future<String> translate(String text, {String target = 'zh-CN'}) async {
+    final chunks = splitForTranslation(text, max: 900);
+    if (chunks.isEmpty) return '';
+    final out = <String>[];
+    for (final chunk in chunks) {
+      out.add(await _translateChunk(chunk, _bingTarget(target)));
+    }
+    return out.join('\n');
+  }
+
+  static String _bingTarget(String target) {
+    switch (target) {
+      case 'zh-CN':
+        return 'zh-Hans';
+      case 'zh-TW':
+        return 'zh-Hant';
+      case 'zh':
+        return 'zh-Hans';
+      default:
+        return target;
+    }
+  }
+
+  Future<String> _translateChunk(String text, String to) async {
+    await _ensureTokens();
+    final uri = Uri.https(site, '/ttranslatev3', {
+      'isVertical': '1',
+      'IG': _cachedIg!,
+      'IID': 'translator.5028.1',
+    });
+    final resp = await _postForm(uri, {
+      'fromLang': 'auto-detect',
+      'text': text,
+      'to': to,
+      'token': _cachedToken!,
+      'key': _cachedKey!,
+    });
+    if (resp.statusCode == 429) {
+      throw const TranslationFailure('必应翻译被限流（429）', quotaExceeded: true);
+    }
+    if (resp.statusCode != 200) {
+      throw TranslationFailure('必应翻译返回 HTTP ${resp.statusCode}');
+    }
+    final dynamic data;
+    try {
+      data = jsonDecode(utf8.decode(resp.bodyBytes));
+    } catch (_) {
+      throw const TranslationFailure('必应翻译返回数据异常');
+    }
+    // 被风控：{"ShowCaptcha":false} / {"statusCode":400}
+    if (data is Map) {
+      throw const TranslationFailure('必应翻译要求人机验证，稍后再试', quotaExceeded: true);
+    }
+    if (data is List && data.isNotEmpty) {
+      final first = data.first;
+      if (first is Map) {
+        final translations = first['translations'];
+        if (translations is List && translations.isNotEmpty) {
+          final item = translations.first;
+          if (item is Map) {
+            final t = item['text'];
+            if (t is String && t.trim().isNotEmpty) return t.trim();
+          }
+        }
+      }
+    }
+    throw const TranslationFailure('必应翻译返回数据异常');
+  }
+
+  /// 取页面里的 IG / key / token（带缓存）。
+  Future<void> _ensureTokens() async {
+    final now = DateTime.now();
+    if (_cachedIg != null &&
+        _cachedKey != null &&
+        _cachedToken != null &&
+        _cachedAt != null &&
+        now.difference(_cachedAt!) < const Duration(minutes: 45)) {
+      return;
+    }
+    final http.Response resp;
+    try {
+      final uri = Uri.https(site, '/translator');
+      resp = client == null
+          ? await http.get(uri, headers: _headers).timeout(timeout)
+          : await client!.get(uri, headers: _headers).timeout(timeout);
+    } on TimeoutException {
+      throw const TranslationFailure('必应翻译页面超时');
+    } catch (e) {
+      throw TranslationFailure('必应翻译网络错误：$e');
+    }
+    if (resp.statusCode != 200) {
+      throw TranslationFailure('必应翻译页面返回 HTTP ${resp.statusCode}');
+    }
+    final html = utf8.decode(resp.bodyBytes, allowMalformed: true);
+    final ig = RegExp(r'IG:"([0-9A-Fa-f]{10,})"').firstMatch(html)?.group(1);
+    final helper = RegExp(
+      r'params_AbusePreventionHelper\s*=\s*\[([^\]]+)\]',
+    ).firstMatch(html)?.group(1);
+    if (ig == null || helper == null) {
+      throw const TranslationFailure('必应翻译页面结构变化，取不到令牌');
+    }
+    final parts = helper.split(',');
+    final key = parts.isNotEmpty ? parts.first.trim() : '';
+    final token = parts.length > 1 ? parts[1].replaceAll('"', '').trim() : '';
+    if (key.isEmpty || token.isEmpty) {
+      throw const TranslationFailure('必应翻译页面结构变化，取不到令牌');
+    }
+    _cachedIg = ig;
+    _cachedKey = key;
+    _cachedToken = token;
+    _cachedAt = now;
+  }
+
+  /// POST 表单；手动跟随 301/302/307/308（保持 POST 方法）。
+  Future<http.Response> _postForm(Uri uri, Map<String, String> fields) async {
+    var current = uri;
+    for (var hop = 0; hop < 3; hop++) {
+      final request = http.Request('POST', current)
+        ..headers.addAll(_headers)
+        ..headers['Content-Type'] =
+            'application/x-www-form-urlencoded; charset=UTF-8'
+        ..headers['Accept'] = 'application/json, text/plain, */*'
+        ..headers['Referer'] = 'https://$site/translator'
+        ..body = fields.entries
+            .map((e) =>
+                '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}')
+            .join('&');
+      final http.Response resp;
+      try {
+        final streamed = client == null
+            ? await http.Client().send(request).timeout(timeout)
+            : await client!.send(request).timeout(timeout);
+        resp = await http.Response.fromStream(streamed);
+      } on TimeoutException {
+        throw const TranslationFailure('必应翻译超时');
+      } catch (e) {
+        throw TranslationFailure('必应翻译网络错误：$e');
+      }
+      if (resp.statusCode == 301 ||
+          resp.statusCode == 302 ||
+          resp.statusCode == 307 ||
+          resp.statusCode == 308) {
+        final location = resp.headers['location'];
+        if (location == null || location.isEmpty) {
+          throw TranslationFailure('必应翻译返回 HTTP ${resp.statusCode}');
+        }
+        current = Uri.parse(location).replace(scheme: 'https');
+        continue;
+      }
+      return resp;
+    }
+    throw const TranslationFailure('必应翻译重定向次数过多');
+  }
+}
+
+/// 必应翻译（Azure 翻译服务，用用户自己申请的 Key）。
+///
+/// 走 `api.cognitive.microsofttranslator.com/translate`（引擎就是必应翻译），
+/// 免费层每月 200 万字符，不受网页版人机验证影响。没填 Key 时立刻抛错，
+/// 由 [TranslationService] 换下一个免费源。
+class AzureBingProvider extends TranslationProvider {
+  final String? apiKey;
+  final String? region;
+  final http.Client? client;
+  final Duration timeout;
+
+  const AzureBingProvider({
+    this.apiKey,
+    this.region,
+    this.client,
+    this.timeout = const Duration(seconds: 20),
+  });
+
+  @override
+  String get id => 'azure';
+
+  @override
+  String get label => '必应翻译（Azure Key）';
+
+  @override
+  bool get isFree => true;
+
+  @override
+  Future<String> translate(String text, {String target = 'zh-CN'}) async {
+    final key = (apiKey ?? AppSettings.azureTranslatorKey).trim();
+    if (key.isEmpty) {
+      throw const TranslationFailure('还没有填写 Azure 翻译 Key');
+    }
+    final reg = (region ?? AppSettings.azureTranslatorRegion).trim();
+    final chunks = splitForTranslation(text, max: 3000);
+    if (chunks.isEmpty) return '';
+    final out = <String>[];
+    for (final chunk in chunks) {
+      out.add(await _translateChunk(chunk, key, reg, target));
+    }
+    return out.join('\n');
+  }
+
+  Future<String> _translateChunk(
+    String text,
+    String key,
+    String reg,
+    String target,
+  ) async {
+    final uri = Uri.https(
+      'api.cognitive.microsofttranslator.com',
+      '/translate',
+      {'api-version': '3.0', 'to': BingWebProvider._bingTarget(target)},
+    );
+    final http.Response resp;
+    try {
+      final headers = <String, String>{
+        'Ocp-Apim-Subscription-Key': key,
+        'Content-Type': 'application/json',
+        if (reg.isNotEmpty) 'Ocp-Apim-Subscription-Region': reg,
+      };
+      final body = jsonEncode([
+        {'Text': text},
+      ]);
+      resp = client == null
+          ? await http.post(uri, headers: headers, body: body).timeout(timeout)
+          : await client!
+              .post(uri, headers: headers, body: body)
+              .timeout(timeout);
+    } on TimeoutException {
+      throw const TranslationFailure('必应（Azure）翻译超时');
+    } catch (e) {
+      throw TranslationFailure('必应（Azure）翻译网络错误：$e');
+    }
+    if (resp.statusCode == 401 || resp.statusCode == 403) {
+      throw const TranslationFailure('Azure 翻译 Key 无效或没有权限',
+          quotaExceeded: true);
+    }
+    if (resp.statusCode == 429) {
+      throw const TranslationFailure('必应（Azure）翻译额度用尽（429）',
+          quotaExceeded: true);
+    }
+    if (resp.statusCode != 200) {
+      throw TranslationFailure('必应（Azure）翻译返回 HTTP ${resp.statusCode}');
+    }
+    final dynamic data;
+    try {
+      data = jsonDecode(utf8.decode(resp.bodyBytes));
+    } catch (_) {
+      throw const TranslationFailure('必应（Azure）翻译返回数据异常');
+    }
+    if (data is List && data.isNotEmpty) {
+      final first = data.first;
+      if (first is Map) {
+        final translations = first['translations'];
+        if (translations is List && translations.isNotEmpty) {
+          final item = translations.first;
+          if (item is Map) {
+            final t = item['text'];
+            if (t is String && t.trim().isNotEmpty) return t.trim();
+          }
+        }
+      }
+    }
+    throw const TranslationFailure('必应（Azure）翻译返回数据异常');
+  }
 }
 
 /// MyMemory 免费翻译（主源）。
@@ -333,7 +648,12 @@ class TranslationService {
     List<TranslationProvider>? freeProviders,
     TranslationProvider? llm,
   })  : freeProviders = freeProviders ??
-            const <TranslationProvider>[MyMemoryProvider(), GoogleFreeProvider()],
+            const <TranslationProvider>[
+              AzureBingProvider(),
+              BingWebProvider(),
+              MyMemoryProvider(),
+              GoogleFreeProvider(),
+            ],
         llm = llm ?? const LlmTranslationProvider();
 
   /// 只试免费源；全失败返回 null（不抛异常，供 UI 静默降级）。

@@ -923,6 +923,19 @@ class AppSettings {
   static set showNsfw(bool v) => _sp.setBool(_kShowNsfw, v);
   static const _kShowNsfw = 'show_nsfw';
 
+  /// 必应（Azure 翻译）Key / 区域：填了就优先用它翻译，留空则用免费源。
+  static String get azureTranslatorKey => _sp.getString(_kAzureKey) ?? '';
+  static set azureTranslatorKey(String v) =>
+      v.trim().isEmpty ? _sp.remove(_kAzureKey) : _sp.setString(_kAzureKey, v.trim());
+  static const _kAzureKey = 'azure_translator_key';
+
+  static String get azureTranslatorRegion =>
+      _sp.getString(_kAzureRegion) ?? '';
+  static set azureTranslatorRegion(String v) => v.trim().isEmpty
+      ? _sp.remove(_kAzureRegion)
+      : _sp.setString(_kAzureRegion, v.trim());
+  static const _kAzureRegion = 'azure_translator_region';
+
   /// 用户人设列表（v0.16.0）：JSON 数组；null = 未配置。
   static String? get personasJson => _sp.getString(_kPersonas);
   static set personasJson(String? v) {

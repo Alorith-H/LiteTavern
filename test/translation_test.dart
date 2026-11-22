@@ -215,6 +215,132 @@ void main() {
     });
   });
 
+  group('BingWebProvider', () {
+    setUp(BingWebProvider.resetCacheForTest);
+    tearDown(BingWebProvider.resetCacheForTest);
+
+    const pageHtml = '<html><script>'
+        'var _G={IG:"A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D6"};'
+        'params_AbusePreventionHelper = [1712000000000,"tok-abc",3600000];'
+        '</script></html>';
+
+    test('先取令牌再 POST，解析 translations[0].text', () async {
+      final calls = <String>[];
+      final client = MockClient((req) async {
+        calls.add('${req.method} ${req.url.host}${req.url.path}');
+        if (req.url.path == '/translator') {
+          return http.Response.bytes(utf8.encode(pageHtml), 200);
+        }
+        expect(req.method, 'POST');
+        expect(req.url.queryParameters['IG'], 'A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D6');
+        expect(req.body, contains('text=Hello'));
+        expect(req.body, contains('to=zh-Hans'));
+        expect(req.body, contains('token=tok-abc'));
+        expect(req.body, contains('key=1712000000000'));
+        return http.Response.bytes(
+          utf8.encode(jsonEncode([
+            {
+              'detectedLanguage': {'language': 'en', 'score': 1.0},
+              'translations': [
+                {'text': '你好', 'to': 'zh-Hans'},
+              ],
+            }
+          ])),
+          200,
+        );
+      });
+      final t = await BingWebProvider(client: client).translate('Hello');
+      expect(t, '你好');
+      expect(calls.length, 2);
+
+      // 令牌缓存：第二次只发一次 POST，不再抓页面
+      await BingWebProvider(client: client).translate('Hello again');
+      expect(calls.length, 3);
+      expect(calls.where((c) => c.startsWith('GET')).length, 1);
+    });
+
+    test('被要求人机验证 → quotaExceeded', () async {
+      final client = MockClient((req) async {
+        if (req.url.path == '/translator') {
+          return http.Response.bytes(utf8.encode(pageHtml), 200);
+        }
+        return http.Response.bytes(
+          utf8.encode('{"ShowCaptcha":false}'),
+          200,
+        );
+      });
+      await expectLater(
+        BingWebProvider(client: client).translate('hi'),
+        throwsA(isA<TranslationFailure>()
+            .having((e) => e.quotaExceeded, 'quotaExceeded', isTrue)),
+      );
+    });
+
+    test('页面里取不到令牌 → TranslationFailure', () async {
+      final client = MockClient(
+        (req) async => http.Response.bytes(utf8.encode('<html>nope</html>'), 200),
+      );
+      await expectLater(
+        BingWebProvider(client: client).translate('hi'),
+        throwsA(isA<TranslationFailure>()),
+      );
+    });
+
+    test('默认免费源顺序：Azure → 必应网页 → MyMemory → Google', () {
+      final svc = TranslationService();
+      expect(svc.freeProviders.map((p) => p.id).toList(),
+          ['azure', 'bing', 'mymemory', 'google']);
+      expect(svc.freeProviders.every((p) => p.isFree), isTrue);
+    });
+  });
+
+  group('AzureBingProvider', () {
+    test('带 Key 请求 Azure 并解析译文', () async {
+      late http.Request seen;
+      final client = MockClient((req) async {
+        seen = req;
+        return http.Response.bytes(
+          utf8.encode(jsonEncode([
+            {
+              'translations': [
+                {'text': '你好', 'to': 'zh-Hans'},
+              ],
+            }
+          ])),
+          200,
+        );
+      });
+      final t = await AzureBingProvider(
+        apiKey: 'azure-key',
+        region: 'eastasia',
+        client: client,
+      ).translate('Hello');
+      expect(t, '你好');
+      expect(seen.method, 'POST');
+      expect(seen.url.host, 'api.cognitive.microsofttranslator.com');
+      expect(seen.url.queryParameters['to'], 'zh-Hans');
+      expect(seen.headers['Ocp-Apim-Subscription-Key'], 'azure-key');
+      expect(seen.headers['Ocp-Apim-Subscription-Region'], 'eastasia');
+      expect(seen.body, contains('Hello'));
+    });
+
+    test('Key 无效（401）→ quotaExceeded', () async {
+      final client = MockClient((req) async => http.Response('', 401));
+      await expectLater(
+        AzureBingProvider(apiKey: 'bad', region: '', client: client).translate('hi'),
+        throwsA(isA<TranslationFailure>()
+            .having((e) => e.quotaExceeded, 'quotaExceeded', isTrue)),
+      );
+    });
+
+    test('没填 Key → 立刻失败（换下一个源）', () async {
+      await expectLater(
+        const AzureBingProvider(apiKey: '').translate('hi'),
+        throwsA(isA<TranslationFailure>()),
+      );
+    });
+  });
+
   group('TranslationService 调度', () {
     test('第一个源失败自动换第二个，并记住成功的源', () async {
       final bad = _FakeProvider('bad', fail: true);

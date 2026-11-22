@@ -374,7 +374,7 @@ class _CardTranslationSheetState extends State<CardTranslationSheet> {
             ),
             const SizedBox(height: 8),
             Text(
-              '优先使用免费翻译服务（MyMemory），不会消耗你的模型额度',
+              '优先使用免费翻译服务（必应 / MyMemory），不会消耗你的模型额度',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: AppType.caption,
