@@ -1,4 +1,4 @@
-# 交接状态：v0.17.0 对话管理（多聊天 / 分支 / 书签）（2026-11-22 更新）
+# 交接状态：v0.18.0 新手引导与交互方式打磨（2026-11-22 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
 > v0.11.0（角色卡市场）、v0.12.0（市场筛选 + 设置开关）、v0.12.1（修正为「用户侧」建议回复）、
@@ -6,109 +6,107 @@
 > v0.14.x（三风格建议、贴底、上下文占用、默认 1M 窗口、GitHub 页与首个 Release）、
 > v0.15.0（5 步新手引导、跳转 API 官网、导入弹窗改版、摘要提示说人话）、
 > v0.15.1（角色卡市场 NSFW 开关，默认关）、
-> v0.16.0（用户人设 Persona、作者注释、宏增强、替我说一句、导出对话文件）。
+> v0.16.0（用户人设 Persona、作者注释、宏增强、替我说一句、导出对话文件）、
+> v0.17.0（多聊天文件、对话分支、消息书签）。
 >
-> **本轮 v0.17.0**：对话管理三件套 ——
-> ① **多聊天文件**（同一角色/群聊下多段互不干扰的聊天：新建/切换/重命名/删除）；
-> ② **对话分支**（长按消息 → 从这里创建分支，复制到该条为止的历史）；
-> ③ **消息书签**（长按消息收藏、书签列表一键跳转）。
+> **本轮 v0.18.0**：
+> ① **输入栏辅助二选一**（建议回复 / 替我说一句 / 都关闭，三选一；关掉后按钮不显示）；
+> ② **新手引导扩到 6 步**（新增「选一种顺手的方式」，新手选型提示置顶，新增「自定义接口」）；
+> ③ **自动摘要后台静默执行**（不再显示「正在总结早期对话…」）；
+> ④ **明确自动摘要的 token 开销**（设置标注 + 「自动摘要怎么工作」说明页）。
 
 ## 仓库状态
 
-- 分支 `dev`，版本 `pubspec.yaml` = **0.17.0+15**，`lib/app_info.dart` `kAppVersion = '0.17.0'`。
-- 新增文件：`lib/services/chat_index.dart`、`lib/services/bookmarks.dart`、`test/v18_test.dart`。
-- 改造文件：`lib/screens/chat_screen.dart`、`lib/screens/home_screen.dart`、`lib/screens/storage.dart`（无）、
-  `CHANGELOG.md`。
+- 分支 `dev`，版本 `pubspec.yaml` = **0.18.0+16**，`lib/app_info.dart` `kAppVersion = '0.18.0'`。
+- 改动文件：`lib/services/storage.dart`（`AssistMode` + `assistMode` 设置）、
+  `lib/screens/settings_screen.dart`、`lib/screens/chat_screen.dart`、
+  `lib/screens/onboarding_screen.dart`、`test/v12_test.dart`、`test/onboarding_screen_test.dart`、
+  `CHANGELOG.md`、`RESUME_STATE.md`。
 
-## 本轮变更（v0.17.0）
+## 本轮变更（v0.18.0）
 
-### 1. 多聊天文件
+### 1. 输入栏辅助方式三选一
 
-- `lib/services/chat_index.dart`：`ChatInfo{id,name,updatedAt,messageCount}` + `ChatIndex`
-  （`ownerOf/load/save/ensure/find/touch/rename/remove/newId/nextName/sorted/resetForTest`）。
-  索引存 prefs 键 `chat_index_<owner>`；owner = 角色 id 或 `group_<群id>`。
-- 会话 key：旧会话沿用历史 id（单聊 = 角色 id、群聊 = `group_<群id>`）；
-  新聊天 = `<owner>~<毫秒时间戳 36 进制>`，对应 `conversations/<id>.json`。
-- `lib/screens/chat_screen.dart`：`ChatScreen` / `ChatScreen.group` 新增可选
-  `convId` / `chatName`；`_convId` 优先用显式 id；`_ownerId`、`_chatTitle` 统一。
-  老会话在加载时用 `ChatIndex.ensure` 补进索引（显示「（默认）」后缀）。
-  `_save()` 落库后同步 `ChatIndex.touch`（条数 + 最近时间），失败不影响聊天。
-- 聊天页标题可点（带 `expand_more` 图标）→ 底部聊天列表 `_ChatListSheet`：
-  新建聊天（自动起名「新聊天 2」…）、切换（`pushReplacement`）、重命名、删除
-  （不允许删当前那段、至少保留一段）；底部提示「每段聊天相互独立」。
-- 删除角色 / 群聊时，`home_screen.dart` 会先按索引清理其名下所有分段聊天的会话文件、
-  书签与后台任务，再删主存储。
+- `lib/services/storage.dart` 新增顶层 `enum AssistMode { suggestions, impersonate, off }`：
+  `fromLegacy(bool)`、`label`（生成建议回复 / 替我说一句 / 都关闭）、`summary`（含 token 提示）。
+- `AppSettings.assistMode` 读写 prefs 键 `assist_mode`；非法/缺失时回退旧键
+  `auto_reply_candidates` 的布尔语义（true → suggestions，false/缺失 → off）。
+  `autoReplyCandidates` 保留为兼容别名。
+- `lib/screens/settings_screen.dart`：「聊天」分节里把原「自动生成回复」开关换成
+  「输入栏辅助按钮」三选一 `SegmentedButton<AssistMode>` + 当前模式说明；
+  显式写明「两者只能二选一；选都关闭则输入栏左侧不显示按钮」。
+- `lib/screens/chat_screen.dart`：
+  - 输入栏左侧按钮按模式渲染：suggestions → ✨「生成建议回复」；impersonate → 「替我说一句」；
+    off → 两个都不显示（v0.18.0 之前替我说一句是常驻）。
+  - `_maybeSuggestReplies` 与建议条渲染都加了 `assistMode == AssistMode.suggestions` 门禁，
+    避免「选了替我说一句还在后台跑三次建议请求」。
 
-### 2. 对话分支
+### 2. 自动摘要后台静默执行
 
-- `_branchFrom(index)`：复制 `_messages.take(index+1)`（用 `toJson/fromJson` 深拷贝），
-  写入新会话 + 索引（名字「分支」「分支 2」…），toast 后直接打开该分支。
-- 消息长按菜单新增「从这里创建分支」（生成中禁用）。
+- 删除聊天页的摘要进度块（原 spinner + 「正在总结早期对话…」+ 帮助按钮 + 跳过），
+  以及 `_summarizeReason / _summarizeEarlyCount / _summarizeEstimatedTokens`、
+  `_showSummaryWhy()`。自动摘要现在不显示任何提示。
+- `_summarizing` 布尔保留：用于发送门禁；摘要期间发送钮显示为红色停止钮，仍可 `_cancelSummarize()` 打断。
+- 摘要完成后照旧把 `ChatSummary` 存进会话，并在下一条请求里替换早期原文（模型侧不可见差异）。
 
-### 3. 消息书签
+### 3. 说明「自动摘要会花 token」
 
-- `lib/services/bookmarks.dart`：`ChatBookmark{timestamp,role,preview,createdAt}` + `BookmarkStore`
-  （`load/save/contains/toggle/remove/clear/previewOf`），prefs 键 `chat_bookmarks_<convId>`。
-  `previewOf` 压平空白并截 120 字。
-- 消息长按菜单新增「书签」（加入/取消）；聊天菜单新增「书签」→ 列表（按加入时间正序，
-  显示角色/时间，可删），点一条按比例滚动定位（`_jumpToMessage`）并 toast「已跳到书签位置附近」。
-- 删除聊天 / 角色时清掉对应书签。
+- 设置里「长对话自动摘要」副标题：「对话太长时把早期内容压成摘要，后台静默执行（会额外调用一次模型、消耗 token）」。
+- 新增「自动摘要怎么工作」说明弹窗（`_showSummaryExplain`），5 段：
+  触发条件（超过记忆长度 / 上下文超 90%）、不是额度不够、会消耗 token（独立小请求，通常几千 token，
+  只在触发那次）、本机记录不删改、怎么关/怎么手动触发。
+- 结论口径：**会消耗 token**，因为摘要是额外一次模型调用（输入早期对话、输出摘要），按服务商价格计费。
 
-### 4. 顺手修的
+### 4. 新手指引完善（5 → 6 步）
 
-- 单聊写入开场白原来写死 `card.id`，多聊天下会写错文件 → 改为 `_convId`。
-- 群聊加载会话改用 `_convId`（原来写死 `Storage.groupConvId`）。
+- `lib/screens/onboarding_screen.dart`：`_totalSteps = 6`，`_primaryLabels` 同步；
+  第 4 步新增 `_buildAssistMode()`（三张 `_assistCard`，点选即写入 `AppSettings.assistMode`），
+  同时科普自动摘要会额外花 token、后台无提示、可在设置关。
+- 第 2 步「新手怎么选、要注意什么」提示从底部**移到最上面**（标题之后、lead 之前）。
+- 第 2 步末尾新增 `_customProviderCard()`「自定义接口（进阶）」：任何 OpenAI 兼容服务都能接，
+  点「用自定义接口」清空地址/模型并直接翻到第 3 步填写。
+- 第 6 步（完成页）说明按所选模式动态显示「左侧那个帮手按钮」的作用，并补「长对话会自动摘要」。
 
 ## 验证
 
 | 项目 | 结果 |
 | --- | --- |
-| `flutter analyze` | No issues found! |
-| `flutter test` | **+270 全过**（新增 test/v18_test.dart 14 例：索引/书签/坏数据容错） |
-| `flutter build apk --release` | 见下方运行记录 |
-| 真机安装 | 见下方运行记录 |
+| `flutter analyze` | **No issues found!**（10.7s） |
+| `flutter test` | **+273 All tests passed!**（11s） |
+| `flutter build apk --release` | 见「本次运行记录」 |
+| 装机 | 见「本次运行记录」 |
+| 真机自测 | 见下「真机自测清单」 |
 
-## 真机自测清单（装上新包后）
+## 真机自测清单（v0.18.0）
 
-1. 打开一个角色 → 点标题右侧的小箭头 → 「新建聊天」→ 发两句话 → 再点标题切回原来那段，确认两段内容互不干扰。
-2. 聊天列表里长按/右上「⋮」→ 重命名一段；再切到另一段，删除非当前的聊天，确认消息文件被清掉。
-3. 长按某条消息 → 「从这里创建分支」→ 新聊天里应该只有到那条为止的历史，继续聊不影响原聊天。
-4. 长按一条消息 → 「书签」→ 菜单「书签」→ 点那条 → 应跳到附近位置；再取消书签确认列表清空。
-5. 删除一个角色，确认它名下的多段聊天都不在 `conversations` 目录里残留。
-6. 老数据（升级前就有的会话）打开后，聊天列表里应能看到带「（默认）」的那一段。
+1. 设置 → 聊天 → 输入栏辅助按钮：依次选三种，回到聊天页确认左侧按钮随之出现/消失（都关闭时两个都没有）。
+2. 设置里「长对话自动摘要」能看到「会消耗 token」提示；点「自动摘要怎么工作」能打开说明弹窗。
+3. 聊天中触发摘要（把记忆长度调到很小再发消息）时，不应再出现「正在总结…」提示条。
+4. 删除新手引导数据后重进：应为 6 步；第 2 步新手提示在服务商列表上面；点「用自定义接口」直接到第 3 步。
+5. 第 4 步选「替我说一句」后，聊天页左侧只显示替我说一句按钮；选「都关闭」后两个都不显示。
 
 ## 已知边界
 
-- 聊天列表按「最近保存时间」排序；同一毫秒内保存的顺序不稳定。
-- 新增聊天时单聊会写入角色开场白（`firstMes`），群聊是空对话，等用户先说话。
-- 分支是**复制**历史快照，不是双向同步：分支里继续聊不会回写原聊天。
-- 书签跳转按「消息序号 / 总条数」比例估算滚动位置（条高不定），落点可能偏几行。
-- 删除聊天不可恢复（确认框里已写明）。
-- 未做（沿用 v0.16.0 的待办）：TTS/STT、图像生成、向量长期记忆、Web 搜索、输出正则替换、
-  背景图/主题深度定制、扩展系统、多角色卡「角色备注 Character's Note」等。
+- `assistMode` 默认值为 off（沿用旧版「自动生成回复默认关」）；从旧版本升级时读取 `auto_reply_candidates` 迁移一次。
+- 自动摘要静默执行意味着：长对话首次发送会有一次不易察觉的额外等待；可用发送钮的停止态打断。
+- 摘要的 token 估算按字符折算，仅用于说明，不精确记账。
+- 引导页第 5 步从市场返回即完成引导；外链/跳转未纳入单测（无平台通道 mock）。
 
-## 环境与命令
+## 环境与常用命令
 
-```powershell
-="https://storage.flutter-io.cn"
-C:\flutter\bin\flutter.bat analyze
-C:\flutter\bin\flutter.bat test
-C:\flutter\bin\flutter.bat build apk --release
-C:\Users\28351\Android\Sdk\platform-tools\adb.exe install -r build\app\outputs\flutter-apk\app-release.apk
-```
+- Flutter：`C:\flutter\bin\flutter.bat`（不在 PATH）；先设
+  `$env:FLUTTER_STORAGE_BASE_URL="https://storage.flutter-io.cn"`。
+- 构建：`flutter build apk --release` → `build\app\outputs\flutter-apk\app-release.apk`。
+- adb：`C:\Users\28351\Android\Sdk\platform-tools\adb.exe`；真机 23113RKC6C（Android 16，1440×3200）。
+  无线调试最近可用地址：`192.168.0.102:42543`（会变，用 `adb connect` 重连）。
+- 真机点按用**视觉坐标**（uiautomator bounds 常与视觉位置不符）。
 
-- adb：`C:\Users\28351\Android\Sdk\platform-tools\adb.exe`（不在 PATH）；真机 23113RKC6C，
-  无线调试地址曾为 `192.168.0.105:38767`（经常离线）。
-- 真机点按请用**视觉坐标**（uiautomator 的 bounds 常与视觉位置不符）。
+## 本次运行记录（由本轮执行后填写）
 
-## 本次运行记录（2026-11-22 20:34）
-
-| 项目 | 命令 | 结果 |
-| --- | --- | --- |
-| 静态检查 | `flutter analyze` | **No issues found!**（4.4s） |
-| 单元/组件测试 | `flutter test` | **+270 All tests passed!**（v18_test.dart 14 例） |
-| Release 构建 | `flutter build apk --release` | 成功，`59.0 MB`，versionCode **15** / versionName **0.17.0**（Gradle 44.0s） |
-| 真机安装 | `adb install -r` | **未完成**：`adb devices` 为空，无线 `192.168.0.105:38767` 超时（10060）；手机仍停留在旧版本 |
-
-装上新包后按上面「真机自测清单」6 步验证即可。
-
+- `flutter analyze`：No issues found!（10.7s）
+- `flutter test`：+273 All tests passed!（11s）
+- `flutter build apk --release`：59.0MB（60,378,120 字节，Gradle 61.8s），versionCode **16** / versionName **0.18.0**
+- 装机：`adb connect 192.168.0.102:42543` → `adb -s ... install -r` → **Success**；
+  dumpsys 确认 versionCode 16 / versionName 0.18.0 / lastUpdateTime 2026-11-22 21:10:06；
+  `am start -n com.alorith.litetavern/.MainActivity` 正常启动，数据保留（SCP 角色仍在），
+  截图 `build\v180_device_home.png`。

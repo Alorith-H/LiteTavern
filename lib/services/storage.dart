@@ -566,6 +566,34 @@ class GenPreset {
       );
 }
 
+/// 输入辅助方式（v0.18.0）：输入栏左侧只放一种辅助按钮，二选一或都关。
+/// - [suggestions]：AI 回复后给 3 条「你可发送的话」（也可手动刷新）
+/// - [impersonate]：「替我说一句」按需生成一条填进输入框
+/// - [off]：两个功能都关掉，输入栏左侧不显示任何按钮
+enum AssistMode {
+  suggestions,
+  impersonate,
+  off;
+
+  /// 旧开关（auto_reply_candidates）到新模式的映射。
+  static AssistMode fromLegacy(bool enabled) =>
+      enabled ? AssistMode.suggestions : AssistMode.off;
+
+  String get label => switch (this) {
+        AssistMode.suggestions => '生成建议回复',
+        AssistMode.impersonate => '替我说一句',
+        AssistMode.off => '都关闭',
+      };
+
+  String get summary => switch (this) {
+        AssistMode.suggestions =>
+          'AI 每次回复后自动给 3 条你可发送的话，点一条即发出（会多消耗 token）',
+        AssistMode.impersonate =>
+          '想不出说什么时，点输入栏左侧按钮让模型以「你」的口吻写一句，只填进输入框',
+        AssistMode.off => '输入栏左侧不显示辅助按钮，最省 token',
+      };
+}
+
 /// 应用设置（shared_preferences）。
 class AppSettings {
   static late SharedPreferences _sp;
@@ -868,12 +896,25 @@ class AppSettings {
   static set streaming(bool v) => _sp.setBool(_kStreaming, v);
   static const _kStreaming = 'streaming';
 
-  /// 自动生成回复候选（v0.12.0）：开启后单聊每次先生成 3 个候选，
-  /// 由用户挑一个落库；群聊与非候选模式不受影响。默认关。
-  static bool get autoReplyCandidates =>
-      _sp.getBool(_kAutoReplyCandidates) ?? false;
+  /// 输入辅助方式（v0.18.0）：建议回复 / 替我说一句 / 都关闭，三选一。
+  /// 未设置过时回退到旧开关 auto_reply_candidates（v0.12–v0.17）。
+  static AssistMode get assistMode {
+    final raw = _sp.getString(_kAssistMode);
+    if (raw != null) {
+      for (final m in AssistMode.values) {
+        if (m.name == raw) return m;
+      }
+    }
+    return AssistMode.fromLegacy(_sp.getBool(_kAutoReplyCandidates) ?? false);
+  }
+
+  static set assistMode(AssistMode v) => _sp.setString(_kAssistMode, v.name);
+  static const _kAssistMode = 'assist_mode';
+
+  /// 旧名（v0.12–v0.17）保留给老代码/老测试：等价于「是否建议回复模式」。
+  static bool get autoReplyCandidates => assistMode == AssistMode.suggestions;
   static set autoReplyCandidates(bool v) =>
-      _sp.setBool(_kAutoReplyCandidates, v);
+      assistMode = AssistMode.fromLegacy(v);
   static const _kAutoReplyCandidates = 'auto_reply_candidates';
 
   /// 角色卡市场是否显示 NSFW 内容（v0.15.1）：默认**关**，

@@ -21,7 +21,7 @@ void main() {
   testWidgets('第 1 步：讲清「本身不带 AI 模型」并给出三步概览', (tester) async {
     await _pump(tester);
 
-    expect(find.text('第 1 / 5 步'), findsOneWidget);
+    expect(find.text('第 1 / 6 步'), findsOneWidget);
     expect(find.text('欢迎使用 LiteTavern'), findsOneWidget);
     // 关键认知：必须自备 API Key，费用由服务商收取
     expect(find.textContaining('本身不带 AI 模型'), findsOneWidget);
@@ -35,29 +35,34 @@ void main() {
     expect(find.text('跳过'), findsOneWidget);
   });
 
-  testWidgets('底部主按钮按步骤给文案，并能一步步翻到第 5 步', (tester) async {
+  testWidgets('底部主按钮按步骤给文案，并能一步步翻到第 6 步', (tester) async {
     await _pump(tester);
 
     await _tapPrimary(tester, '我知道了，下一步');
-    expect(find.text('第 2 / 5 步'), findsOneWidget);
+    expect(find.text('第 2 / 6 步'), findsOneWidget);
     expect(find.text('获取 API Key'), findsOneWidget);
 
     await _tapPrimary(tester, '已经拿到 Key，下一步');
-    expect(find.text('第 3 / 5 步'), findsOneWidget);
+    expect(find.text('第 3 / 6 步'), findsOneWidget);
     expect(find.text('填写并测试连接'), findsOneWidget);
+
+    await _tapPrimary(tester, '下一步：选择聊天方式');
+    await _clearSnackBar(tester);
+    expect(find.text('第 4 / 6 步'), findsOneWidget);
+    expect(find.text('选一种顺手的方式'), findsOneWidget);
 
     await _tapPrimary(tester, '下一步：导入角色');
     await _clearSnackBar(tester);
-    expect(find.text('第 4 / 5 步'), findsOneWidget);
+    expect(find.text('第 5 / 6 步'), findsOneWidget);
     expect(find.text('导入第一个角色卡'), findsOneWidget);
 
     await _tapPrimary(tester, '下一步');
-    expect(find.text('第 5 / 5 步'), findsOneWidget);
+    expect(find.text('第 6 / 6 步'), findsOneWidget);
     expect(find.text('好了，开始聊天'), findsOneWidget);
     expect(find.text('进入 LiteTavern'), findsOneWidget);
   });
 
-  testWidgets('第 2 步：5 家服务商都列出，并给出选择建议', (tester) async {
+  testWidgets('第 2 步：5 家服务商 + 自定义接口都列出，并给出选择建议', (tester) async {
     await _pump(tester);
     await _tapPrimary(tester, '我知道了，下一步');
 
@@ -67,8 +72,15 @@ void main() {
     // 每张卡片都能打开获取 Key 的帮助入口
     expect(find.text('去官网获取 Key'), findsNWidgets(4));
     expect(find.text('去下载 Ollama'), findsOneWidget);
+    // 自定义接口（v0.18.0）
+    expect(find.text('自定义接口'), findsOneWidget);
+    expect(find.text('用自定义接口'), findsOneWidget);
+    // 新手建议放在最上面（标题在第一张服务商卡之前）
     expect(find.textContaining('Ollama 是在自己电脑上跑模型'), findsOneWidget);
     expect(find.textContaining('API Key 相当于账号密码'), findsOneWidget);
+    final advice = tester.getTopLeft(find.text('新手怎么选、要注意什么')).dy;
+    final firstCard = tester.getTopLeft(find.text(kApiPresets.first.label)).dy;
+    expect(advice, lessThan(firstCard), reason: '新手提示应在服务商列表上面');
   });
 
   testWidgets('第 3 步：点预设只填地址与模型，不动已填的 Key', (tester) async {
@@ -116,16 +128,16 @@ void main() {
     await tester.enterText(urlField, 'https://api.example.com/v1');
     await tester.pump();
 
-    await _tapPrimary(tester, '下一步：导入角色');
+    await _tapPrimary(tester, '下一步：选择聊天方式');
 
     expect(find.textContaining('设置 → 模型服务 里再配'), findsOneWidget);
     expect(AppSettings.baseUrl, 'https://api.example.com/v1');
     await _clearSnackBar(tester);
   });
 
-  testWidgets('第 4 步：三个导入入口按推荐顺序给出', (tester) async {
+  testWidgets('第 5 步：三个导入入口按推荐顺序给出', (tester) async {
     await _pump(tester);
-    await _goToStep(tester, 4);
+    await _goToStep(tester, 5);
 
     expect(find.text('从角色卡市场导入'), findsOneWidget);
     expect(find.text('从本地文件导入'), findsOneWidget);
@@ -134,27 +146,65 @@ void main() {
     expect(find.textContaining('主页右下角「导入」'), findsOneWidget);
   });
 
-  testWidgets('第 5 步：三条使用说明 + 本地数据说明', (tester) async {
+  testWidgets('第 6 步：使用说明 + 自动摘要 + 本地数据说明', (tester) async {
     await _pump(tester);
-    await _goToStep(tester, 5);
+    await _goToStep(tester, 6);
 
     expect(find.text('点角色进聊天'), findsOneWidget);
-    expect(find.textContaining('生成建议回复'), findsOneWidget);
+    expect(find.textContaining('左侧那个帮手按钮'), findsOneWidget);
     expect(find.textContaining('想改设置就去「设置」'), findsOneWidget);
+    expect(find.textContaining('长对话会自动摘要'), findsOneWidget);
     expect(find.text('数据都在你手机里'), findsOneWidget);
+  });
+
+  testWidgets('第 4 步：三种辅助方式只能选一种，点选即落盘', (tester) async {
+    await _pump(tester);
+    await _goToStep(tester, 4);
+
+    // 三种都列出来
+    expect(find.text('生成建议回复'), findsOneWidget);
+    expect(find.text('替我说一句'), findsOneWidget);
+    expect(find.text('都关闭'), findsOneWidget);
+
+    // 点「替我说一句」→ 只保留这一种
+    await tester.ensureVisible(find.text('替我说一句'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('替我说一句'));
+    await tester.pumpAndSettle();
+    expect(AppSettings.assistMode, AssistMode.impersonate);
+
+    // 再点「都关闭」
+    await tester.ensureVisible(find.text('都关闭'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('都关闭'));
+    await tester.pumpAndSettle();
+    expect(AppSettings.assistMode, AssistMode.off);
+  });
+
+  testWidgets('第 2 步：点「用自定义接口」翻到第 3 步并清空地址', (tester) async {
+    await _pump(tester);
+    await _tapPrimary(tester, '我知道了，下一步');
+
+    await tester.ensureVisible(find.text('用自定义接口'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('用自定义接口'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('第 3 / 6 步'), findsOneWidget);
+    expect(AppSettings.baseUrl, '');
   });
 
   testWidgets('「上一步」回到上一页', (tester) async {
     await _pump(tester);
     await _tapPrimary(tester, '我知道了，下一步');
-    expect(find.text('第 2 / 5 步'), findsOneWidget);
+    expect(find.text('第 2 / 6 步'), findsOneWidget);
 
     await tester.tap(find.widgetWithText(OutlinedButton, '上一步'));
     await tester.pumpAndSettle();
-    expect(find.text('第 1 / 5 步'), findsOneWidget);
+    expect(find.text('第 1 / 6 步'), findsOneWidget);
   });
 
-  testWidgets('小屏 360×520：五步翻完不溢出', (tester) async {
+  testWidgets('小屏 360×520：六步翻完不溢出', (tester) async {
     tester.view.physicalSize = const Size(360, 520);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -163,7 +213,7 @@ void main() {
     await _pump(tester);
     expect(tester.takeException(), isNull);
 
-    for (var step = 1; step < 5; step++) {
+    for (var step = 1; step < _labels.length; step++) {
       await _tapPrimary(tester, _labels[step - 1]);
       await _clearSnackBar(tester);
       expect(
@@ -176,10 +226,11 @@ void main() {
   });
 }
 
-/// 与页面底部主按钮一一对应的文案（第 1~5 步）。
+/// 与页面底部主按钮一一对应的文案（第 1~6 步）。
 const List<String> _labels = <String>[
   '我知道了，下一步',
   '已经拿到 Key，下一步',
+  '下一步：选择聊天方式',
   '下一步：导入角色',
   '下一步',
   '进入 LiteTavern',

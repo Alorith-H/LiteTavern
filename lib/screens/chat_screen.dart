@@ -115,12 +115,8 @@ class _ChatScreenState extends State<ChatScreen> {
   /// 发送准备管线进行中（挡住两次快速连点在微任务间隙重复发送）
   bool _preparing = false;
 
-  /// 正在生成摘要（输入栏上方进度态）
+  /// 正在生成摘要（v0.18.0 起后台静默：不再显示进度条，只用于门禁与停止）
   bool _summarizing = false;
-  // v0.15.0：摘要进度提示的上下文（哪种原因触发、涉及多少条、估算多少 token）
-  SummaryReason _summarizeReason = SummaryReason.historyWindow;
-  int _summarizeEarlyCount = 0;
-  int _summarizeEstimatedTokens = 0;
 
   bool get _isGroup => widget.isGroup;
 
@@ -725,8 +721,6 @@ class _ChatScreenState extends State<ChatScreen> {
     _preparing = true;
     try {
       if (_summaryNeeded()) {
-        _summarizeReason = SummaryReason.historyWindow;
-        _summarizeEarlyCount = earlyMessages(_messages, _historyLimit).length;
         setState(() => _summarizing = true);
         await _runSummarize();
         if (mounted) setState(() => _summarizing = false);
@@ -770,10 +764,7 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     }
 
-    // 第 2 步：现有摘要管线（_summarizing 进度态可取消）
-    _summarizeReason = SummaryReason.contextBudget;
-    _summarizeEarlyCount = earlyMessages(_messages, _historyLimit).length;
-    _summarizeEstimatedTokens = _estimateSendTokens(pending);
+    // 第 2 步：现有摘要管线（后台静默执行，输入栏不显示进度）
     setState(() => _summarizing = true);
     await _runSummarize(preamble: _summary?.text);
     if (!mounted) return;
@@ -962,9 +953,9 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  /// AI 回复成功后按开关自动补一批建议（群聊 / 失败回复不触发）。
+  /// AI 回复成功后按当前辅助方式自动补一批建议（群聊 / 失败回复不触发）。
   void _maybeSuggestReplies() {
-    if (_isGroup || !AppSettings.autoReplyCandidates) return;
+    if (_isGroup || AppSettings.assistMode != AssistMode.suggestions) return;
     if (_generating || _summarizing) return;
     if (_messages.isEmpty) return;
     final last = _messages.last;
@@ -1086,8 +1077,6 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// 菜单「立即总结早期对话」：同一管线，只总结不发送。
   Future<void> _manualSummarize() async {
-    _summarizeReason = SummaryReason.historyWindow;
-    _summarizeEarlyCount = earlyMessages(_messages, _historyLimit).length;
     setState(() => _summarizing = true);
     final ok = await _runSummarize();
     if (!mounted) return;
@@ -1100,68 +1089,6 @@ class _ChatScreenState extends State<ChatScreen> {
   /// 进度条上的取消：掐掉摘要请求，本次跳过摘要（调用方继续原流程）。
   void _cancelSummarize() => _api.cancel();
 
-  /// 「为什么在总结早期对话」：把触发原因、影响范围、怎么关掉讲清楚（v0.15.0）。
-  void _showSummaryWhy() {
-    final paragraphs = summaryWhyParagraphs(
-      reason: _summarizeReason,
-      historyLimit: _historyLimit,
-      earlyCount: _summarizeEarlyCount,
-      contextWindow: AppSettings.contextWindow,
-      estimatedTokens: _summarizeEstimatedTokens,
-    );
-    final scheme = Theme.of(context).colorScheme;
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('为什么在总结早期对话？'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (var i = 0; i < paragraphs.length; i++) ...[
-                if (i > 0) const SizedBox(height: 10),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '· ',
-                      style: TextStyle(
-                        fontSize: AppType.caption,
-                        color: scheme.primary,
-                      ),
-                    ),
-                    Expanded(
-                      child: Text(
-                        paragraphs[i],
-                        style: const TextStyle(
-                          fontSize: AppType.caption,
-                          height: 1.5,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('知道了'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _cancelSummarize();
-            },
-            child: const Text('跳过本次'),
-          ),
-        ],
-      ),
-    );
-  }
 
   void _promptConfigureApi() {
     showDialog<void>(
@@ -3162,83 +3089,14 @@ class _ChatScreenState extends State<ChatScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 摘要进度态（v0.15.0）：说清为什么在总结，可看解释、可跳过
-            if (_summarizing) ...[
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: scheme.primary,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            summaryProgressText(
-                              reason: _summarizeReason,
-                              earlyCount: _summarizeEarlyCount,
-                            ),
-                            style: TextStyle(
-                              fontSize: AppType.caption,
-                              color: scheme.onSurface,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            summaryProgressHint(reason: _summarizeReason),
-                            style: TextStyle(
-                              fontSize: AppType.meta,
-                              height: 1.35,
-                              color: scheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: _showSummaryWhy,
-                      icon: const Icon(Icons.help_outline, size: 18),
-                      tooltip: '这是怎么回事？',
-                      color: scheme.onSurfaceVariant,
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 32,
-                        minHeight: 32,
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: _cancelSummarize,
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      child: const Text(
-                        '跳过',
-                        style: TextStyle(fontSize: AppType.caption),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            // 自动摘要改为后台静默执行（v0.18.0）：不再显示任何进度提示，
+            // 触发原因与 token 消耗在 设置 → 聊天 → 自动摘要说明 里解释。
             // 建议回复（v0.12.1）：AI 回复后自动生成 / ✨ 手动生成，
-            // 点一条即作为自己的消息发出；生成中显示行内 loading
-            if ((_suggestions.isNotEmpty || _suggesting) && !_generating) ...[
+            // 点一条即作为自己的消息发出；生成中显示行内 loading。
+            // 只有「建议回复」模式才显示（v0.18.0）。
+            if (AppSettings.assistMode == AssistMode.suggestions &&
+                (_suggestions.isNotEmpty || _suggesting) &&
+                !_generating) ...[
               ReplySuggestionsBar(
                 suggestions: _suggestions,
                 loading: _suggesting,
@@ -3276,39 +3134,40 @@ class _ChatScreenState extends State<ChatScreen> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                // 替我说一句（v0.16.0）：让模型以「我」的口吻写一句候选，
-                // 只填进输入框，发不发由你决定
-                SizedBox(
-                  width: 34,
-                  height: 40,
-                  child: IconButton(
-                    onPressed: (_impersonating || _generating || _summarizing)
-                        ? null
-                        : _impersonate,
-                    padding: EdgeInsets.zero,
-                    constraints:
-                        const BoxConstraints(minWidth: 34, minHeight: 40),
-                    tooltip: '替我说一句',
-                    icon: _impersonating
-                        ? SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
+                // 「替我说一句」/「生成建议回复」二选一（v0.18.0）：
+                // 只渲染当前模式对应的按钮；都关闭时左侧完全不占位
+                if (AppSettings.assistMode == AssistMode.impersonate) ...[
+                  SizedBox(
+                    width: 34,
+                    height: 40,
+                    child: IconButton(
+                      onPressed: (_impersonating || _generating || _summarizing)
+                          ? null
+                          : _impersonate,
+                      padding: EdgeInsets.zero,
+                      constraints:
+                          const BoxConstraints(minWidth: 34, minHeight: 40),
+                      tooltip: '替我说一句',
+                      icon: _impersonating
+                          ? SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            )
+                          : Icon(
+                              Icons.record_voice_over_outlined,
+                              size: 18,
                               color: scheme.onSurfaceVariant,
                             ),
-                          )
-                        : Icon(
-                            Icons.record_voice_over_outlined,
-                            size: 18,
-                            color: scheme.onSurfaceVariant,
-                          ),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 2),
-                // 手动生成建议（开关打开才显示）：AI 回复后忘了自动生成、
-                // 或想换一批时点这里
-                if (AppSettings.autoReplyCandidates) ...[
+                  const SizedBox(width: 2),
+                ],
+                // 手动生成建议：AI 回复后忘了自动生成、或想换一批时点这里
+                if (AppSettings.assistMode == AssistMode.suggestions) ...[
                   SizedBox(
                     width: 34,
                     height: 40,

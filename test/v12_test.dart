@@ -46,31 +46,51 @@ void main() {
     });
   });
 
-  // ------------------------------------------------ 自动生成回复开关 --
-  group('设置：自动生成回复（autoReplyCandidates）', () {
-    test('全新安装默认关闭', () async {
+  // ------------------------------------------------ 输入辅助方式（v0.18.0）--
+  group('设置：输入辅助方式（assistMode）', () {
+    test('全新安装默认关闭辅助（off）', () async {
       SharedPreferences.setMockInitialValues({});
       await AppSettings.init();
+      expect(AppSettings.assistMode, AssistMode.off);
       expect(AppSettings.autoReplyCandidates, isFalse);
     });
 
-    test('开启后写入 shared_preferences，重新读取仍为开', () async {
+    test('切到建议回复 / 替我说一句都会落盘并读回', () async {
       SharedPreferences.setMockInitialValues({});
       await AppSettings.init();
-      AppSettings.autoReplyCandidates = true;
 
-      final sp = await SharedPreferences.getInstance();
-      expect(sp.getBool('auto_reply_candidates'), isTrue);
+      AppSettings.assistMode = AssistMode.suggestions;
+      var sp = await SharedPreferences.getInstance();
+      expect(sp.getString('assist_mode'), 'suggestions');
+      expect(AppSettings.assistMode, AssistMode.suggestions);
       expect(AppSettings.autoReplyCandidates, isTrue);
 
-      AppSettings.autoReplyCandidates = false;
-      expect(sp.getBool('auto_reply_candidates'), isFalse);
+      AppSettings.assistMode = AssistMode.impersonate;
+      sp = await SharedPreferences.getInstance();
+      expect(sp.getString('assist_mode'), 'impersonate');
+      expect(AppSettings.assistMode, AssistMode.impersonate);
+      // 替我说一句模式下，旧开关语义 = 不建议回复
+      expect(AppSettings.autoReplyCandidates, isFalse);
+
+      AppSettings.assistMode = AssistMode.off;
+      expect(AppSettings.assistMode, AssistMode.off);
     });
 
-    test('旧数据无该键时回落到关闭（不误开自动建议）', () async {
+    test('旧数据只有 auto_reply_candidates 时按旧开关映射', () async {
+      SharedPreferences.setMockInitialValues({'auto_reply_candidates': true});
+      await AppSettings.init();
+      expect(AppSettings.assistMode, AssistMode.suggestions);
+
+      SharedPreferences.setMockInitialValues({'auto_reply_candidates': false});
+      await AppSettings.init();
+      expect(AppSettings.assistMode, AssistMode.off);
+    });
+
+    test('旧数据无任何相关键时回落到关闭（不误开自动建议）', () async {
       SharedPreferences.setMockInitialValues({'streaming': false});
       await AppSettings.init();
       expect(AppSettings.autoReplyCandidates, isFalse);
+      expect(AppSettings.assistMode, AssistMode.off);
       expect(AppSettings.streaming, isFalse);
     });
   });

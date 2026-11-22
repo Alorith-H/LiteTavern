@@ -38,7 +38,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late int _autoContinue;
   late bool _autoSummarize;
   late bool _streaming;
-  late bool _autoCandidates;
+  late AssistMode _assistMode;
   late bool _showNsfw;
 
   /// 当前主题色 seed 与自定义 HEX 输入
@@ -82,7 +82,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _autoContinue = AppSettings.autoContinueCount;
     _autoSummarize = AppSettings.autoSummarize;
     _streaming = AppSettings.streaming;
-    _autoCandidates = AppSettings.autoReplyCandidates;
+    _assistMode = AppSettings.assistMode;
     _showNsfw = AppSettings.showNsfw;
     _seed = AppSettings.themeSeed;
     _hexCtrl = TextEditingController(text: _seedToHex(_seed));
@@ -164,6 +164,72 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     // 选中人设会同步 userName，回来刷新称呼输入框与摘要
     setState(() => _nameCtrl.text = AppSettings.userName);
+  }
+
+  // ----------------------------------- 自动摘要说明（v0.18.0）--
+
+  /// 把「什么时候触发 / 会不会花 token / 怎么关」讲清楚。
+  /// 聊天页已改成后台静默执行，这里就是用户唯一能看到解释的地方。
+  Future<void> _showSummaryExplain() async {
+    final paragraphs = <String>[
+      '什么时候触发：当前这段聊天里、超出「记忆长度」条数（现在 ${AppSettings.contextHistoryLimit} 条）'
+          '的早期消息，会在你下次发送时先压成一段不超过 300 字的摘要。'
+          '另一个触发点是上下文快满（超过模型窗口的 90%）时的自动压缩。',
+      '不是你的模型额度不够，也不是 token 用光了：这是按「消息条数」触发的本地整理，'
+          '和账户余额无关。',
+      '会消耗 token：摘要是一次额外的模型请求——把早期对话发过去（输入 token），'
+          '拿回一段摘要（输出 token）。所以它按服务商的价格单独计费，'
+          '和正常聊天一样从你的额度里扣。一次通常只有几千 token，只在触发的那一次发生，不会每条消息都扣。',
+      '本机的聊天记录不会被删改：摘要只影响「发给模型的内容」，你手机里的原对话一条都不少。',
+      '想省 token 可以关掉：把上面的「长对话自动摘要」开关关掉即可，'
+          '代价是长对话里更早的剧情模型可能记不住。也可以在聊天页 ⋮ 菜单里手动点「立即总结早期对话」，只在需要时跑一次。',
+    ];
+    if (!mounted) return;
+    final scheme = Theme.of(context).colorScheme;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('自动摘要怎么工作'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (var i = 0; i < paragraphs.length; i++) ...[
+                if (i > 0) const SizedBox(height: 10),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '· ',
+                      style: TextStyle(
+                        fontSize: AppType.caption,
+                        color: scheme.primary,
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        paragraphs[i],
+                        style: const TextStyle(
+                          fontSize: AppType.caption,
+                          height: 1.5,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('知道了'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _importWorldBook() async {
@@ -406,14 +472,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
             },
           ),
           const Divider(height: 1),
-          _switchRow(
-            title: '自动生成回复',
-            subtitle: '单聊生效：AI 回复后自动给出 3 条你可发送的话，点选即发出',
-            value: _autoCandidates,
-            onChanged: (v) {
-              setState(() => _autoCandidates = v);
-              AppSettings.autoReplyCandidates = v;
+          // 交互辅助三选一（v0.18.0）：建议回复 / 替我说一句 / 都关闭。
+          // 两者都开会让输入栏左侧挤两个按钮，且都在偷偷花 token，故互斥。
+          const Text(
+            '输入栏辅助按钮',
+            style: TextStyle(
+              fontSize: AppType.caption,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const _SubLine('「建议回复」和「替我说一句」只能二选一；选「都关闭」则输入栏左侧不显示按钮'),
+          const SizedBox(height: 6),
+          SegmentedButton<AssistMode>(
+            segments: const [
+              ButtonSegment(
+                value: AssistMode.suggestions,
+                label: Text('建议回复', style: TextStyle(fontSize: 12.5)),
+              ),
+              ButtonSegment(
+                value: AssistMode.impersonate,
+                label: Text('替我说一句', style: TextStyle(fontSize: 12.5)),
+              ),
+              ButtonSegment(
+                value: AssistMode.off,
+                label: Text('都关闭', style: TextStyle(fontSize: 12.5)),
+              ),
+            ],
+            selected: {_assistMode},
+            showSelectedIcon: false,
+            style: ButtonStyle(
+              visualDensity: VisualDensity.compact,
+              textStyle: WidgetStateProperty.all(
+                const TextStyle(fontSize: 12.5),
+              ),
+            ),
+            onSelectionChanged: (selection) {
+              final v = selection.first;
+              setState(() => _assistMode = v);
+              AppSettings.assistMode = v;
             },
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _assistMode.summary,
+            style: TextStyle(
+              fontSize: AppType.caption,
+              height: 1.45,
+              color: scheme.onSurfaceVariant,
+            ),
           ),
           const Divider(height: 1),
           // 高级设置入口（生成参数组末尾）：采样参数、停止词等不常用项
@@ -565,12 +671,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const Divider(height: 1),
           _switchRow(
             title: '长对话自动摘要',
-            subtitle: '对话太长时自动把早期内容压成摘要，保证不遗忘',
+            subtitle: '对话太长时把早期内容压成摘要，后台静默执行'
+                '（会额外调用一次模型、消耗 token）',
             value: _autoSummarize,
             onChanged: (v) {
               setState(() => _autoSummarize = v);
               AppSettings.autoSummarize = v;
             },
+          ),
+          const Divider(height: 1),
+          _actionRow(
+            title: '自动摘要怎么工作',
+            subtitle: '什么时候触发、会不会多花 token、怎么关掉',
+            trailing: Icon(
+              Icons.chevron_right_outlined,
+              size: 22,
+              color: scheme.onSurfaceVariant,
+            ),
+            onTap: _showSummaryExplain,
           ),
           const Divider(height: 1),
           _actionRow(

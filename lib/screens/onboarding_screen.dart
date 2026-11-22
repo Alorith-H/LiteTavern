@@ -31,12 +31,13 @@ class OnboardingScreen extends StatefulWidget {
 }
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
-  static const int _totalSteps = 5;
+  static const int _totalSteps = 6;
 
   /// 底部主按钮文案（按步骤取）。
   static const List<String> _primaryLabels = <String>[
     '我知道了，下一步',
     '已经拿到 Key，下一步',
+    '下一步：选择聊天方式',
     '下一步：导入角色',
     '下一步',
     '进入 LiteTavern',
@@ -52,6 +53,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   bool _testing = false;
   bool _testOk = false;
   String? _testError;
+  AssistMode _assistMode = AssistMode.suggestions;
 
   final _api = ApiClient();
 
@@ -68,6 +70,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _urlCtrl = TextEditingController(text: AppSettings.baseUrl);
     _keyCtrl = TextEditingController(text: AppSettings.apiKey);
     _modelCtrl = TextEditingController(text: AppSettings.model);
+    _assistMode = AppSettings.assistMode;
   }
 
   @override
@@ -307,6 +310,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   _buildWelcome(),
                   _buildGetKey(),
                   _buildModelConfig(),
+                  _buildAssistMode(),
                   _buildImport(),
                   _buildDone(),
                 ],
@@ -619,13 +623,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget _buildGetKey() {
     return _pageScroll([
       _title('获取 API Key'),
-      _lead(
-        '下面 5 家都能用。点「去官网获取 Key」，按弹窗里的 4 步走一遍就行——'
-        '复制到的 Key 先别关网页，第 3 步要粘贴回来。',
-      ),
-      const SizedBox(height: 16),
-      for (final preset in kApiPresets) _providerCard(preset),
-      const SizedBox(height: 4),
+      // 新手提示放最上面（v0.18.0）：先讲怎么选，再列具体服务商
       _highlightPanel(
         icon: Icons.lightbulb_outline,
         title: '新手怎么选、要注意什么',
@@ -634,6 +632,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             '但需要电脑一直开着并已下载模型。\n\n'
             'API Key 相当于账号密码：只保存在本机，不要发给别人，也不要截图发到群里。',
       ),
+      const SizedBox(height: 14),
+      _lead(
+        '下面 5 家都能用，也可以拉到最下面用自定义接口。点「去官网获取 Key」，'
+        '按弹窗里的 4 步走一遍就行——复制到的 Key 先别关网页，第 3 步要粘贴回来。',
+      ),
+      const SizedBox(height: 16),
+      for (final preset in kApiPresets) _providerCard(preset),
+      _customProviderCard(),
     ]);
   }
 
@@ -703,6 +709,75 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  /// 自定义接口（v0.18.0）：不在 5 家预设里的 OpenAI 兼容服务。
+  Widget _customProviderCard() {
+    final scheme = _scheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: _panel(
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    '自定义接口',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                _badge('进阶'),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '任何 OpenAI 兼容的服务都能接：自己搭的网关、公司内网、中转站、'
+              '不在上面 5 家里的服务商都行。',
+              style: TextStyle(
+                fontSize: AppType.caption,
+                height: 1.45,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '需要自己准备两样东西：① Base URL，一般以 /v1 结尾；'
+              '② 模型名（服务商文档里那个名字，别照抄别的家的）。'
+              'Key 还是填服务商给你的那个。',
+              style: TextStyle(
+                fontSize: AppType.caption,
+                height: 1.45,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            FilledButton.tonalIcon(
+              onPressed: _useCustomProvider,
+              icon: const Icon(Icons.tune, size: 18),
+              label: const Text('用自定义接口'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 选自定义：清掉预设填的值，直接翻到第 3 步让用户自己填。
+  void _useCustomProvider() {
+    setState(() {
+      _urlCtrl.text = '';
+      _modelCtrl.text = '';
+    });
+    _saveModelConfig();
+    _pageController.nextPage(
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
     );
   }
 
@@ -928,7 +1003,126 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  // ------------------------------------- 第 4 步：导入第一个角色卡 --
+  // ------------------------------- 第 4 步：选一种聊天辅助方式 --
+
+  Widget _buildAssistMode() {
+    return _pageScroll([
+      _title('选一种顺手的方式'),
+      _lead(
+        '输入框左边可以放一个 AI 帮手，帮你把话写出来。两种只能开一种，也可以都关掉——'
+        '它们都会让模型多跑一次、多花一点 token。',
+      ),
+      const SizedBox(height: 16),
+      _assistCard(
+        AssistMode.suggestions,
+        badge: '推荐',
+        detail: 'AI 每次回复完，自动在输入框上方给 3 条「你可以这么说」，'
+            '点一条就直接发出。适合想聊得顺、不想每次卡在打字上。',
+        cost: '每次 AI 回复后多 3 次小请求，token 花得最多。',
+      ),
+      const SizedBox(height: 10),
+      _assistCard(
+        AssistMode.impersonate,
+        detail: '想不出说什么时，点输入栏左边的按钮，让模型以「你」的口吻写一句，'
+            '只填进输入框，发不发由你决定。',
+        cost: '只有你点按钮时才请求，比较省。',
+      ),
+      const SizedBox(height: 10),
+      _assistCard(
+        AssistMode.off,
+        detail: '两个都不要，输入栏左边干干净净。',
+        cost: '最省 token；也可以以后在 设置 → 聊天 里再打开。',
+      ),
+      const SizedBox(height: 10),
+      _highlightPanel(
+        icon: Icons.memory_outlined,
+        title: '顺便说一下：自动摘要',
+        body: '对话变长以后，App 会自动把很早的内容压成一段摘要再发给模型，'
+            '好让角色记得住剧情。这一步也会额外请求一次模型、消耗 token，'
+            '但只在触发时发生，聊天时不会有任何提示。'
+            '不想要可以在 设置 → 聊天 → 长对话自动摘要 关掉。',
+      ),
+    ]);
+  }
+
+  Widget _assistCard(
+    AssistMode mode, {
+    String? badge,
+    required String detail,
+    required String cost,
+  }) {
+    final scheme = _scheme;
+    final selected = _assistMode == mode;
+    return Material(
+      color: selected
+          ? scheme.primary.withValues(alpha: 0.08)
+          : scheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(
+          color: selected ? scheme.primary : scheme.outline,
+          width: selected ? 1.5 : 1,
+        ),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () {
+          setState(() => _assistMode = mode);
+          AppSettings.assistMode = mode;
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    selected
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_unchecked,
+                    size: 18,
+                    color: selected ? scheme.primary : scheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      mode.label,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  if (badge != null) _badge(badge),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                detail,
+                style: TextStyle(
+                  fontSize: AppType.caption,
+                  height: 1.45,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                cost,
+                style: TextStyle(
+                  fontSize: AppType.meta,
+                  height: 1.4,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ------------------------------------- 第 5 步：导入第一个角色卡 --
 
   Widget _buildImport() {
     return _pageScroll([
@@ -1041,7 +1235,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  // --------------------------------------- 第 5 步：完成，开始聊天 --
+  // --------------------------------------- 第 6 步：完成，开始聊天 --
 
   Widget _buildDone() {
     final scheme = _scheme;
@@ -1058,15 +1252,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       ),
       _featureRow(
         Icons.auto_awesome_outlined,
-        '让 AI 帮你先写一句',
-        '输入框旁边有「生成建议回复」按钮，点一下它会按当前剧情给你几句可选的话，'
-            '点选就能发。也可以在 设置 → 自动生成回复 打开，让 AI 回复后自动给 3 条。',
+        '左侧那个帮手按钮',
+        _assistMode.summary,
       ),
       _featureRow(
         Icons.tune_outlined,
         '想改设置就去「设置」',
         '生成参数（温度、长度）、上下文窗口、聊天字号、主题色都在那里改；'
-            '模型服务也能随时换一家。',
+            '聊天辅助方式在 设置 → 聊天 → 输入栏辅助按钮，模型服务也能随时换一家。',
+      ),
+      _featureRow(
+        Icons.memory_outlined,
+        '长对话会自动摘要',
+        '剧情很长时，App 会后台把最早的对话压成摘要再发给模型（不弹提示）。'
+            '这一步会多花一点 token，想省就在 设置 → 聊天 里关掉「长对话自动摘要」。',
       ),
       _highlightPanel(
         icon: Icons.lock_outline,
