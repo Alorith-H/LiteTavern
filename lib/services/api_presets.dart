@@ -143,26 +143,38 @@ int contextWindowForModel(String model, {int fallback = 65536}) {
       m.startsWith('gpt-4-turbo')) {
     return 128000;
   }
-  if (m.startsWith('gpt-5') || m.startsWith('o1') || m.startsWith('o3')) {
+  if (m.startsWith('gpt-5') ||
+      m.startsWith('o1') ||
+      m.startsWith('o3') ||
+      m.startsWith('o4')) {
     return 200000;
   }
   if (m.startsWith('gemini')) return 1000000;
   if (m.startsWith('claude')) return 200000;
   if (m.startsWith('qwen')) return 131072;
-  if (m.startsWith('llama') || m.startsWith('mistral')) return 32768;
+  if (m.startsWith('llama') ||
+      m.startsWith('mistral') ||
+      m.startsWith('mixtral')) {
+    return 32768;
+  }
   return fallback;
 }
 
 /// 128000 → 「128K」；1048576 → 「1M」；不足 1000 原样。
+///
+/// v0.21.1 修正：整 1024 的倍数按 1024 折算（65536 → 64K，131072 → 128K），
+/// 否则按 1000 折算后取整（128000 → 128K），避免出现「125K」这种别扭写法。
 String formatContextWindow(int tokens) {
   if (tokens <= 0) return '自动';
   if (tokens >= 1000000) {
     final m = tokens / 1000000;
     return '${m == m.roundToDouble() ? m.toStringAsFixed(0) : m.toStringAsFixed(1)}M';
   }
-  if (tokens >= 1024) {
-    final k = tokens / 1024;
-    return '${k == k.roundToDouble() ? k.toStringAsFixed(0) : k.toStringAsFixed(1)}K';
+  if (tokens >= 1000) {
+    // 服务商常按十进制写（128000 = 128K），本地模型常按 1024 写（131072 = 128K）
+    if (tokens % 1000 == 0) return '${tokens ~/ 1000}K';
+    if (tokens % 1024 == 0) return '${tokens ~/ 1024}K';
+    return '${(tokens / 1000).round()}K';
   }
   return '$tokens';
 }

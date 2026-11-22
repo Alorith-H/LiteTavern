@@ -366,6 +366,15 @@ class ApiClient {
     required String baseUrl,
     required String apiKey,
   }) async {
+    final models = await fetchModelInfos(baseUrl: baseUrl, apiKey: apiKey);
+    return models.map((m) => m.id).toList();
+  }
+
+  /// 同 [fetchModels]，但保留服务商自报的上下文长度（v0.21.1）。
+  Future<List<RemoteModel>> fetchModelInfos({
+    required String baseUrl,
+    required String apiKey,
+  }) async {
     final uri = Uri.parse('${_trimSlash(baseUrl)}/models');
     final http.Response response;
     try {
@@ -384,11 +393,11 @@ class ApiClient {
     if (response.statusCode != 200) {
       throw ApiException(humanError(response.statusCode, response.body));
     }
-    final ids = extractModelIds(response.body);
-    if (ids.isEmpty) {
+    final models = extractModelInfos(response.body);
+    if (models.isEmpty) {
       throw const ApiException('这个接口没有返回模型列表（可能不支持 /models）');
     }
-    return ids;
+    return models;
   }
 
   /// 从 `/models` 响应里提取模型 id。
@@ -396,13 +405,53 @@ class ApiClient {
   /// 兼容 `{data:[{id}]}`（OpenAI）、`{models:[{id}]}`、`{data:["x"]}`、
   /// 以及直接是字符串数组的情况。
   static List<String> extractModelIds(String body) {
-    final ids = <String>{};
+    return extractModelInfos(body).map((m) => m.id).toList();
+  }
+
+  /// 从 `/models` 响应里提取 id + 自报的上下文长度（v0.21.1）。
+  ///
+  /// 上下文长度字段各家叫法不同，按优先级取第一个正整数：
+  /// `context_length` / `context_window` / `max_context_length` /
+  /// `max_model_len` / `max_input_tokens` / `context_size` / `n_ctx`。
+  static List<RemoteModel> extractModelInfos(String body) {
+    const contextKeys = <String>[
+      'context_length',
+      'context_window',
+      'max_context_length',
+      'max_model_len',
+      'max_input_tokens',
+      'context_size',
+      'n_ctx',
+    ];
+
+    int? contextOf(Map item) {
+      for (final key in contextKeys) {
+        final v = item[key];
+        if (v is int && v > 0) return v;
+        if (v is num && v > 0) return v.toInt();
+        if (v is String) {
+          final parsed = int.tryParse(v.trim());
+          if (parsed != null && parsed > 0) return parsed;
+        }
+      }
+      return null;
+    }
+
+    final result = <String, RemoteModel>{};
     void take(dynamic item) {
       if (item is String) {
-        if (item.trim().isNotEmpty) ids.add(item.trim());
+        final id = item.trim();
+        if (id.isNotEmpty) result.putIfAbsent(id, () => RemoteModel(id));
       } else if (item is Map) {
-        final id = item['id'] ?? item['name'] ?? item['model'];
-        if (id is String && id.trim().isNotEmpty) ids.add(id.trim());
+        final rawId = item['id'] ?? item['name'] ?? item['model'];
+        if (rawId is String && rawId.trim().isNotEmpty) {
+          final id = rawId.trim();
+          final ctx = contextOf(item);
+          final existing = result[id];
+          if (existing == null || (existing.contextWindow == null && ctx != null)) {
+            result[id] = RemoteModel(id, contextWindow: ctx ?? existing?.contextWindow);
+          }
+        }
       }
     }
 
@@ -419,7 +468,8 @@ class ApiClient {
     } catch (_) {
       // 非 JSON：交给调用方按「拿不到列表」处理
     }
-    final list = ids.toList()..sort();
+    final list = result.values.toList()
+      ..sort((a, b) => a.id.compareTo(b.id));
     return list;
   }
 
@@ -455,4 +505,20 @@ class ApiException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// `/models` 返回的一个模型：id + 服务商自报的上下文长度（可能为 null）。
+///
+/// v0.21.1：有些服务商（OpenRouter / Groq / Together / 部分自建网关）会在
+/// `/models` 里带 `context_length` 之类的字段；拿到就比按名字猜准得多。
+class RemoteModel {
+  final String id;
+
+  /// 上下文窗口（token）；服务商没给就是 null。
+  final int? contextWindow;
+
+  const RemoteModel(this.id, {this.contextWindow});
+
+  @override
+  String toString() => contextWindow == null ? id : '$id ($contextWindow)';
 }

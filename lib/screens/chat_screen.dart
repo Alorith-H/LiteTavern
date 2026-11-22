@@ -2721,9 +2721,9 @@ class _ChatScreenState extends State<ChatScreen> {
       }
       final modelName = (m.model ?? '').trim();
       final parts = <String>[
-        // v0.21.0：气泡下方显示这条回复用的模型名
-        if (modelName.isNotEmpty) modelName,
+        // v0.21.1：顺序为「输入/输出 → 模型名 → 时间」
         ?tokens,
+        if (modelName.isNotEmpty) modelName,
         if (showTs) _formatTime(m.timestamp),
       ];
       infoLine = parts.isEmpty ? null : parts.join(' · ');

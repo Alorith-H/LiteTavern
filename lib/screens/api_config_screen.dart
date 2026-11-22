@@ -186,6 +186,9 @@ class _ApiConfigEditScreenState extends State<ApiConfigEditScreen> {
   bool _obscureKey = true;
   bool _testing = false;
   bool _loadingModels = false;
+
+  /// 从 /models 拿到的自报上下文长度（v0.21.1）。
+  int? _reportedContext;
   String? _testOk; // 成功提示（模型名 + 耗时）
 
   final _api = ApiClient();
@@ -241,11 +244,16 @@ class _ApiConfigEditScreenState extends State<ApiConfigEditScreen> {
   }
 
   /// 当前「自动」会算出多少（展示用）。
-  int get _autoCtx => contextWindowForModel(_modelCtrl.text);
+  int get _autoCtx =>
+      _reportedContext ?? contextWindowForModel(_modelCtrl.text);
 
   /// 选模型后，如果上下文还停在「自动」，就跟着这个模型刷新提示。
   void _onModelChanged() {
-    if (_ctxValue == 0) setState(() {});
+    if (_reportedContext != null) {
+      setState(() => _reportedContext = null);
+    } else if (_ctxValue == 0) {
+      setState(() {});
+    }
   }
 
   /// 拉取这个接口的模型列表，点选一个填进「模型名」。
@@ -258,9 +266,9 @@ class _ApiConfigEditScreenState extends State<ApiConfigEditScreen> {
     }
     setState(() => _loadingModels = true);
     try {
-      final models = await _api.fetchModels(baseUrl: url, apiKey: key);
+      final models = await _api.fetchModelInfos(baseUrl: url, apiKey: key);
       if (!mounted) return;
-      final picked = await showModalBottomSheet<String>(
+      final picked = await showModalBottomSheet<RemoteModel>(
         context: context,
         isScrollControlled: true,
         showDragHandle: true,
@@ -271,9 +279,16 @@ class _ApiConfigEditScreenState extends State<ApiConfigEditScreen> {
       );
       if (picked == null || !mounted) return;
       setState(() {
-        _modelCtrl.text = picked;
+        _modelCtrl.text = picked.id;
         _testOk = null;
-        if (_ctxValue == 0) _ctxCtrl.text = '';
+        _reportedContext = picked.contextWindow;
+        // 服务商自报了窗口、且用户没手填上下文 → 直接按接口报告填入（最准）
+        final reported = picked.contextWindow;
+        if (_ctxValue == 0 && reported != null && reported > 0) {
+          _ctxCtrl.text = '$reported';
+        } else if (_ctxValue == 0) {
+          _ctxCtrl.text = '';
+        }
       });
     } catch (e) {
       if (mounted) _toast('$e');
@@ -430,8 +445,11 @@ class _ApiConfigEditScreenState extends State<ApiConfigEditScreen> {
                 labelText: '上下文长度（token）',
                 hintText: '留空 = 按模型自动（${formatContextWindow(_autoCtx)}）',
                 helperText: _ctxValue == 0
-                    ? '按模型自动：${formatContextWindow(_autoCtx)}；'
-                        '超出会自动压缩早期对话'
+                    ? (_reportedContext != null
+                        ? '按接口报告的窗口：${formatContextWindow(_autoCtx)}；'
+                            '超出会自动压缩早期对话'
+                        : '按模型自动：${formatContextWindow(_autoCtx)}；'
+                            '超出会自动压缩早期对话')
                     : '手填的值会覆盖自动判断',
                 isDense: true,
                 suffixIcon: _ctxValue == 0
@@ -550,7 +568,7 @@ class _ApiConfigEditScreenState extends State<ApiConfigEditScreen> {
 class _ModelPickerSheet extends StatefulWidget {
   const _ModelPickerSheet({required this.models, required this.current});
 
-  final List<String> models;
+  final List<RemoteModel> models;
   final String current;
 
   @override
@@ -559,7 +577,7 @@ class _ModelPickerSheet extends StatefulWidget {
 
 class _ModelPickerSheetState extends State<_ModelPickerSheet> {
   final _searchCtrl = TextEditingController();
-  late List<String> _filtered = widget.models;
+  late List<RemoteModel> _filtered = widget.models;
 
   @override
   void dispose() {
@@ -572,7 +590,9 @@ class _ModelPickerSheetState extends State<_ModelPickerSheet> {
     setState(() {
       _filtered = q.isEmpty
           ? widget.models
-          : widget.models.where((m) => m.toLowerCase().contains(q)).toList();
+          : widget.models
+              .where((m) => m.id.toLowerCase().contains(q))
+              .toList();
     });
   }
 
@@ -628,16 +648,27 @@ class _ModelPickerSheetState extends State<_ModelPickerSheet> {
                   : ListView.builder(
                       itemCount: _filtered.length,
                       itemBuilder: (ctx, i) {
-                        final name = _filtered[i];
+                        final model = _filtered[i];
+                        final name = model.id;
                         final selected = name == widget.current;
+                        final ctx = model.contextWindow;
                         return ListTile(
                           dense: true,
                           selected: selected,
                           title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          subtitle: ctx == null || ctx <= 0
+                              ? null
+                              : Text(
+                                  '上下文 ${formatContextWindow(ctx)}',
+                                  style: TextStyle(
+                                    fontSize: AppType.meta,
+                                    color: scheme.onSurfaceVariant,
+                                  ),
+                                ),
                           trailing: selected
                               ? Icon(Icons.check, size: 18, color: scheme.primary)
                               : null,
-                          onTap: () => Navigator.of(context).pop(name),
+                          onTap: () => Navigator.of(context).pop(model),
                         );
                       },
                     ),

@@ -78,7 +78,7 @@ void main() {
       expect(formatContextWindow(-5), '自动');
       expect(formatContextWindow(512), '512');
       expect(formatContextWindow(8192), '8K');
-      expect(formatContextWindow(128000), '125K');
+      expect(formatContextWindow(128000), '128K');
       expect(formatContextWindow(131072), '128K');
       expect(formatContextWindow(1000000), '1M');
       expect(formatContextWindow(2000000), '2M');
@@ -134,6 +134,54 @@ void main() {
     test('坏 JSON / 空对象 → 空列表', () {
       expect(ApiClient.extractModelIds('not json'), isEmpty);
       expect(ApiClient.extractModelIds('{}'), isEmpty);
+    });
+  });
+
+  // ------------------------------- /models 自报的上下文长度（v0.21.1） --
+  group('ApiClient.extractModelInfos', () {
+    test('OpenRouter 风格 context_length', () {
+      final models = ApiClient.extractModelInfos(jsonEncode({
+        'data': [
+          {'id': 'openai/gpt-4o', 'context_length': 128000},
+          {'id': 'anthropic/claude-3.5', 'context_length': 200000},
+        ],
+      }));
+      expect(models.map((m) => m.id).toList(), [
+        'anthropic/claude-3.5',
+        'openai/gpt-4o',
+      ]);
+      expect(models.first.contextWindow, 200000);
+      expect(models.last.contextWindow, 128000);
+    });
+
+    test('其它常见字段名 / 字符串数字 / 缺字段', () {
+      final models = ApiClient.extractModelInfos(jsonEncode({
+        'models': [
+          {'id': 'a', 'context_window': 65536},
+          {'id': 'b', 'max_model_len': '32768'},
+          {'id': 'c', 'max_input_tokens': 131072},
+          {'id': 'd', 'n_ctx': 8192.0},
+          {'id': 'e'},
+          {'id': 'f', 'max_tokens': 4096},
+        ],
+      }));
+      final byId = {for (final m in models) m.id: m.contextWindow};
+      expect(byId['a'], 65536);
+      expect(byId['b'], 32768);
+      expect(byId['c'], 131072);
+      expect(byId['d'], 8192);
+      expect(byId['e'], isNull);
+      // max_tokens 通常是「输出上限」，不当上下文用
+      expect(byId['f'], isNull);
+    });
+
+    test('同 id 出现多次时，后到的自报值补上', () {
+      final models = ApiClient.extractModelInfos(jsonEncode([
+        {'id': 'x'},
+        {'id': 'x', 'context_length': 4096},
+      ]));
+      expect(models.length, 1);
+      expect(models.single.contextWindow, 4096);
     });
   });
 

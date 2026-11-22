@@ -1,4 +1,4 @@
-# 交接状态：v0.21.0 设置改版与对话细节（2026-11-22 更新）
+# 交接状态：v0.21.1 细节修正（2026-11-22 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
 > v0.11.0（角色卡市场）、v0.12.0（市场筛选 + 设置开关）、v0.12.1（修正为「用户侧」建议回复）、
@@ -21,7 +21,8 @@
 
 ## 仓库状态
 
-- 分支 `dev`，版本 `pubspec.yaml` = **0.21.0+20**，`lib/app_info.dart` `kAppVersion = '0.21.0'`。
+- 分支 `dev`，版本 `pubspec.yaml` = **0.21.1+21**，`lib/app_info.dart` `kAppVersion = '0.21.1'`。
+- v0.21.1 改动文件：`lib/services/api_presets.dart`（`formatContextWindow` 十进制/1024 双规则、`contextWindowForModel` 补 o4/mixtral）、`lib/services/api_client.dart`（`RemoteModel` / `fetchModelInfos` / `extractModelInfos`）、`lib/screens/api_config_screen.dart`（`_reportedContext`、选模型按接口报告填上下文、列表副标题显示上下文）、`lib/screens/onboarding_screen.dart`（同上，写进草稿配置）、`lib/screens/chat_screen.dart`（信息行顺序 tokens → 模型名 → 时间）、`test/v20_test.dart`（新增 extractModelInfos 3 例、128000→128K）。
 - v0.21.0 改动文件：
   - `lib/screens/onboarding_screen.dart`：控制器初始为空；`String? _draftConfigId`；
     `_ensureDraftConfig()`；`_saveModelConfig()` 改为「新建/更新草稿配置」；第 3 步加说明面板「这里会新建一套配置」。
@@ -33,6 +34,20 @@
     （`_generationChildren` / `_chatChildren` / `_marketChildren` / `_worldBookChildren` /
     `_appearanceChildren` / `_helpChildren`）。
   - `test/v21_test.dart`（新增 6 例）。
+
+## 本轮变更（v0.21.1）详解
+
+1. **气泡下方信息顺序**：`模型名 · tokens · 时间` 改成 `tokens · 模型名 · 时间`
+   （`chat_screen.dart` 的 `parts` 顺序调整），模型名放到输入/输出后面。
+2. **上下文长度更准**：
+   - `ApiClient.fetchModelInfos` 拉 `GET /models` 时解析服务商自报字段
+     （`context_length` / `context_window` / `max_context_length` / `max_model_len` /
+     `max_input_tokens` / `context_size` / `n_ctx`），`extractModelInfos` 返回 `RemoteModel{id, contextWindow}`；
+   - 选模型弹层每行显示「上下文 128K」，选中后如果上下文还是「自动」，直接把接口报告值填进输入框；
+     helper 文案变成「按接口报告的窗口：128K」；
+   - 服务商没自报时退回 `contextWindowForModel` 猜（补充 o4 / mixtral）；
+   - `formatContextWindow` 修正：整千按 1000 折算（128000 → 128K），整 1024 倍按 1024 折算（131072 → 128K），
+     不再出现「125K」。
 
 ## 本轮变更（v0.21.0）详解
 
@@ -68,10 +83,10 @@
 
 | 项目 | 结果 |
 | --- | --- |
-| `flutter analyze` | **No issues found!**（4.8s） |
-| `flutter test` | **+306 All tests passed!**（9s，其中 test/v21_test.dart 6 例） |
-| `flutter build apk --release` | 见「本次运行记录」 |
-| 装机 | 见「本次运行记录」 |
+| `flutter analyze` | **No issues found!**（5.2s） |
+| `flutter test` | **+309 All tests passed!**（9s，其中 test/v21_test.dart 6 例、extractModelInfos 3 例） |
+| `flutter build apk --release` | 59.3MB（Gradle 48.8s），versionCode **21** / versionName **0.21.1** |
+| 装机 | `adb -s 19faf100 install -r`（USB）→ **Success** |
 
 ## 真机自测清单（v0.21.0）
 
@@ -106,11 +121,9 @@
 - 真机点按用**视觉坐标**（uiautomator bounds 常与视觉位置不符）。
 - git 提交不要传 `-c user.name/-c user.email`（仓库配置已是 `Alorith-H <2835147611@qq.com>`）。
 
-## 本次运行记录（v0.21.0）
+## 本次运行记录（v0.21.1）
 
-- `flutter analyze`：No issues found!（4.8s）
-- `flutter test`：+306 All tests passed!（9s）
-- `flutter build apk --release`：59.3MB（Gradle 52.9s），versionCode **20** / versionName **0.21.0**
-  （`build\app\outputs\apk\release\output-metadata.json`），APK 62,136,051 字节。
-- 装机：**未完成**——`adb devices` 为空；`adb connect 192.168.0.102:42543` 报 10061（积极拒绝，端口已变）。
-  需手机重新开无线调试后 `adb connect <新 ip:port>` 再 `adb -s <addr> install -r`。
+- `flutter analyze`：No issues found!（5.2s）
+- `flutter test`：+309 All tests passed!（9s）
+- `flutter build apk --release`：59.3MB（Gradle 48.8s），versionCode **21** / versionName **0.21.1**
+- 装机：`adb -s 19faf100 install -r`（USB）→ **Success**，versionCode 21 / 0.21.1，数据保留。

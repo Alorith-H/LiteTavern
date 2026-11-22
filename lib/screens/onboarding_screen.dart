@@ -53,6 +53,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   bool _testing = false;
   bool _testOk = false;
   bool _loadingModels = false;
+
+  /// /models 自报的上下文长度（v0.21.1），写进引导新建的配置。
+  int? _reportedContext;
   String? _testError;
   AssistMode _assistMode = AssistMode.suggestions;
 
@@ -125,6 +128,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             baseUrl: url,
             key: key,
             model: model,
+            contextWindow: _reportedContext ?? cfg.contextWindow,
           )
         else
           cfg,
@@ -238,6 +242,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       (presetForBaseUrl(_urlCtrl.text)?.label ?? '') == preset.label;
 
   /// 从接口拉取模型列表，点一个填进「模型名」（v0.20.0）。
+  /// v0.21.1：如果服务商在 /models 里自报了上下文长度，就把它写进草稿配置。
   Future<void> _pickModel() async {
     final url = _urlCtrl.text.trim();
     final key = _keyCtrl.text.trim();
@@ -247,9 +252,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
     setState(() => _loadingModels = true);
     try {
-      final models = await _api.fetchModels(baseUrl: url, apiKey: key);
+      final models = await _api.fetchModelInfos(baseUrl: url, apiKey: key);
       if (!mounted) return;
-      final picked = await showModalBottomSheet<String>(
+      final picked = await showModalBottomSheet<RemoteModel>(
         context: context,
         isScrollControlled: true,
         showDragHandle: true,
@@ -260,7 +265,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       );
       if (picked == null || !mounted) return;
       setState(() {
-        _modelCtrl.text = picked;
+        _modelCtrl.text = picked.id;
+        _reportedContext = picked.contextWindow;
         _testOk = false;
         _testError = null;
         _saveModelConfig();
@@ -1405,7 +1411,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 class _ModelListSheet extends StatefulWidget {
   const _ModelListSheet({required this.models, required this.current});
 
-  final List<String> models;
+  final List<RemoteModel> models;
   final String current;
 
   @override
@@ -1414,7 +1420,7 @@ class _ModelListSheet extends StatefulWidget {
 
 class _ModelListSheetState extends State<_ModelListSheet> {
   final _searchCtrl = TextEditingController();
-  late List<String> _filtered = widget.models;
+  late List<RemoteModel> _filtered = widget.models;
 
   @override
   void dispose() {
@@ -1427,7 +1433,9 @@ class _ModelListSheetState extends State<_ModelListSheet> {
     setState(() {
       _filtered = q.isEmpty
           ? widget.models
-          : widget.models.where((m) => m.toLowerCase().contains(q)).toList();
+          : widget.models
+              .where((m) => m.id.toLowerCase().contains(q))
+              .toList();
     });
   }
 
@@ -1478,8 +1486,10 @@ class _ModelListSheetState extends State<_ModelListSheet> {
                   : ListView.builder(
                       itemCount: _filtered.length,
                       itemBuilder: (ctx, i) {
-                        final name = _filtered[i];
+                        final model = _filtered[i];
+                        final name = model.id;
                         final selected = name == widget.current;
+                        final ctx = model.contextWindow;
                         return ListTile(
                           dense: true,
                           selected: selected,
@@ -1488,10 +1498,19 @@ class _ModelListSheetState extends State<_ModelListSheet> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
+                          subtitle: ctx == null || ctx <= 0
+                              ? null
+                              : Text(
+                                  '上下文 ${formatContextWindow(ctx)}',
+                                  style: TextStyle(
+                                    fontSize: AppType.meta,
+                                    color: scheme.onSurfaceVariant,
+                                  ),
+                                ),
                           trailing: selected
                               ? Icon(Icons.check, size: 18, color: scheme.primary)
                               : null,
-                          onTap: () => Navigator.of(context).pop(name),
+                          onTap: () => Navigator.of(context).pop(model),
                         );
                       },
                     ),
