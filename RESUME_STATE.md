@@ -21,7 +21,7 @@
 >
 > **v0.14.2（2026-11-20）**：上下文占用提示从输入栏底部改到**输入框正上方**一行（样式不变：2.5px 细线 + 低透明度「上下文 0.3%」，点开明细）。版本 0.14.2+10，已装机实测。
 >
-> **v0.14.3（2026-11-22）**：完善 GitHub 仓库页（重写 README、新增 LICENSE/CHANGELOG、仓库描述与 topics）并发布首个 Release；「关于」弹窗补充作者 Alorith 与仓库地址。版本 0.14.3+11。
+> **v0.14.3（2026-11-22）**：完善 GitHub 仓库页 —— 重写 README、新增 LICENSE(MIT)/CHANGELOG、仓库描述与 10 个 topics、homepage 指向 Releases；发布首个 Release `v0.14.3` 并上传 app-release.apk（58.2 MB，tag 已 push）；「关于」弹窗补充作者 Alorith 与仓库地址。版本 0.14.3+11；**装机未完成**（设备离线，手机仍是 0.14.2 / versionCode 10）。
 
 ## v0.14.0 本轮变更
 
