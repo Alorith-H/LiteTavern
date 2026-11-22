@@ -11,8 +11,10 @@ import '../models/world_info.dart';
 import '../services/active_generations.dart';
 import '../services/api_client.dart';
 import '../services/authors_note.dart';
+import '../services/bookmarks.dart';
 import '../services/chat_export.dart';
 import '../services/chat_export_files.dart';
+import '../services/chat_index.dart';
 import '../services/context_usage.dart';
 import '../services/hit_stats.dart';
 import '../services/impersonate.dart';
@@ -51,9 +53,25 @@ class ChatScreen extends StatefulWidget {
   /// 群聊群 id（单聊模式为 null）
   final String? groupId;
 
-  const ChatScreen({super.key, required this.charId}) : groupId = null;
+  /// 具体聊天文件 id（v0.17.0，多聊天）。null = 该角色/群聊的默认会话。
+  final String? convId;
 
-  const ChatScreen.group({super.key, required this.groupId}) : charId = '';
+  /// 聊天显示名（多聊天时用于标题与列表；null = 角色名 / 群名）。
+  final String? chatName;
+
+  const ChatScreen({
+    super.key,
+    required this.charId,
+    this.convId,
+    this.chatName,
+  }) : groupId = null;
+
+  const ChatScreen.group({
+    super.key,
+    required this.groupId,
+    this.convId,
+    this.chatName,
+  }) : charId = '';
 
   bool get isGroup => groupId != null;
 
@@ -106,9 +124,18 @@ class _ChatScreenState extends State<ChatScreen> {
 
   bool get _isGroup => widget.isGroup;
 
-  /// 会话存储 key：单聊 = 角色 id；群聊 = `group_<群id>`
+  /// 会话存储 key：多聊天用显式 id；否则单聊 = 角色 id、群聊 = `group_<群id>`
   String get _convId =>
-      _isGroup ? Storage.groupConvId(widget.groupId!) : widget.charId;
+      widget.convId ??
+      (_isGroup ? Storage.groupConvId(widget.groupId!) : widget.charId);
+
+  /// 聊天文件索引的 owner：单聊 = 角色 id；群聊 = `group_<群id>`
+  String get _ownerId =>
+      ChatIndex.ownerOf(charId: widget.charId, groupId: widget.groupId);
+
+  /// 当前聊天显示名（标题 / 索引里用）
+  String get _chatTitle =>
+      widget.chatName ?? (_isGroup ? (_group?.name ?? '群聊') : (_card?.name ?? ''));
 
   /// 能否组装 prompt（统计/生成的前置条件）
   bool get _canBuildPrompt =>
@@ -251,7 +278,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     // 生成中任务先记一次：读后任务恰好完成落库的竞态由下方第二次查兜底
     final jobBefore = ActiveGenerations.instance.of(_convId);
-    final data = await Storage.loadConversationData(widget.charId);
+    final data = await Storage.loadConversationData(_convId);
     var msgs = data.messages;
     if (msgs.isEmpty && card.firstMes.trim().isNotEmpty) {
       msgs = [
@@ -266,11 +293,20 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       ];
       // 写入开场白（不 await，避免阻塞首帧）
-      Storage.saveConversation(card.id, msgs, summary: data.summary);
+      Storage.saveConversation(_convId, msgs, summary: data.summary);
     }
 
     // 世界书：卡内嵌 + 该角色挂载且启用的合并
     final books = await _loadWorldBooksFor(card);
+
+    // v0.17.0：老会话补进聊天索引（列表里能看到历史对话）
+    if (widget.convId == null) {
+      await ChatIndex.ensure(
+        _ownerId,
+        defaultId: widget.charId,
+        defaultName: card.name,
+      );
+    }
 
     if (!mounted) return;
     final job = ActiveGenerations.instance.of(_convId);
@@ -279,7 +315,7 @@ class _ChatScreenState extends State<ChatScreen> {
       msgs = _adoptJob(msgs, job);
     } else if (jobBefore != null) {
       // 任务恰好在读取期间完成并落库 → 重读一次拿最终内容
-      final fresh = await Storage.loadConversationData(widget.charId);
+      final fresh = await Storage.loadConversationData(_convId);
       if (!mounted) return;
       msgs = fresh.messages;
     }
@@ -317,9 +353,17 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     }
     final jobBefore = ActiveGenerations.instance.of(_convId);
-    final data =
-        await Storage.loadConversationData(Storage.groupConvId(group.id));
+    final data = await Storage.loadConversationData(_convId);
     final books = await _loadWorldBooksForGroup(members);
+
+    // v0.17.0：群聊老会话补进聊天索引
+    if (widget.convId == null) {
+      await ChatIndex.ensure(
+        _ownerId,
+        defaultId: Storage.groupConvId(group.id),
+        defaultName: group.name,
+      );
+    }
 
     if (!mounted) return;
     var msgs = data.messages;
@@ -509,7 +553,17 @@ class _ChatScreenState extends State<ChatScreen> {
         snapshot,
         summary: summary,
         hitStats: hitStats,
-      );
+      ).then((_) async {
+        // v0.17.0：同步聊天索引的条数与最近使用时间（失败不影响聊天）
+        if (_saveAborted) return;
+        await ChatIndex.touch(
+          _ownerId,
+          convId: convId,
+          messageCount: snapshot.length,
+          name: _chatTitle,
+          updatedAt: _lastSave.millisecondsSinceEpoch,
+        );
+      });
     });
   }
 
@@ -1840,6 +1894,22 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
             ListTile(
+              title: const Text('聊天列表'),
+              subtitle: Text('同一角色可有多段聊天 · 当前「$_chatTitle」'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showChatList();
+              },
+            ),
+            ListTile(
+              title: const Text('书签'),
+              subtitle: const Text('回看收藏的消息片段'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showBookmarks();
+              },
+            ),
+            ListTile(
               title: const Text('作者注释'),
               subtitle: Text(
                 _authorNote.isActive
@@ -2443,13 +2513,32 @@ class _ChatScreenState extends State<ChatScreen> {
               const SizedBox(width: 10),
             ],
             Expanded(
-              child: Text(
-                _isGroup ? _group!.name : card!.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: AppType.chatTitle,
-                  fontWeight: FontWeight.w700,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: _showChatList,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          _chatTitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: AppType.chatTitle,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      Icon(
+                        Icons.expand_more_outlined,
+                        size: 18,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -2776,6 +2865,23 @@ class _ChatScreenState extends State<ChatScreen> {
                   _regenerate();
                 },
               ),
+            if (!_busy)
+              ListTile(
+                title: const Text('从这里创建分支'),
+                subtitle: const Text('把这条及之前的对话复制成一段新聊天'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _branchFrom(index);
+                },
+              ),
+            ListTile(
+              title: const Text('书签'),
+              subtitle: const Text('加入或取消这条消息的书签'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _toggleBookmark(m);
+              },
+            ),
           ],
         ),
       ),
@@ -2818,6 +2924,227 @@ class _ChatScreenState extends State<ChatScreen> {
       _messages[idx] = _messages[idx].copyWith(content: text);
     });
     _save(force: true);
+  }
+
+  // ------------------------------------------------ 多聊天 / 分支 / 书签 --
+  // v0.17.0：同一角色（或群聊）可以有多段聊天，各自一个会话文件；
+  // 标题点一下就能切换/新建/重命名，长按消息可以「从这里创建分支」。
+
+  bool get _busy => _generating || _summarizing;
+
+  /// 聊天文件列表（点标题弹出）
+  void _showChatList() {
+    if (_busy) {
+      _toast('正在生成，先等这次回复结束再切换聊天');
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (ctx) => _ChatListSheet(
+        ownerId: _ownerId,
+        currentConvId: _convId,
+        onOpen: (info) {
+          Navigator.pop(ctx);
+          _openChat(info);
+        },
+        onCreate: () async {
+          Navigator.pop(ctx);
+          await _createChat();
+        },
+      ),
+    );
+  }
+
+  /// 切换到另一段聊天（替换当前路由，返回键不会回到旧聊天）
+  void _openChat(ChatInfo info) {
+    if (info.id == _convId) return;
+    final route = MaterialPageRoute<void>(
+      builder: (_) => _isGroup
+          ? ChatScreen.group(
+              groupId: widget.groupId!,
+              convId: info.id,
+              chatName: info.name,
+            )
+          : ChatScreen(
+              charId: widget.charId,
+              convId: info.id,
+              chatName: info.name,
+            ),
+    );
+    Navigator.of(context).pushReplacement(route);
+  }
+
+  /// 新建一段聊天：空会话 + 索引记录，然后直接打开（单聊会写入开场白）
+  Future<void> _createChat() async {
+    final name = await ChatIndex.nextName(_ownerId);
+    final id = ChatIndex.newId(_ownerId);
+    await Storage.saveConversation(id, <ChatMessage>[]);
+    await ChatIndex.touch(_ownerId, convId: id, messageCount: 0, name: name);
+    if (!mounted) return;
+    _toast('已新建聊天「$name」');
+    _openChat(ChatInfo(id: id, name: name));
+  }
+
+  /// 从第 [index] 条消息处分叉：把这之前的对话复制成一段新聊天。
+  Future<void> _branchFrom(int index) async {
+    if (index < 0 || index >= _messages.length) return;
+    if (_busy) {
+      _toast('正在生成，先等这次回复结束再创建分支');
+      return;
+    }
+    final source = _messages.take(index + 1);
+    final copied = <ChatMessage>[];
+    for (final m in source) {
+      copied.add(ChatMessage.fromJson(m.toJson()));
+    }
+    final name = await ChatIndex.nextName(_ownerId, base: '分支');
+    final id = ChatIndex.newId(_ownerId);
+    await Storage.saveConversation(id, copied);
+    await ChatIndex.touch(
+      _ownerId,
+      convId: id,
+      messageCount: copied.length,
+      name: name,
+    );
+    if (!mounted) return;
+    _toast('已创建分支「$name」（共 ${copied.length} 条）');
+    _openChat(ChatInfo(id: id, name: name, messageCount: copied.length));
+  }
+
+  /// 加入 / 取消书签
+  Future<void> _toggleBookmark(ChatMessage m) async {
+    final added = await BookmarkStore.toggle(
+      _convId,
+      ChatBookmark(
+        timestamp: m.timestamp,
+        role: m.role,
+        preview: ChatBookmark.previewOf(m.content),
+        createdAt: DateTime.now().millisecondsSinceEpoch,
+      ),
+    );
+    _toast(added ? '已加入书签' : '已取消书签');
+  }
+
+  /// 书签列表：点一条跳到对应位置，右侧可删除
+  Future<void> _showBookmarks() async {
+    var list = await BookmarkStore.load(_convId);
+    if (!mounted) return;
+    if (list.isEmpty) {
+      _toast('还没有书签：长按一条消息就能加入');
+      return;
+    }
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          return ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(ctx).height * 0.6,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Text(
+                    '书签（${list.length}）',
+                    style: const TextStyle(
+                      fontSize: AppType.section,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: list.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (_, i) {
+                      final b = list[i];
+                      return ListTile(
+                        leading: Icon(
+                          b.isUser
+                              ? Icons.person_outline
+                              : Icons.auto_awesome_outlined,
+                          size: 20,
+                        ),
+                        title: Text(
+                          b.preview,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: AppType.body),
+                        ),
+                        subtitle: Text(
+                          '${b.isUser ? '你' : '角色'} · ${_formatBookmarkTime(b.createdAt)}',
+                          style: const TextStyle(fontSize: AppType.caption),
+                        ),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.delete_outline, size: 20),
+                          tooltip: '删除书签',
+                          onPressed: () async {
+                            await BookmarkStore.remove(_convId, b.timestamp);
+                            if (!ctx.mounted) return;
+                            setSheetState(() {
+                              list = list
+                                  .where((x) => x.timestamp != b.timestamp)
+                                  .toList();
+                            });
+                            if (list.isEmpty && ctx.mounted) Navigator.pop(ctx);
+                          },
+                        ),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _jumpToMessage(b.timestamp);
+                        },
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// 跳到某条消息附近（列表高度不定，按比例定位后提示）
+  void _jumpToMessage(int timestamp) {
+    final idx = _messages.indexWhere((m) => m.timestamp == timestamp);
+    if (idx < 0) {
+      _toast('这条消息已经不在当前聊天里了');
+      return;
+    }
+    if (!_scrollCtrl.hasClients) return;
+    final max = _scrollCtrl.position.maxScrollExtent;
+    final ratio = _messages.length <= 1 ? 1.0 : idx / (_messages.length - 1);
+    _followScroll = false;
+    _scrollCtrl.animateTo(
+      (max * ratio).clamp(0.0, max),
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+    );
+    _onScroll();
+  }
+
+  static String _formatBookmarkTime(int ms) {
+    if (ms <= 0) return '';
+    final t = DateTime.fromMillisecondsSinceEpoch(ms);
+    final now = DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    final hm = '${two(t.hour)}:${two(t.minute)}';
+    if (t.year == now.year && t.month == now.month && t.day == now.day) {
+      return '今天 $hm';
+    }
+    return '${two(t.month)}-${two(t.day)} $hm';
   }
 
   Widget _buildInputBar(ColorScheme scheme) {
@@ -3170,3 +3497,228 @@ class _SwipeVariantWrapState extends State<_SwipeVariantWrap>
   }
 }
 
+
+/// 聊天文件列表（v0.17.0）：切换 / 新建 / 重命名 / 删除同角色下的多段聊天。
+class _ChatListSheet extends StatefulWidget {
+  const _ChatListSheet({
+    required this.ownerId,
+    required this.currentConvId,
+    required this.onOpen,
+    required this.onCreate,
+  });
+
+  final String ownerId;
+  final String currentConvId;
+  final void Function(ChatInfo info) onOpen;
+  final Future<void> Function() onCreate;
+
+  @override
+  State<_ChatListSheet> createState() => _ChatListSheetState();
+}
+
+class _ChatListSheetState extends State<_ChatListSheet> {
+  List<ChatInfo>? _chats;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final chats = await ChatIndex.load(widget.ownerId);
+    if (!mounted) return;
+    setState(() => _chats = chats);
+  }
+
+  Future<void> _rename(ChatInfo info) async {
+    final ctrl = TextEditingController(text: info.name);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('重命名聊天'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          maxLength: 40,
+          decoration: const InputDecoration(hintText: '聊天名称'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    final text = ctrl.text;
+    ctrl.dispose();
+    if (name == null || !mounted) return;
+    await ChatIndex.rename(widget.ownerId, info.id, text);
+    await _load();
+  }
+
+  Future<void> _delete(ChatInfo info) async {
+    if (info.id == widget.currentConvId) return;
+    final chats = _chats ?? const <ChatInfo>[];
+    if (chats.length <= 1) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('删除聊天「${info.name}」？'),
+        content: const Text('这段聊天的消息会被删除，无法恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await Storage.deleteConversation(info.id);
+    await BookmarkStore.clear(info.id);
+    await ChatIndex.remove(widget.ownerId, info.id);
+    await _load();
+  }
+
+  static String _timeLabel(int ms) {
+    if (ms <= 0) return '更早';
+    final t = DateTime.fromMillisecondsSinceEpoch(ms);
+    final now = DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    final hm = '${two(t.hour)}:${two(t.minute)}';
+    if (t.year == now.year && t.month == now.month && t.day == now.day) {
+      return '今天 $hm';
+    }
+    return '${two(t.month)}-${two(t.day)} $hm';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final chats = _chats;
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.6,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 8, 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    chats == null ? '聊天' : '聊天（${chats.length}）',
+                    style: const TextStyle(
+                      fontSize: AppType.section,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: widget.onCreate,
+                  icon: const Icon(Icons.add_comment_outlined, size: 18),
+                  label: const Text('新建聊天'),
+                ),
+              ],
+            ),
+          ),
+          if (chats == null)
+            const Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: chats.length,
+                separatorBuilder: (_, _) => const Divider(height: 1),
+                itemBuilder: (_, i) {
+                  final c = chats[i];
+                  final current = c.id == widget.currentConvId;
+                  return ListTile(
+                    selected: current,
+                    leading: Icon(
+                      current
+                          ? Icons.chat_bubble_outline
+                          : Icons.chat_bubble_outline,
+                      size: 20,
+                      color: current ? scheme.primary : scheme.onSurfaceVariant,
+                    ),
+                    title: Text(
+                      c.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: AppType.body,
+                        fontWeight: current ? FontWeight.w600 : FontWeight.w400,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '${c.messageCount} 条消息 · ${_timeLabel(c.updatedAt)}'
+                      '${current ? ' · 当前' : ''}',
+                      style: const TextStyle(fontSize: AppType.caption),
+                    ),
+                    trailing: PopupMenuButton<String>(
+                      icon: const Icon(Icons.more_horiz, size: 20),
+                      onSelected: (v) {
+                        if (v == 'rename') _rename(c);
+                        if (v == 'delete') {
+                          if (c.id == widget.currentConvId) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('先切换到别的聊天，再删除这一段'),
+                              ),
+                            );
+                            return;
+                          }
+                          if ((chats.length) <= 1) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('至少保留一段聊天；想重来可以用「清空对话」'),
+                              ),
+                            );
+                            return;
+                          }
+                          _delete(c);
+                        }
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(value: 'rename', child: Text('重命名')),
+                        PopupMenuItem(value: 'delete', child: Text('删除')),
+                      ],
+                    ),
+                    onTap: () => widget.onOpen(c),
+                  );
+                },
+              ),
+            ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Text(
+              '每段聊天相互独立：清空、摘要、作者注释都只影响当前这段。',
+              style: TextStyle(
+                fontSize: AppType.caption,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
