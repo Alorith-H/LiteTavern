@@ -73,9 +73,14 @@ void main() {
     final remote = kApiPresets.where((p) => !p.note.contains('无需 Key')).length;
     expect(find.text('去官网获取 Key'), findsNWidgets(remote));
     expect(find.text('去下载 Ollama'), findsOneWidget);
-    // 智谱 GLM-4-Flash 免费，排第一且有「免费」徽章
-    expect(kApiPresets.first.model, 'glm-4-flash');
-    expect(find.text('免费'), findsOneWidget);
+    // v0.22.0：DeepSeek 排第一，智谱只留一家、不再有「免费」徽章
+    expect(kApiPresets.first.label, 'DeepSeek');
+    expect(find.text('免费'), findsNothing);
+    expect(
+      find.text('智谱 GLM'),
+      findsOneWidget,
+      reason: '智谱只保留一家服务商卡片',
+    );
     // 自定义接口（v0.18.0）
     expect(find.text('自定义接口'), findsOneWidget);
     expect(find.text('用自定义接口'), findsOneWidget);

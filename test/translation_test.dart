@@ -286,10 +286,10 @@ void main() {
       );
     });
 
-    test('默认免费源顺序：Azure → 必应网页 → MyMemory → Google', () {
+    test('默认免费源顺序：Azure → 本地 LibreTranslate → 必应网页 → MyMemory → Google', () {
       final svc = TranslationService();
       expect(svc.freeProviders.map((p) => p.id).toList(),
-          ['azure', 'bing', 'mymemory', 'google']);
+          ['azure', 'libre', 'bing', 'mymemory', 'google']);
       expect(svc.freeProviders.every((p) => p.isFree), isTrue);
     });
   });
@@ -337,6 +337,82 @@ void main() {
       await expectLater(
         const AzureBingProvider(apiKey: '').translate('hi'),
         throwsA(isA<TranslationFailure>()),
+      );
+    });
+  });
+
+  group('LibreTranslateProvider', () {
+    test('带地址请求 /translate 并解析译文', () async {
+      late http.Request seen;
+      final client = MockClient((req) async {
+        seen = req;
+        return http.Response.bytes(
+          utf8.encode(jsonEncode({'translatedText': '你好'})),
+          200,
+        );
+      });
+      final t = await LibreTranslateProvider(
+        baseUrl: 'http://192.168.0.10:5000/',
+        client: client,
+      ).translate('Hello');
+      expect(t, '你好');
+      expect(seen.method, 'POST');
+      expect(seen.url.toString(), 'http://192.168.0.10:5000/translate');
+      final body = jsonDecode(seen.body) as Map<String, dynamic>;
+      expect(body['q'], 'Hello');
+      expect(body['source'], 'auto');
+      expect(body['target'], 'zh');
+      expect(body['format'], 'text');
+      expect(body.containsKey('api_key'), isFalse);
+    });
+
+    test('填了 api_key 就带上；繁体目标映射成 zt', () async {
+      late Map<String, dynamic> body;
+      final client = MockClient((req) async {
+        body = jsonDecode(req.body) as Map<String, dynamic>;
+        return http.Response.bytes(
+          utf8.encode(jsonEncode({'translatedText': '你好'})),
+          200,
+        );
+      });
+      await LibreTranslateProvider(
+        baseUrl: 'http://localhost:5000',
+        apiKey: 'k123',
+        client: client,
+      ).translate('Hello', target: 'zh-TW');
+      expect(body['api_key'], 'k123');
+      expect(body['target'], 'zt');
+    });
+
+    test('没填地址 → 立刻失败（换下一个源）', () async {
+      await expectLater(
+        const LibreTranslateProvider(baseUrl: '').translate('hi'),
+        throwsA(isA<TranslationFailure>()),
+      );
+    });
+
+    test('限流 429 → quotaExceeded', () async {
+      final client = MockClient((req) async => http.Response('', 429));
+      await expectLater(
+        LibreTranslateProvider(baseUrl: 'http://x:5000', client: client)
+            .translate('hi'),
+        throwsA(isA<TranslationFailure>()
+            .having((e) => e.quotaExceeded, 'quotaExceeded', isTrue)),
+      );
+    });
+
+    test('返回 error 字段时把原因带出来', () async {
+      final client = MockClient(
+        (req) async => http.Response.bytes(
+          utf8.encode(jsonEncode({'error': 'Invalid target language'})),
+          200,
+        ),
+      );
+      await expectLater(
+        LibreTranslateProvider(baseUrl: 'http://x:5000', client: client)
+            .translate('hi'),
+        throwsA(isA<TranslationFailure>()
+            .having((e) => e.message, 'message', contains('Invalid target'))),
       );
     });
   });

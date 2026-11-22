@@ -1,4 +1,4 @@
-# 交接状态：v0.21.2 翻译阶段提示（2026-11-22 更新）
+# 交接状态：v0.22.0 服务商与翻译源调整（2026-11-22 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
 > v0.11.0（角色卡市场）、v0.12.0（市场筛选 + 设置开关）、v0.12.1（修正为「用户侧」建议回复）、
@@ -21,7 +21,7 @@
 
 ## 仓库状态
 
-- 分支 `dev`，版本 `pubspec.yaml` = **0.21.2+22**，`lib/app_info.dart` `kAppVersion = '0.21.2'`。
+- 分支 `dev`，版本 `pubspec.yaml` = **0.22.0+23**，`lib/app_info.dart` `kAppVersion = '0.22.0'`。
 - v0.21.1 改动文件：`lib/services/api_presets.dart`（`formatContextWindow` 十进制/1024 双规则、`contextWindowForModel` 补 o4/mixtral）、`lib/services/api_client.dart`（`RemoteModel` / `fetchModelInfos` / `extractModelInfos`）、`lib/screens/api_config_screen.dart`（`_reportedContext`、选模型按接口报告填上下文、列表副标题显示上下文）、`lib/screens/onboarding_screen.dart`（同上，写进草稿配置）、`lib/screens/chat_screen.dart`（信息行顺序 tokens → 模型名 → 时间）、`test/v20_test.dart`（新增 extractModelInfos 3 例、128000→128K）。
 - v0.21.0 改动文件：
   - `lib/screens/onboarding_screen.dart`：控制器初始为空；`String? _draftConfigId`；
@@ -34,6 +34,27 @@
     （`_generationChildren` / `_chatChildren` / `_marketChildren` / `_worldBookChildren` /
     `_appearanceChildren` / `_helpChildren`）。
   - `test/v21_test.dart`（新增 6 例）。
+
+## 本轮变更（v0.22.0）详解
+
+### 1. 服务商预设调整
+
+- `lib/services/api_presets.dart`：`kApiPresets` 顺序改为 **DeepSeek → 智谱 GLM → Kimi → 小米 MiMo → Ollama**；智谱只保留一家（label `智谱 GLM`、baseUrl `https://open.bigmodel.cn/api/paas/v4`、model `glm-4-flash`、`free: false`、contextWindow 128000），删掉原来的 GLM-4-Flash / GLM-4-Air 两条。
+- `lib/screens/onboarding_screen.dart`：第 2 步顶部新手提示改为「推荐先用 DeepSeek…」，不再推荐智谱；徽章逻辑不变（`free` 为 false → 「需 Key」）。
+
+### 2. 本地 LibreTranslate 免费翻译
+
+- `lib/services/translator.dart` 新增 `LibreTranslateProvider`（id `libre`）：`POST {base}/translate`，body `{q, source auto, target, format text[, api_key]}`；简体目标映射 `zh`、繁体 `zt`；1500 字分块；429 → `quotaExceeded`；返回 `error` 字段时带出原因；没填地址立刻失败换下一个源；`AppSettings` 未初始化时读设置返回 null（纯单测友好）。
+- 默认免费源顺序改为：**Azure → LibreTranslate → 必应网页版 → MyMemory → Google**。
+- `lib/services/storage.dart`：新增 `libreTranslateUrl`（key `libre_translate_url`）与 `libreTranslateKey`（`libre_translate_key`），空值删除键。
+- `lib/screens/settings_screen.dart`「翻译」分节新增两个输入框：本地 LibreTranslate 地址（提示 `http://192.168.0.10:5000`，说明手机与电脑需同一 WiFi）与 api_key（一般不用填）。
+- 文案同步：`card_translation_sheet.dart` 的说明、README 翻译段、设置页顺序说明都加上 LibreTranslate。
+
+### 3. 测试
+
+- `test/v20_test.dart`：预设断言改为「DeepSeek 第一」「智谱只有一家且 free=false」「没有预设再标免费」。
+- `test/onboarding_screen_test.dart`：第 2 步改为断言「DeepSeek 第一」「不再有『免费』徽章」「智谱 GLM 只出现一次」。
+- `test/translation_test.dart`：默认源顺序断言更新为含 `libre`；新增 `LibreTranslateProvider` 5 例（请求路径/请求体、api_key 与繁体目标、未配置立刻失败、429 quotaExceeded、error 字段带出）。全量 **315 测试全过**。
 
 ## 本轮变更（v0.21.2）详解
 
@@ -93,7 +114,7 @@
 | --- | --- |
 | `flutter analyze` | **No issues found!**（5.2s） |
 | `flutter test` | **+309 All tests passed!**（9s，其中 test/v21_test.dart 6 例、extractModelInfos 3 例） |
-| `flutter build apk --release` | 59.3MB（Gradle 49.3s），versionCode **22** / versionName **0.21.2** |
+| `flutter build apk --release` | 59.3MB（Gradle 44.0s），versionCode **23** / versionName **0.22.0** |
 | 装机 | `adb -s 19faf100 install -r`（USB）→ **Success** |
 
 ## 真机自测清单（v0.21.0）
@@ -129,10 +150,11 @@
 - 真机点按用**视觉坐标**（uiautomator bounds 常与视觉位置不符）。
 - git 提交不要传 `-c user.name/-c user.email`（仓库配置已是 `Alorith-H <2835147611@qq.com>`）。
 
-## 本次运行记录（v0.21.2）
+## 本次运行记录（v0.22.0）
 
-- `flutter analyze`：No issues found!（4.7s）
-- `flutter test`：+309 All tests passed!（9s）
-- `flutter build apk --release`：59.3MB（Gradle 49.3s），versionCode **22** / versionName **0.21.2**
+- `flutter analyze`：No issues found!（4.9s）
+- `flutter test`：+315 All tests passed!（9s）
+- `flutter build apk --release`：59.3MB（Gradle 44.0s），versionCode **23** / versionName **0.22.0**
+- 装机：`adb -s 19faf100 install -r`（USB）→ **Success**，versionCode 23 / 0.22.0 / lastUpdateTime 2026-11-22 23:19:27，数据保留。
 - 装机：`adb -s 19faf100 install -r`（USB）→ **Success**，lastUpdateTime 2026-11-22 23:05:51，数据保留；`am start` 正常。
 - 说明：v0.21.2 只改了角色卡市场详情页的「正在翻译…」提示，未新增自动化测试（该路径涉及真实文件 IO，widget 测试需 runAsync；已手动装机交给用户自测）。

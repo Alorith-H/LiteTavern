@@ -3,8 +3,8 @@
 /// 除地址与模型外，还带上「官网 / 获取 Key 页面 / 文档」三处链接，
 /// 供新手指引与配置页提供「去官网获取 API Key」入口（v0.15.0）。
 ///
-/// v0.20.0：新增 [free]（是否免费模型）与 [contextWindow]（该模型的上下文长度），
-/// 引导页把「智谱 GLM-4-Flash（免费）」放在第一位，新手零成本就能跑起来。
+/// v0.20.0：新增 [free]（是否免费模型）与 [contextWindow]（该模型的上下文长度）。
+/// v0.22.0：默认第一家改回 DeepSeek；智谱只保留一家、不再区分具体 GLM 型号，也不再打「免费」标。
 class ApiPreset {
   final String label;
   final String baseUrl;
@@ -42,28 +42,7 @@ class ApiPreset {
 }
 
 const kApiPresets = <ApiPreset>[
-  // 免费、零门槛，放第一位：新手不用充值就能先玩起来。
-  ApiPreset(
-    '智谱 GLM-4-Flash',
-    'https://open.bigmodel.cn/api/paas/v4',
-    'glm-4-flash',
-    siteUrl: 'https://bigmodel.cn/',
-    keyUrl: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys',
-    docsUrl: 'https://docs.bigmodel.cn/cn/guide/develop/http/introduction',
-    note: '完全免费（有速率限制）；手机号注册并实名即可拿 Key',
-    free: true,
-    contextWindow: 128000,
-  ),
-  ApiPreset(
-    '智谱 GLM-4-Air',
-    'https://open.bigmodel.cn/api/paas/v4',
-    'glm-4-air',
-    siteUrl: 'https://bigmodel.cn/',
-    keyUrl: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys',
-    docsUrl: 'https://docs.bigmodel.cn/cn/guide/develop/http/introduction',
-    note: '按量付费（送部分免费额度）；Key 形如 xxxxxxxx.xxxxxxxx',
-    contextWindow: 128000,
-  ),
+  // 默认第一家：价格便宜、注册简单，新手最容易跑起来（v0.22.0 起放第一位）。
   ApiPreset(
     'DeepSeek',
     'https://api.deepseek.com/v1',
@@ -73,6 +52,17 @@ const kApiPresets = <ApiPreset>[
     docsUrl: 'https://api-docs.deepseek.com/zh-cn/',
     note: '按量付费，需先充值；Key 形如 sk-xxxx',
     contextWindow: 65536,
+  ),
+  // 智谱只留一家（v0.22.0）：不预设具体 GLM 型号，模型名可以自己改或从列表里挑。
+  ApiPreset(
+    '智谱 GLM',
+    'https://open.bigmodel.cn/api/paas/v4',
+    'glm-4-flash',
+    siteUrl: 'https://bigmodel.cn/',
+    keyUrl: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys',
+    docsUrl: 'https://docs.bigmodel.cn/cn/guide/develop/http/introduction',
+    note: '按量付费（部分型号有免费额度）；手机号注册并实名即可拿 Key',
+    contextWindow: 128000,
   ),
   ApiPreset(
     'Kimi',

@@ -48,6 +48,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _nameCtrl;
   late final TextEditingController _azureKeyCtrl;
   late final TextEditingController _azureRegionCtrl;
+  late final TextEditingController _libreUrlCtrl;
+  late final TextEditingController _libreKeyCtrl;
   late final TextEditingController _maxTokensCtrl;
   late double _temperature;
   late double _topP;
@@ -93,6 +95,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _azureKeyCtrl = TextEditingController(text: AppSettings.azureTranslatorKey);
     _azureRegionCtrl =
         TextEditingController(text: AppSettings.azureTranslatorRegion);
+    _libreUrlCtrl = TextEditingController(text: AppSettings.libreTranslateUrl);
+    _libreKeyCtrl = TextEditingController(text: AppSettings.libreTranslateKey);
     _maxTokensCtrl = TextEditingController(text: '${AppSettings.maxTokens}');
     _temperature = AppSettings.temperature.clamp(0.0, 2.0).toDouble();
     _topP = AppSettings.topP.clamp(0.0, 1.0).toDouble();
@@ -115,6 +119,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _nameCtrl.dispose();
     _azureKeyCtrl.dispose();
     _azureRegionCtrl.dispose();
+    _libreUrlCtrl.dispose();
+    _libreKeyCtrl.dispose();
     _maxTokensCtrl.dispose();
     _hexCtrl.dispose();
     super.dispose();
@@ -832,9 +838,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
       const SectionHeader('翻译'),
       _SubLine(
         '角色卡和市场里的「译」按钮会用免费翻译。默认顺序：'
-        '必应（Azure Key）→ 必应网页版 → MyMemory → Google。',
+        '必应（Azure Key）→ 本地 LibreTranslate → 必应网页版 → MyMemory → Google。',
       ),
       const SizedBox(height: 8),
+      TextField(
+        controller: _libreUrlCtrl,
+        keyboardType: TextInputType.url,
+        decoration: const InputDecoration(
+          labelText: '本地 LibreTranslate 地址（可留空）',
+          hintText: '例如 http://192.168.0.10:5000',
+          helperText: '在电脑上跑 LibreTranslate 后填电脑的局域网地址；手机和电脑要连同一个 WiFi',
+        ),
+        onChanged: (v) => AppSettings.libreTranslateUrl = v,
+      ),
+      const SizedBox(height: 10),
+      TextField(
+        controller: _libreKeyCtrl,
+        decoration: const InputDecoration(
+          labelText: 'LibreTranslate api_key（一般不用填）',
+          helperText: '自建实例通常不校验；公共实例可能要求，按实例的配置填',
+        ),
+        onChanged: (v) => AppSettings.libreTranslateKey = v,
+      ),
+      const SizedBox(height: 10),
       TextField(
         controller: _azureKeyCtrl,
         obscureText: true,

@@ -949,6 +949,21 @@ class AppSettings {
       : _sp.setString(_kAzureRegion, v.trim());
   static const _kAzureRegion = 'azure_translator_region';
 
+  /// 本地 / 自建 LibreTranslate 地址（v0.22.0）：例如 http://192.168.0.10:5000。
+  /// 填了就把它排在免费源第一位（不用 Key、不限额度）；留空则跳过它。
+  static String get libreTranslateUrl => _sp.getString(_kLibreUrl) ?? '';
+  static set libreTranslateUrl(String v) => v.trim().isEmpty
+      ? _sp.remove(_kLibreUrl)
+      : _sp.setString(_kLibreUrl, v.trim());
+  static const _kLibreUrl = 'libre_translate_url';
+
+  /// LibreTranslate 的 api_key（自建实例一般不用填；公共实例可能要求）。
+  static String get libreTranslateKey => _sp.getString(_kLibreKey) ?? '';
+  static set libreTranslateKey(String v) => v.trim().isEmpty
+      ? _sp.remove(_kLibreKey)
+      : _sp.setString(_kLibreKey, v.trim());
+  static const _kLibreKey = 'libre_translate_key';
+
   /// 用户人设列表（v0.16.0）：JSON 数组；null = 未配置。
   static String? get personasJson => _sp.getString(_kPersonas);
   static set personasJson(String? v) {

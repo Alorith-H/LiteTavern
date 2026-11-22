@@ -13,15 +13,15 @@ void main() {
     await AppSettings.init();
   });
 
-  // ------------------------------------------------ 预设：GLM-4-Flash 第一 --
-  group('API 预设（v0.20.0）', () {
-    test('智谱 GLM-4-Flash 排第一，且标记为免费', () {
+  // ------------------------------------------ 预设：DeepSeek 第一（v0.22.0） --
+  group('API 预设（v0.22.0）', () {
+    test('DeepSeek 排第一', () {
       expect(kApiPresets, isNotEmpty);
       final first = kApiPresets.first;
-      expect(first.model, 'glm-4-flash');
-      expect(first.free, isTrue);
-      expect(first.baseUrl, contains('bigmodel.cn'));
-      expect(first.contextWindow, 128000);
+      expect(first.label, 'DeepSeek');
+      expect(first.model, 'deepseek-chat');
+      expect(first.free, isFalse);
+      expect(first.contextWindow, 65536);
     });
 
     test('每个预设都有可用的官网与 Key 链接，上下文长度为正', () {
@@ -32,9 +32,18 @@ void main() {
       }
     });
 
-    test('只有 GLM-4-Flash 是免费预设', () {
-      final free = kApiPresets.where((p) => p.free).toList();
-      expect(free.map((p) => p.model), ['glm-4-flash']);
+    test('智谱只保留一家，不打免费标', () {
+      final zhipu = kApiPresets
+          .where((p) => p.baseUrl.contains('bigmodel.cn'))
+          .toList();
+      expect(zhipu, hasLength(1));
+      expect(zhipu.single.label, contains('智谱'));
+      expect(zhipu.single.free, isFalse);
+      expect(zhipu.single.contextWindow, 128000);
+    });
+
+    test('没有预设再标成免费', () {
+      expect(kApiPresets.where((p) => p.free), isEmpty);
     });
   });
 

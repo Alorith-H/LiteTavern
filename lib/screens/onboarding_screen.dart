@@ -714,8 +714,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       _highlightPanel(
         icon: Icons.lightbulb_outline,
         title: '新手怎么选、要注意什么',
-        body: '推荐先用 DeepSeek 或智谱 GLM：有免费额度或价格便宜，注册也简单，'
-            '其中智谱需要实名认证。Ollama 是在自己电脑上跑模型，不需要 Key，'
+        body: '推荐先用 DeepSeek：按量付费、价格便宜，注册也简单。'
+            'Ollama 是在自己电脑上跑模型，不需要 Key，'
             '但需要电脑一直开着并已下载模型。\n\n'
             'API Key 相当于账号密码：只保存在本机，不要发给别人，也不要截图发到群里。',
       ),

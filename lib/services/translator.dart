@@ -576,6 +576,139 @@ class GoogleFreeProvider extends TranslationProvider {
   }
 }
 
+/// 本地 / 自建的 LibreTranslate（免费、不限额度，需要自己跑一个实例）。
+///
+/// 公共实例对脚本基本都限流或拒绝（2026-11 实测各镜像超时/403/SSL 失败），
+/// 所以默认不启用：只有设置里填了地址（例如 `http://192.168.0.10:5000`）才会工作，
+/// 没填时立刻抛错，由 [TranslationService] 换下一个源。
+///
+/// 接口：`POST {base}/translate`，
+/// body `{"q":…, "source":"auto", "target":"zh", "format":"text"[, "api_key":…]}`；
+/// 手机和跑 LibreTranslate 的电脑要在同一个局域网，地址填电脑的局域网 IP。
+class LibreTranslateProvider extends TranslationProvider {
+  final String? baseUrl;
+  final String? apiKey;
+  final http.Client? client;
+  final Duration timeout;
+
+  const LibreTranslateProvider({
+    this.baseUrl,
+    this.apiKey,
+    this.client,
+    this.timeout = const Duration(seconds: 20),
+  });
+
+  @override
+  String get id => 'libre';
+
+  @override
+  String get label => 'LibreTranslate（本地）';
+
+  @override
+  bool get isFree => true;
+
+  /// 显式传入优先；否则读设置（没初始化时返回 null，方便纯单测）。
+  static String? _settingsOrNull({
+    required String? explicit,
+    required String Function() read,
+  }) {
+    if (explicit != null) return explicit.trim();
+    if (!AppSettings.initialized) return null;
+    return read().trim();
+  }
+
+  /// LibreTranslate 用 `zh` / `zt` 区分简繁。
+  static String translateTarget(String target) {
+    switch (target) {
+      case 'zh-CN':
+      case 'zh':
+        return 'zh';
+      case 'zh-TW':
+        return 'zt';
+      default:
+        return target;
+    }
+  }
+
+  @override
+  Future<String> translate(String text, {String target = 'zh-CN'}) async {
+    final base = _settingsOrNull(
+      explicit: baseUrl,
+      read: () => AppSettings.libreTranslateUrl,
+    );
+    if (base == null || base.isEmpty) {
+      throw const TranslationFailure('还没有填写本地 LibreTranslate 地址');
+    }
+    final chunks = splitForTranslation(text, max: 1500);
+    if (chunks.isEmpty) return '';
+    final out = <String>[];
+    for (final chunk in chunks) {
+      out.add(await _translateChunk(base, chunk, translateTarget(target)));
+    }
+    return out.join('\n');
+  }
+
+  Future<String> _translateChunk(String base, String text, String target) async {
+    final key = (_settingsOrNull(
+              explicit: apiKey,
+              read: () => AppSettings.libreTranslateKey,
+            ) ??
+            '')
+        .trim();
+    final uri = Uri.parse('${base.replaceAll(RegExp(r'/+$'), '')}/translate');
+    final owned = client ?? http.Client();
+    try {
+      final response = await owned
+          .post(
+            uri,
+            headers: const <String, String>{
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: jsonEncode(<String, Object?>{
+              'q': text,
+              'source': 'auto',
+              'target': target,
+              'format': 'text',
+              if (key.isNotEmpty) 'api_key': key,
+            }),
+          )
+          .timeout(timeout);
+      if (response.statusCode == 429) {
+        throw const TranslationFailure(
+          'LibreTranslate 正在限流，稍后再试',
+          quotaExceeded: true,
+        );
+      }
+      if (response.statusCode != 200) {
+        throw TranslationFailure(
+          'LibreTranslate 返回 HTTP ${response.statusCode}',
+        );
+      }
+      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      if (decoded is! Map<String, dynamic>) {
+        throw const TranslationFailure('LibreTranslate 返回格式不对');
+      }
+      final translated = decoded['translatedText'];
+      if (translated is! String || translated.trim().isEmpty) {
+        final error = decoded['error'];
+        throw TranslationFailure(
+          error is String ? 'LibreTranslate：$error' : 'LibreTranslate 没有返回译文',
+        );
+      }
+      return translated.trim();
+    } on TranslationFailure {
+      rethrow;
+    } on TimeoutException {
+      throw const TranslationFailure('连接 LibreTranslate 超时，检查地址和局域网');
+    } catch (e) {
+      throw TranslationFailure('连接 LibreTranslate 失败：$e');
+    } finally {
+      if (client == null) owned.close();
+    }
+  }
+}
+
 /// 用设置里已配置的模型翻译（消耗 token，必须用户确认后调用）。
 class LlmTranslationProvider extends TranslationProvider {
   const LlmTranslationProvider();
@@ -650,6 +783,7 @@ class TranslationService {
   })  : freeProviders = freeProviders ??
             const <TranslationProvider>[
               AzureBingProvider(),
+              LibreTranslateProvider(),
               BingWebProvider(),
               MyMemoryProvider(),
               GoogleFreeProvider(),
