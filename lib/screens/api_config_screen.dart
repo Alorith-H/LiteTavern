@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/api_client.dart';
 import '../services/api_presets.dart';
+import '../services/external_links.dart';
 import '../services/storage.dart';
 import '../widgets/common.dart';
 
@@ -187,6 +188,25 @@ class _ApiConfigEditScreenState extends State<ApiConfigEditScreen> {
 
   bool get _isNew => widget.config == null;
 
+  /// 当前地址对应的服务商预设（决定「去官网获取 Key」跳到哪）。
+  ApiPreset? get _currentPreset => presetForBaseUrl(_urlCtrl.text);
+
+  void _openKeyHelp() {
+    final preset = _currentPreset;
+    if (preset == null) {
+      showApiKeyProviderPicker(context);
+      return;
+    }
+    showApiKeyHelp(
+      context,
+      providerLabel: preset.label,
+      keyUrl: preset.keyUrl,
+      siteUrl: preset.siteUrl,
+      docsUrl: preset.docsUrl,
+      note: preset.note,
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -243,8 +263,7 @@ class _ApiConfigEditScreenState extends State<ApiConfigEditScreen> {
       ..showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  void _save() {
-    final name = _nameCtrl.text.trim().isEmpty
+  void _save() {    final name = _nameCtrl.text.trim().isEmpty
         ? '配置 ${AppSettings.apiConfigs.length + 1}'
         : _nameCtrl.text.trim();
     if (_isNew) {
@@ -314,7 +333,35 @@ class _ApiConfigEditScreenState extends State<ApiConfigEditScreen> {
                   ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                TextButton.icon(
+                  onPressed: _openKeyHelp,
+                  icon: const Icon(Icons.key_outlined, size: 18),
+                  label: const Text('去官网获取 API Key'),
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+                if (_currentPreset != null) ...[
+                  const SizedBox(width: 10),
+                  Flexible(
+                    child: Text(
+                      _currentPreset!.note,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: AppType.meta,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 8),
             TextField(
               controller: _urlCtrl,
               keyboardType: TextInputType.url,

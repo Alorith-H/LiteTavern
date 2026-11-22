@@ -94,6 +94,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// 正在生成摘要（输入栏上方进度态）
   bool _summarizing = false;
+  // v0.15.0：摘要进度提示的上下文（哪种原因触发、涉及多少条、估算多少 token）
+  SummaryReason _summarizeReason = SummaryReason.historyWindow;
+  int _summarizeEarlyCount = 0;
+  int _summarizeEstimatedTokens = 0;
 
   bool get _isGroup => widget.isGroup;
 
@@ -652,6 +656,8 @@ class _ChatScreenState extends State<ChatScreen> {
     _preparing = true;
     try {
       if (_summaryNeeded()) {
+        _summarizeReason = SummaryReason.historyWindow;
+        _summarizeEarlyCount = earlyMessages(_messages, _historyLimit).length;
         setState(() => _summarizing = true);
         await _runSummarize();
         if (mounted) setState(() => _summarizing = false);
@@ -696,6 +702,9 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     // 第 2 步：现有摘要管线（_summarizing 进度态可取消）
+    _summarizeReason = SummaryReason.contextBudget;
+    _summarizeEarlyCount = earlyMessages(_messages, _historyLimit).length;
+    _summarizeEstimatedTokens = _estimateSendTokens(pending);
     setState(() => _summarizing = true);
     await _runSummarize(preamble: _summary?.text);
     if (!mounted) return;
@@ -1008,6 +1017,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// 菜单「立即总结早期对话」：同一管线，只总结不发送。
   Future<void> _manualSummarize() async {
+    _summarizeReason = SummaryReason.historyWindow;
+    _summarizeEarlyCount = earlyMessages(_messages, _historyLimit).length;
     setState(() => _summarizing = true);
     final ok = await _runSummarize();
     if (!mounted) return;
@@ -1019,6 +1030,69 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// 进度条上的取消：掐掉摘要请求，本次跳过摘要（调用方继续原流程）。
   void _cancelSummarize() => _api.cancel();
+
+  /// 「为什么在总结早期对话」：把触发原因、影响范围、怎么关掉讲清楚（v0.15.0）。
+  void _showSummaryWhy() {
+    final paragraphs = summaryWhyParagraphs(
+      reason: _summarizeReason,
+      historyLimit: _historyLimit,
+      earlyCount: _summarizeEarlyCount,
+      contextWindow: AppSettings.contextWindow,
+      estimatedTokens: _summarizeEstimatedTokens,
+    );
+    final scheme = Theme.of(context).colorScheme;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('为什么在总结早期对话？'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (var i = 0; i < paragraphs.length; i++) ...[
+                if (i > 0) const SizedBox(height: 10),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '· ',
+                      style: TextStyle(
+                        fontSize: AppType.caption,
+                        color: scheme.primary,
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        paragraphs[i],
+                        style: const TextStyle(
+                          fontSize: AppType.caption,
+                          height: 1.5,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('知道了'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _cancelSummarize();
+            },
+            child: const Text('跳过本次'),
+          ),
+        ],
+      ),
+    );
+  }
 
   void _promptConfigureApi() {
     showDialog<void>(
@@ -2614,40 +2688,73 @@ class _ChatScreenState extends State<ChatScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 摘要进度态：输入栏上方细进度 + 文案 + 取消（取消 = 本次跳过直接发）
+            // 摘要进度态（v0.15.0）：说清为什么在总结，可看解释、可跳过
             if (_summarizing) ...[
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: scheme.primary,
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: scheme.primary,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(
-                        '正在总结早期对话…',
-                        style: TextStyle(
-                          fontSize: AppType.caption,
-                          color: scheme.onSurfaceVariant,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            summaryProgressText(
+                              reason: _summarizeReason,
+                              earlyCount: _summarizeEarlyCount,
+                            ),
+                            style: TextStyle(
+                              fontSize: AppType.caption,
+                              color: scheme.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            summaryProgressHint(reason: _summarizeReason),
+                            style: TextStyle(
+                              fontSize: AppType.meta,
+                              height: 1.35,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: _showSummaryWhy,
+                      icon: const Icon(Icons.help_outline, size: 18),
+                      tooltip: '这是怎么回事？',
+                      color: scheme.onSurfaceVariant,
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 32,
                       ),
                     ),
                     TextButton(
                       onPressed: _cancelSummarize,
                       style: TextButton.styleFrom(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 4),
+                            horizontal: 8, vertical: 4),
                         minimumSize: Size.zero,
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
                       child: const Text(
-                        '取消',
+                        '跳过',
                         style: TextStyle(fontSize: AppType.caption),
                       ),
                     ),

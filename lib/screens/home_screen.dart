@@ -262,49 +262,111 @@ class _HomeScreenState extends State<HomeScreen> {
   /// FAB / 空态按钮：底部弹窗四选
   /// "角色卡市场 / 从文件导入 / 从链接下载 / AI 创建角色卡"。
   void _showImportSheet() {
+    final scheme = Theme.of(context).colorScheme;
     showModalBottomSheet<void>(
       context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
       builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.storefront_outlined),
-              title: const Text('角色卡市场'),
-              subtitle: const Text('在线浏览公开角色卡，一键下载导入'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _openMarket();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.description_outlined),
-              title: const Text('从文件导入'),
-              subtitle: const Text('选择本地 .png / .json 角色卡'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _import();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.link_outlined),
-              title: const Text('从链接下载'),
-              subtitle: const Text('输入 URL，下载 .png / .json 角色卡'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showDownloadDialog();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.auto_awesome_outlined),
-              title: const Text('AI 创建角色卡'),
-              subtitle: const Text('和 AI 聊几句，生成角色卡再微调'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _openCardCreator();
-              },
-            ),
-          ],
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+                child: Text(
+                  '导入角色卡',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: scheme.onSurface,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                child: Text(
+                  '第一次用？直接从「角色卡市场」挑一张，点下载就导入完成。',
+                  style: TextStyle(
+                    fontSize: AppType.caption,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.storefront_outlined),
+                title: Row(
+                  children: [
+                    const Text('角色卡市场'),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: scheme.primary.withValues(alpha: 0.16),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        '推荐',
+                        style: TextStyle(
+                          fontSize: AppType.meta,
+                          color: scheme.primary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                subtitle: const Text('在线浏览公开角色卡，点一下就下载导入'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _openMarket();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.description_outlined),
+                title: const Text('从文件导入'),
+                subtitle: const Text('选择手机里的 .png / .json 角色卡'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _import();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.link_outlined),
+                title: const Text('从链接下载'),
+                subtitle: const Text('粘贴角色卡直链，下载后自动导入'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showDownloadDialog();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.auto_awesome_outlined),
+                title: const Text('AI 创建角色卡'),
+                subtitle: const Text('和 AI 聊几句，生成角色卡再微调'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _openCardCreator();
+                },
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 6, 20, 16),
+                child: Text(
+                  '角色卡是 SillyTavern 格式的文件：.png 图片里内嵌了角色设定，也可以是 .json。'
+                  '导入后立刻出现在主页列表，随时可以编辑或删除。',
+                  style: TextStyle(
+                    fontSize: AppType.meta,
+                    height: 1.5,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
