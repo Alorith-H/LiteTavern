@@ -835,6 +835,9 @@ class _CardDetailSheet extends StatefulWidget {
 
 class _CardDetailSheetState extends State<_CardDetailSheet> {
   bool _downloading = false;
+
+  /// 下载完之后正在翻译（v0.21.2）：按钮与进度条显示「正在翻译…」。
+  bool _translating = false;
   String? _error;
   int _receivedBytes = 0;
   int? _totalBytes;
@@ -875,9 +878,10 @@ class _CardDetailSheetState extends State<_CardDetailSheet> {
   }
 
   Future<void> _import() async {
-    if (_downloading) return;
+    if (_downloading || _translating) return;
     setState(() {
       _downloading = true;
+      _translating = false;
       _error = null;
       _receivedBytes = 0;
       _totalBytes = null;
@@ -892,6 +896,8 @@ class _CardDetailSheetState extends State<_CardDetailSheet> {
         filename: '${widget.card.name}.png',
       );
       if (!mounted) return;
+      // 下载 + 解析完成，进度条收起；接下来若翻译，会显示「正在翻译…」。
+      setState(() => _downloading = false);
       // 非中文卡：问一下要不要翻成中文（失败不阻断导入，回落原卡）。
       if (!looksChinese('${imported.name} ${imported.description}')) {
         final localized = await _askAndLocalize(imported);
@@ -912,6 +918,7 @@ class _CardDetailSheetState extends State<_CardDetailSheet> {
       if (mounted) {
         setState(() {
           _downloading = false;
+          _translating = false;
           _error = e.message;
         });
       }
@@ -919,6 +926,7 @@ class _CardDetailSheetState extends State<_CardDetailSheet> {
       if (mounted) {
         setState(() {
           _downloading = false;
+          _translating = false;
           _error = '卡文件解析失败：${e.message}';
         });
       }
@@ -926,6 +934,7 @@ class _CardDetailSheetState extends State<_CardDetailSheet> {
       if (mounted) {
         setState(() {
           _downloading = false;
+          _translating = false;
           _error = '导入失败：$e';
         });
       }
@@ -961,6 +970,20 @@ class _CardDetailSheetState extends State<_CardDetailSheet> {
       ),
     );
     if (choice == null || choice == 'none' || !mounted) return null;
+    setState(() => _translating = true);
+    try {
+      return await _localizeWithFallback(card, choice: choice, tokens: tokens);
+    } finally {
+      if (mounted) setState(() => _translating = false);
+    }
+  }
+
+  /// 真正跑翻译（免费优先，失败再问一次要不要用模型），失败返回 null 用原卡。
+  Future<CharacterCard?> _localizeWithFallback(
+    CharacterCard card, {
+    required String choice,
+    required String tokens,
+  }) async {
     try {
       return await widget.localizer.localize(card, allowLlm: choice == 'llm');
     } on TranslationUnavailable catch (e) {
@@ -1010,6 +1033,8 @@ class _CardDetailSheetState extends State<_CardDetailSheet> {
     final scheme = Theme.of(context).colorScheme;
     final card = widget.card;
     final t = widget.translation;
+    // 下载中 / 翻译中都是「忙」：进度条 + 按钮都跟着变（v0.21.2）。
+    final busy = _downloading || _translating;
     final maxHeight = MediaQuery.sizeOf(context).height * 0.82;
     final description = (t != null && t.description.trim().isNotEmpty)
         ? t.description.trim()
@@ -1149,11 +1174,12 @@ class _CardDetailSheetState extends State<_CardDetailSheet> {
               ),
             ],
             const SizedBox(height: 18),
-            if (_downloading) ...[
+            if (busy) ...[
               ClipRRect(
                 borderRadius: BorderRadius.circular(3),
                 child: LinearProgressIndicator(
-                  value: _progress,
+                  // 翻译时长度未知 → 不确定进度条
+                  value: _translating ? null : _progress,
                   minHeight: 5,
                   backgroundColor: scheme.surfaceContainerHighest,
                 ),
@@ -1163,15 +1189,19 @@ class _CardDetailSheetState extends State<_CardDetailSheet> {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: _downloading ? null : _import,
-                icon: _downloading
+                onPressed: busy ? null : _import,
+                icon: busy
                     ? const SizedBox(
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.download_outlined),
-                label: Text(_downloading ? _downloadLabel : '下载并导入'),
+                label: Text(
+                  busy
+                      ? (_translating ? '正在翻译…' : _downloadLabel)
+                      : '下载并导入',
+                ),
               ),
             ),
             const SizedBox(height: 10),

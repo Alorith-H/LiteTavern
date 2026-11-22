@@ -1,4 +1,4 @@
-# 交接状态：v0.21.1 细节修正（2026-11-22 更新）
+# 交接状态：v0.21.2 翻译阶段提示（2026-11-22 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
 > v0.11.0（角色卡市场）、v0.12.0（市场筛选 + 设置开关）、v0.12.1（修正为「用户侧」建议回复）、
@@ -21,7 +21,7 @@
 
 ## 仓库状态
 
-- 分支 `dev`，版本 `pubspec.yaml` = **0.21.1+21**，`lib/app_info.dart` `kAppVersion = '0.21.1'`。
+- 分支 `dev`，版本 `pubspec.yaml` = **0.21.2+22**，`lib/app_info.dart` `kAppVersion = '0.21.2'`。
 - v0.21.1 改动文件：`lib/services/api_presets.dart`（`formatContextWindow` 十进制/1024 双规则、`contextWindowForModel` 补 o4/mixtral）、`lib/services/api_client.dart`（`RemoteModel` / `fetchModelInfos` / `extractModelInfos`）、`lib/screens/api_config_screen.dart`（`_reportedContext`、选模型按接口报告填上下文、列表副标题显示上下文）、`lib/screens/onboarding_screen.dart`（同上，写进草稿配置）、`lib/screens/chat_screen.dart`（信息行顺序 tokens → 模型名 → 时间）、`test/v20_test.dart`（新增 extractModelInfos 3 例、128000→128K）。
 - v0.21.0 改动文件：
   - `lib/screens/onboarding_screen.dart`：控制器初始为空；`String? _draftConfigId`；
@@ -34,6 +34,14 @@
     （`_generationChildren` / `_chatChildren` / `_marketChildren` / `_worldBookChildren` /
     `_appearanceChildren` / `_helpChildren`）。
   - `test/v21_test.dart`（新增 6 例）。
+
+## 本轮变更（v0.21.2）详解
+
+### 下载完成后翻译阶段显示「正在翻译…」
+
+- `lib/screens/card_market_screen.dart`：详情页新增 `_translating` 状态；`_import()` 在 `importCardBytes` 成功后先把 `_downloading` 置 false，随即进入翻译分支；`_askAndLocalize` 在用户选了「免费翻译 / 用模型翻译」后置 `_translating = true`（`finally` 复位），原来的翻译主体拆成 `_localizeWithFallback()`。
+- 按钮与进度条：`busy = _downloading || _translating`；翻译阶段进度条改为不确定进度（`value: null`），按钮禁用并显示「正在翻译…」；下载失败/解析失败/其它异常的三个 catch 分支同时复位两个状态。
+- 已知边界：翻译阶段的进度条无法给百分比（翻译接口不报进度），只表示「还在处理」。
 
 ## 本轮变更（v0.21.1）详解
 
@@ -85,7 +93,7 @@
 | --- | --- |
 | `flutter analyze` | **No issues found!**（5.2s） |
 | `flutter test` | **+309 All tests passed!**（9s，其中 test/v21_test.dart 6 例、extractModelInfos 3 例） |
-| `flutter build apk --release` | 59.3MB（Gradle 48.8s），versionCode **21** / versionName **0.21.1** |
+| `flutter build apk --release` | 59.3MB（Gradle 49.3s），versionCode **22** / versionName **0.21.2** |
 | 装机 | `adb -s 19faf100 install -r`（USB）→ **Success** |
 
 ## 真机自测清单（v0.21.0）
@@ -121,9 +129,10 @@
 - 真机点按用**视觉坐标**（uiautomator bounds 常与视觉位置不符）。
 - git 提交不要传 `-c user.name/-c user.email`（仓库配置已是 `Alorith-H <2835147611@qq.com>`）。
 
-## 本次运行记录（v0.21.1）
+## 本次运行记录（v0.21.2）
 
-- `flutter analyze`：No issues found!（5.2s）
+- `flutter analyze`：No issues found!（4.7s）
 - `flutter test`：+309 All tests passed!（9s）
-- `flutter build apk --release`：59.3MB（Gradle 48.8s），versionCode **21** / versionName **0.21.1**
-- 装机：`adb -s 19faf100 install -r`（USB）→ **Success**，versionCode 21 / 0.21.1，数据保留。
+- `flutter build apk --release`：59.3MB（Gradle 49.3s），versionCode **22** / versionName **0.21.2**
+- 装机：`adb -s 19faf100 install -r`（USB）→ **Success**，lastUpdateTime 2026-11-22 23:05:51，数据保留；`am start` 正常。
+- 说明：v0.21.2 只改了角色卡市场详情页的「正在翻译…」提示，未新增自动化测试（该路径涉及真实文件 IO，widget 测试需 runAsync；已手动装机交给用户自测）。
