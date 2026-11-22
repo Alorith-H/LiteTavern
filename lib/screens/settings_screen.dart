@@ -933,13 +933,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('关于 LiteTavern'),
-        content: const Column(
+        content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('版本 v$kAppVersion'),
-            SizedBox(height: 10),
-            Text('简洁明了的 AI 角色扮演聊天 App，兼容 SillyTavern 角色卡与世界书。'),
+            const Text('版本 v$kAppVersion'),
+            const SizedBox(height: 10),
+            const Text('简洁明了的 AI 角色扮演聊天 App，兼容 SillyTavern 角色卡与世界书。'),
+            const SizedBox(height: 10),
+            Text(
+              '作者：Alorith',
+              style: TextStyle(
+                fontSize: AppType.body,
+                color: Theme.of(ctx).colorScheme.onSurface,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'https://github.com/Alorith-H/LiteTavern',
+              style: TextStyle(
+                fontSize: AppType.caption,
+                color: Theme.of(ctx).colorScheme.primary,
+              ),
+            ),
           ],
         ),
         actions: [
