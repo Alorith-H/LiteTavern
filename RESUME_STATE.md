@@ -1,4 +1,4 @@
-# 交接状态：v0.18.0 新手引导与交互方式打磨（2026-11-22 更新）
+# 交接状态：v0.18.1 体验修复（2026-11-22 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
 > v0.11.0（角色卡市场）、v0.12.0（市场筛选 + 设置开关）、v0.12.1（修正为「用户侧」建议回复）、
@@ -9,7 +9,7 @@
 > v0.16.0（用户人设 Persona、作者注释、宏增强、替我说一句、导出对话文件）、
 > v0.17.0（多聊天文件、对话分支、消息书签）。
 >
-> **本轮 v0.18.0**：
+> **本轮 v0.18.0**（已发布）：
 > ① **输入栏辅助二选一**（建议回复 / 替我说一句 / 都关闭，三选一；关掉后按钮不显示）；
 > ② **新手引导扩到 6 步**（新增「选一种顺手的方式」，新手选型提示置顶，新增「自定义接口」）；
 > ③ **自动摘要后台静默执行**（不再显示「正在总结早期对话…」）；
@@ -17,7 +17,7 @@
 
 ## 仓库状态
 
-- 分支 `dev`，版本 `pubspec.yaml` = **0.18.0+16**，`lib/app_info.dart` `kAppVersion = '0.18.0'`。
+- 分支 `dev`，版本 `pubspec.yaml` = **0.18.1+17**，`lib/app_info.dart` `kAppVersion = '0.18.1'`。
 - 改动文件：`lib/services/storage.dart`（`AssistMode` + `assistMode` 设置）、
   `lib/screens/settings_screen.dart`、`lib/screens/chat_screen.dart`、
   `lib/screens/onboarding_screen.dart`、`test/v12_test.dart`、`test/onboarding_screen_test.dart`、
@@ -67,23 +67,33 @@
   点「用自定义接口」清空地址/模型并直接翻到第 3 步填写。
 - 第 6 步（完成页）说明按所选模式动态显示「左侧那个帮手按钮」的作用，并补「长对话会自动摘要」。
 
+## 本轮修复（v0.18.1）
+
+1. **聊天菜单滚不动 → 书签被挤到屏幕外**：`chat_screen.dart` 的 `_showMenu()`
+   改为 `isScrollControlled: true` + `SafeArea > ConstrainedBox(maxHeight: 屏高 * 0.72) >
+   SingleChildScrollView > Column`，菜单项再多也能滚到；顺带加了 `showDragHandle`。
+2. **建议回复出现慢**：`_suggestReplies()` 改为三条并行 + 谁先回就先显示（`unawaited(...).then`，
+   `_suggesting` 直到最后一条回来才关）；新增 `_buildSuggestionMessages()`
+   （只发 system + 最近 10 条，不再整段世界书/摘要/全历史）与 `_suggestionMaxTokens`
+   （单条上限 240 token），显著缩短等待。
+
 ## 验证
 
 | 项目 | 结果 |
 | --- | --- |
-| `flutter analyze` | **No issues found!**（10.7s） |
-| `flutter test` | **+273 All tests passed!**（11s） |
+| `flutter analyze` | **No issues found!**（6.6s，v0.18.1 修复后） |
+| `flutter test` | **+273 All tests passed!**（9s，v0.18.1 修复后） |
 | `flutter build apk --release` | 见「本次运行记录」 |
 | 装机 | 见「本次运行记录」 |
 | 真机自测 | 见下「真机自测清单」 |
 
-## 真机自测清单（v0.18.0）
+## 真机自测清单（v0.18.1）
 
-1. 设置 → 聊天 → 输入栏辅助按钮：依次选三种，回到聊天页确认左侧按钮随之出现/消失（都关闭时两个都没有）。
-2. 设置里「长对话自动摘要」能看到「会消耗 token」提示；点「自动摘要怎么工作」能打开说明弹窗。
-3. 聊天中触发摘要（把记忆长度调到很小再发消息）时，不应再出现「正在总结…」提示条。
-4. 删除新手引导数据后重进：应为 6 步；第 2 步新手提示在服务商列表上面；点「用自定义接口」直接到第 3 步。
-5. 第 4 步选「替我说一句」后，聊天页左侧只显示替我说一句按钮；选「都关闭」后两个都不显示。
+1. 聊天页 ⋮ 菜单：往下滚，确认「书签」「作者注释」等靠后的项都能看到并点到（小屏必须验证）。
+2. 选「生成建议回复」后发一条消息：AI 回复完应立刻出现「生成中…」，并且三条建议陆续出现（不用等全部）。
+3. 设置 → 聊天 → 输入栏辅助按钮：三种模式切换后左侧按钮随之出现/消失。
+4. 设置里「长对话自动摘要」带有「会消耗 token」说明，点「自动摘要怎么工作」能打开弹窗。
+5. 新手指引为 6 步，第 2 步新手提示在服务商列表上面，第 4 步可三选一。
 
 ## 已知边界
 
@@ -103,10 +113,10 @@
 
 ## 本次运行记录（由本轮执行后填写）
 
-- `flutter analyze`：No issues found!（10.7s）
-- `flutter test`：+273 All tests passed!（11s）
-- `flutter build apk --release`：59.0MB（60,378,120 字节，Gradle 61.8s），versionCode **16** / versionName **0.18.0**
-- 装机：`adb connect 192.168.0.102:42543` → `adb -s ... install -r` → **Success**；
-  dumpsys 确认 versionCode 16 / versionName 0.18.0 / lastUpdateTime 2026-11-22 21:10:06；
-  `am start -n com.alorith.litetavern/.MainActivity` 正常启动，数据保留（SCP 角色仍在），
-  截图 `build\v180_device_home.png`。
+- `flutter analyze`：No issues found!（6.6s）
+- `flutter test`：+273 All tests passed!（9s）
+- `flutter build apk --release`：59.0MB（Gradle 41.1s），versionCode **17** / versionName **0.18.1**
+- 装机：`adb -s 192.168.0.102:42543 install -r` → **Success**；
+  dumpsys 确认 versionCode 17 / versionName 0.18.1 / lastUpdateTime 2026-11-22 21:20:49。
+- 真机抽查：⋮ 菜单已可滚动，`书签` / `作者注释` / `继续生成` / `重新生成` / `立即总结早期对话` 都能看到并点到
+  （截图 `build\v181_menu.png`、`build\v181_menu2.png`）；数据保留。

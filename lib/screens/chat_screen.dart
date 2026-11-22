@@ -915,26 +915,53 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _suggestReplies() async {
     if (_isGroup || _suggesting || _generating || _summarizing) return;
     final seq = ++_suggestSeq;
-    setState(() => _suggesting = true);
+    setState(() {
+      _suggesting = true;
+      _suggestions = const <String>[];
+    });
     // 输入栏上方多出一行 → 视口变矮，把最后一条气泡重新贴到底部
     _keepBottomVisible();
-    final built = _buildPrompt();
+    final messages = _buildSuggestionMessages();
     final sampling = AppSettings.activePreset.sampling;
-    final results = await Future.wait([
-      for (var i = 0; i < _kSuggestionCount; i++)
-        // 每条给不同的语气/风格指令，避免三条雷同
+    final received = <String>[];
+    var remaining = _kSuggestionCount;
+    // v0.18.1：三条并行请求，谁先回来就先显示谁 —— 不用等最慢的那条。
+    for (var i = 0; i < _kSuggestionCount; i++) {
+      unawaited(
         _fetchOneSuggestion(
-          appendSuggestionInstruction(built.messages, styleIndex: i),
+          // 每条给不同的语气/风格指令，避免三条雷同
+          appendSuggestionInstruction(messages, styleIndex: i),
           sampling.forCandidate(i),
-        ),
-    ]);
-    if (!mounted || seq != _suggestSeq) return;
-    setState(() {
-      _suggesting = false;
-      _suggestions = normalizeSuggestions(results);
-    });
-    // 建议行渲染完成后再贴一次底，避免气泡被建议条挡住
-    _keepBottomVisible();
+        ).then((text) {
+          remaining--;
+          final t = text.trim();
+          if (!mounted || seq != _suggestSeq) return;
+          if (t.isNotEmpty) received.add(t);
+          setState(() {
+            _suggestions = normalizeSuggestions(received);
+            if (remaining <= 0) _suggesting = false;
+          });
+          // 建议行渲染完成后再贴一次底，避免气泡被建议条挡住
+          _keepBottomVisible();
+        }),
+      );
+    }
+  }
+
+  /// 建议回复只依赖最近的上下文：整段 prompt 太大（世界书 + 摘要 + 全历史），
+  /// 会让三条小请求的等待时间明显变长。这里只保留 system + 最近 10 条。
+  List<PromptMessage> _buildSuggestionMessages() {
+    final all = _buildPrompt().messages;
+    const keep = 10;
+    if (all.length <= keep + 1) return all;
+    return <PromptMessage>[all.first, ...all.sublist(all.length - keep)];
+  }
+
+  /// 建议每条最多回多少 token：够一句话就行，别按聊天回复的上限等。
+  int get _suggestionMaxTokens {
+    final m = AppSettings.activePreset.maxTokens;
+    if (m <= 0 || m > 240) return 240;
+    return m;
   }
 
   /// 跟随状态下把最后一条气泡贴到底部（建议条/加载行出现时调用）。
@@ -980,7 +1007,7 @@ class _ChatScreenState extends State<ChatScreen> {
         messages: messages,
         temperature: AppSettings.temperature,
         topP: AppSettings.topP,
-        maxTokens: AppSettings.maxTokens,
+        maxTokens: _suggestionMaxTokens,
         stream: false,
         sampling: sampling,
         onDelta: buf.write,
@@ -1765,10 +1792,19 @@ class _ChatScreenState extends State<ChatScreen> {
         hasSummarizableHistory(_messages, _historyLimit);
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      // v0.18.1：菜单项多（13+），小屏上原来会把「书签」等挤到屏幕外，
+      // 现在限高 + 可滚动，任何一项都点得到。
       builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.72,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
             ListTile(
               title: const Text('清空对话'),
               onTap: () {
@@ -1886,7 +1922,9 @@ class _ChatScreenState extends State<ChatScreen> {
                   _rotateGreeting();
                 },
               ),
-          ],
+              ],
+            ),
+          ),
         ),
       ),
     );
