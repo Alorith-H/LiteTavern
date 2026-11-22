@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:litetavern/services/api_presets.dart';
 import 'package:litetavern/services/prompt_builder.dart';
 import 'package:litetavern/services/reply_suggestions.dart';
 import 'package:litetavern/services/sampling_params.dart';
@@ -95,36 +96,39 @@ void main() {
     });
   });
 
-  // ------------------------------------------------ 上下文窗口默认 1M --
-  group('设置：上下文窗口默认 1M（v0.14.1 迁移）', () {
-    test('全新安装默认 1,000,000', () async {
+  // ------------------------------------------- 上下文长度（v0.20.0 起跟模型走） --
+  group('设置：上下文长度按模型自动（v0.20.0）', () {
+    test('全新安装按当前模型自动推断', () async {
       SharedPreferences.setMockInitialValues({});
       await AppSettings.init();
-      expect(AppSettings.contextWindow, 1000000);
+      expect(AppSettings.contextWindow, contextWindowForModel(AppSettings.model));
     });
 
-    test('旧默认值 65536 迁移为 1M', () async {
-      SharedPreferences.setMockInitialValues({
-        'model_context_window': 65536,
-      });
+    test('显式写入后覆盖自动值，并可读回', () async {
+      SharedPreferences.setMockInitialValues({});
       await AppSettings.init();
-      expect(AppSettings.contextWindow, 1000000);
-    });
-
-    test('用户自己设过的值保持不变', () async {
-      SharedPreferences.setMockInitialValues({
-        'model_context_window': 32000,
-      });
+      AppSettings.contextWindow = 32000;
+      expect(AppSettings.contextWindow, 32000);
       await AppSettings.init();
       expect(AppSettings.contextWindow, 32000);
     });
 
-    test('迁移只跑一次：之后再改回 65536 不会被再次覆盖', () async {
+    test('切换模型后，自动值跟着模型变', () async {
       SharedPreferences.setMockInitialValues({});
       await AppSettings.init();
-      AppSettings.contextWindow = 65536;
+      AppSettings.contextWindow = 0; // 回到自动
+      AppSettings.model = 'glm-4-flash';
+      expect(AppSettings.contextWindow, 128000);
+      AppSettings.model = 'gpt-4o-mini';
+      expect(AppSettings.contextWindow, 128000);
+    });
+
+    test('旧的全局键只清理、不影响结果', () async {
+      SharedPreferences.setMockInitialValues({
+        'model_context_window': 32000,
+      });
       await AppSettings.init();
-      expect(AppSettings.contextWindow, 65536);
+      expect(AppSettings.contextWindow, contextWindowForModel(AppSettings.model));
     });
   });
 

@@ -112,7 +112,9 @@ class _ApiConfigsScreenState extends State<ApiConfigsScreen> {
                               ? (c.baseUrl.trim().isEmpty
                                   ? '未配置'
                                   : c.baseUrl.trim())
-                              : c.model.trim(),
+                              : '${c.model.trim()} · 上下文 '
+                                  '${formatContextWindow(c.contextWindow > 0 ? c.contextWindow : contextWindowForModel(c.model))}'
+                                  '${c.contextWindow > 0 ? '' : '（自动）'}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -180,8 +182,10 @@ class _ApiConfigEditScreenState extends State<ApiConfigEditScreen> {
   late final TextEditingController _urlCtrl;
   late final TextEditingController _keyCtrl;
   late final TextEditingController _modelCtrl;
+  late final TextEditingController _ctxCtrl;
   bool _obscureKey = true;
   bool _testing = false;
+  bool _loadingModels = false;
   String? _testOk; // 成功提示（模型名 + 耗时）
 
   final _api = ApiClient();
@@ -215,6 +219,8 @@ class _ApiConfigEditScreenState extends State<ApiConfigEditScreen> {
     _urlCtrl = TextEditingController(text: c?.baseUrl ?? '');
     _keyCtrl = TextEditingController(text: c?.key ?? '');
     _modelCtrl = TextEditingController(text: c?.model ?? '');
+    final ctx = c?.contextWindow ?? 0;
+    _ctxCtrl = TextEditingController(text: ctx > 0 ? '$ctx' : '');
   }
 
   @override
@@ -223,8 +229,57 @@ class _ApiConfigEditScreenState extends State<ApiConfigEditScreen> {
     _urlCtrl.dispose();
     _keyCtrl.dispose();
     _modelCtrl.dispose();
+    _ctxCtrl.dispose();
     _api.dispose();
     super.dispose();
+  }
+
+  /// 表单里填的上下文长度：空 / 0 = 自动（按模型推断）。
+  int get _ctxValue {
+    final v = int.tryParse(_ctxCtrl.text.trim()) ?? 0;
+    return v <= 0 ? 0 : v;
+  }
+
+  /// 当前「自动」会算出多少（展示用）。
+  int get _autoCtx => contextWindowForModel(_modelCtrl.text);
+
+  /// 选模型后，如果上下文还停在「自动」，就跟着这个模型刷新提示。
+  void _onModelChanged() {
+    if (_ctxValue == 0) setState(() {});
+  }
+
+  /// 拉取这个接口的模型列表，点选一个填进「模型名」。
+  Future<void> _pickModel() async {
+    final url = _urlCtrl.text.trim();
+    final key = _keyCtrl.text.trim();
+    if (url.isEmpty) {
+      _toast('请先填写接口地址');
+      return;
+    }
+    setState(() => _loadingModels = true);
+    try {
+      final models = await _api.fetchModels(baseUrl: url, apiKey: key);
+      if (!mounted) return;
+      final picked = await showModalBottomSheet<String>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (ctx) => _ModelPickerSheet(
+          models: models,
+          current: _modelCtrl.text.trim(),
+        ),
+      );
+      if (picked == null || !mounted) return;
+      setState(() {
+        _modelCtrl.text = picked;
+        _testOk = null;
+        if (_ctxValue == 0) _ctxCtrl.text = '';
+      });
+    } catch (e) {
+      if (mounted) _toast('$e');
+    } finally {
+      if (mounted) setState(() => _loadingModels = false);
+    }
   }
 
   /// 测表单里的值（未保存也生效）：成功显示返回的模型名与耗时。
@@ -273,6 +328,7 @@ class _ApiConfigEditScreenState extends State<ApiConfigEditScreen> {
         baseUrl: _urlCtrl.text.trim(),
         key: _keyCtrl.text.trim(),
         model: _modelCtrl.text.trim(),
+        contextWindow: _ctxValue,
       );
       AppSettings.apiConfigs = [...AppSettings.apiConfigs, cfg];
     } else {
@@ -281,6 +337,7 @@ class _ApiConfigEditScreenState extends State<ApiConfigEditScreen> {
         baseUrl: _urlCtrl.text.trim(),
         key: _keyCtrl.text.trim(),
         model: _modelCtrl.text.trim(),
+        contextWindow: _ctxValue,
       );
       AppSettings.apiConfigs = [
         for (final c in AppSettings.apiConfigs)
@@ -328,10 +385,63 @@ class _ApiConfigEditScreenState extends State<ApiConfigEditScreen> {
                     onPressed: () => setState(() {
                       _urlCtrl.text = p.baseUrl;
                       _modelCtrl.text = p.model;
+                      _ctxCtrl.text = '${p.contextWindow}';
                       _testOk = null;
                     }),
                   ),
               ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _modelCtrl,
+                    onChanged: (_) => _onModelChanged(),
+                    decoration: const InputDecoration(
+                      labelText: '模型名',
+                      hintText: 'deepseek-chat',
+                      helperText: '照服务商文档填，或点右边「获取模型列表」挑',
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: _loadingModels || _urlCtrl.text.trim().isEmpty
+                      ? null
+                      : _pickModel,
+                  child: _loadingModels
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('获取模型列表'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _ctxCtrl,
+              keyboardType: TextInputType.number,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: '上下文长度（token）',
+                hintText: '留空 = 按模型自动（${formatContextWindow(_autoCtx)}）',
+                helperText: _ctxValue == 0
+                    ? '按模型自动：${formatContextWindow(_autoCtx)}；'
+                        '超出会自动压缩早期对话'
+                    : '手填的值会覆盖自动判断',
+                isDense: true,
+                suffixIcon: _ctxValue == 0
+                    ? null
+                    : IconButton(
+                        tooltip: '改回按模型自动',
+                        icon: const Icon(Icons.autorenew, size: 20),
+                        onPressed: () => setState(() => _ctxCtrl.text = ''),
+                      ),
+              ),
             ),
             const SizedBox(height: 4),
             Row(
@@ -429,6 +539,109 @@ class _ApiConfigEditScreenState extends State<ApiConfigEditScreen> {
                 style: TextStyle(fontSize: AppType.caption, color: scheme.primary),
               ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 模型列表选择弹层（v0.20.0）：从 `GET /models` 拉回来的模型里挑一个。
+class _ModelPickerSheet extends StatefulWidget {
+  const _ModelPickerSheet({required this.models, required this.current});
+
+  final List<String> models;
+  final String current;
+
+  @override
+  State<_ModelPickerSheet> createState() => _ModelPickerSheetState();
+}
+
+class _ModelPickerSheetState extends State<_ModelPickerSheet> {
+  final _searchCtrl = TextEditingController();
+  late List<String> _filtered = widget.models;
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onSearch(String raw) {
+    final q = raw.trim().toLowerCase();
+    setState(() {
+      _filtered = q.isEmpty
+          ? widget.models
+          : widget.models.where((m) => m.toLowerCase().contains(q)).toList();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final height = MediaQuery.of(context).size.height;
+    return SafeArea(
+      child: SizedBox(
+        height: height * 0.6,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '选择模型（${widget.models.length}）',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: scheme.onSurface,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: TextField(
+                controller: _searchCtrl,
+                onChanged: _onSearch,
+                decoration: const InputDecoration(
+                  hintText: '搜索模型名',
+                  prefixIcon: Icon(Icons.search, size: 20),
+                  isDense: true,
+                ),
+              ),
+            ),
+            Expanded(
+              child: _filtered.isEmpty
+                  ? Center(
+                      child: Text(
+                        '没有匹配的模型',
+                        style: TextStyle(
+                          fontSize: AppType.caption,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: _filtered.length,
+                      itemBuilder: (ctx, i) {
+                        final name = _filtered[i];
+                        final selected = name == widget.current;
+                        return ListTile(
+                          dense: true,
+                          selected: selected,
+                          title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          trailing: selected
+                              ? Icon(Icons.check, size: 18, color: scheme.primary)
+                              : null,
+                          onTap: () => Navigator.of(context).pop(name),
+                        );
+                      },
+                    ),
+            ),
           ],
         ),
       ),

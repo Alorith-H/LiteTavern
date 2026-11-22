@@ -52,6 +52,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   bool _obscureKey = true;
   bool _testing = false;
   bool _testOk = false;
+  bool _loadingModels = false;
   String? _testError;
   AssistMode _assistMode = AssistMode.suggestions;
 
@@ -196,6 +197,47 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   /// 该预设是否就是当前填的地址（决定 chip 选中态）。
   bool _isCurrentPreset(ApiPreset preset) =>
       (presetForBaseUrl(_urlCtrl.text)?.label ?? '') == preset.label;
+
+  /// 从接口拉取模型列表，点一个填进「模型名」（v0.20.0）。
+  Future<void> _pickModel() async {
+    final url = _urlCtrl.text.trim();
+    final key = _keyCtrl.text.trim();
+    if (url.isEmpty) {
+      _snack('请先填写 Base URL');
+      return;
+    }
+    setState(() => _loadingModels = true);
+    try {
+      final models = await _api.fetchModels(baseUrl: url, apiKey: key);
+      if (!mounted) return;
+      final picked = await showModalBottomSheet<String>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (ctx) => _ModelListSheet(
+          models: models,
+          current: _modelCtrl.text.trim(),
+        ),
+      );
+      if (picked == null || !mounted) return;
+      setState(() {
+        _modelCtrl.text = picked;
+        _testOk = false;
+        _testError = null;
+        _saveModelConfig();
+      });
+    } catch (e) {
+      if (mounted) _snack('$e');
+    } finally {
+      if (mounted) setState(() => _loadingModels = false);
+    }
+  }
+
+  void _snack(String msg) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(msg)));
+  }
 
   void _openProviderHelp(ApiPreset preset) {
     if (preset.note.contains('无需 Key')) {
@@ -634,7 +676,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       ),
       const SizedBox(height: 14),
       _lead(
-        '下面 5 家都能用，也可以拉到最下面用自定义接口。点「去官网获取 Key」，'
+        '下面 ${kApiPresets.length} 家都能用，也可以拉到最下面用自定义接口。点「去官网获取 Key」，'
         '按弹窗里的 4 步走一遍就行——复制到的 Key 先别关网页，第 3 步要粘贴回来。',
       ),
       const SizedBox(height: 16),
@@ -663,7 +705,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     ),
                   ),
                 ),
-                _badge(local ? '本地' : '需 Key'),
+                _badge(preset.free ? '免费' : (local ? '本地' : '需 Key')),
               ],
             ),
             if (preset.note.isNotEmpty) ...[
@@ -851,20 +893,54 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         }),
       ),
       const SizedBox(height: 14),
-      TextField(
-        controller: _modelCtrl,
-        autocorrect: false,
-        decoration: const InputDecoration(
-          labelText: '模型名',
-          hintText: 'deepseek-chat',
-          helperText: '服务商文档里的模型 ID，例如 deepseek-chat、glm-4-flash；点预设会自动填好。',
-          helperMaxLines: 3,
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _modelCtrl,
+              autocorrect: false,
+              decoration: const InputDecoration(
+                labelText: '模型名',
+                hintText: 'deepseek-chat',
+                helperText: '服务商文档里的模型 ID，例如 deepseek-chat、glm-4-flash；点预设会自动填好。',
+                helperMaxLines: 3,
+              ),
+              onChanged: (_) => setState(() {
+                _testOk = false;
+                _testError = null;
+                _saveModelConfig();
+              }),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: OutlinedButton(
+              onPressed: _loadingModels || _urlCtrl.text.trim().isEmpty
+                  ? null
+                  : _pickModel,
+              child: _loadingModels
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('获取模型列表'),
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      Text(
+        '从接口拉回来的列表里挑一个，省得手动抄。'
+        '上下文长度按模型自动：${formatContextWindow(contextWindowForModel(_modelCtrl.text))}'
+        '（之后可在 设置 → 模型服务 里改）。',
+        style: TextStyle(
+          fontSize: AppType.caption,
+          height: 1.45,
+          color: scheme.onSurfaceVariant,
         ),
-        onChanged: (_) => setState(() {
-          _testOk = false;
-          _testError = null;
-          _saveModelConfig();
-        }),
       ),
       const SizedBox(height: 20),
       Row(
@@ -1276,5 +1352,107 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       const SizedBox(height: 12),
       _small('想再看一遍这段引导：设置 → 帮助 → 重看新手引导。'),
     ]);
+  }
+}
+
+/// 模型列表弹层（v0.20.0）：引导页第 3 步拉取接口模型后点选。
+class _ModelListSheet extends StatefulWidget {
+  const _ModelListSheet({required this.models, required this.current});
+
+  final List<String> models;
+  final String current;
+
+  @override
+  State<_ModelListSheet> createState() => _ModelListSheetState();
+}
+
+class _ModelListSheetState extends State<_ModelListSheet> {
+  final _searchCtrl = TextEditingController();
+  late List<String> _filtered = widget.models;
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onSearch(String raw) {
+    final q = raw.trim().toLowerCase();
+    setState(() {
+      _filtered = q.isEmpty
+          ? widget.models
+          : widget.models.where((m) => m.toLowerCase().contains(q)).toList();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SafeArea(
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.6,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '选择模型（${widget.models.length}）',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: TextField(
+                controller: _searchCtrl,
+                onChanged: _onSearch,
+                decoration: const InputDecoration(
+                  hintText: '搜索模型名',
+                  prefixIcon: Icon(Icons.search, size: 20),
+                  isDense: true,
+                ),
+              ),
+            ),
+            Expanded(
+              child: _filtered.isEmpty
+                  ? Center(
+                      child: Text(
+                        '没有匹配的模型',
+                        style: TextStyle(
+                          fontSize: AppType.caption,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: _filtered.length,
+                      itemBuilder: (ctx, i) {
+                        final name = _filtered[i];
+                        final selected = name == widget.current;
+                        return ListTile(
+                          dense: true,
+                          selected: selected,
+                          title: Text(
+                            name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: selected
+                              ? Icon(Icons.check, size: 18, color: scheme.primary)
+                              : null,
+                          onTap: () => Navigator.of(context).pop(name),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

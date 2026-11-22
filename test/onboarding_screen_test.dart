@@ -62,16 +62,20 @@ void main() {
     expect(find.text('进入 LiteTavern'), findsOneWidget);
   });
 
-  testWidgets('第 2 步：5 家服务商 + 自定义接口都列出，并给出选择建议', (tester) async {
+  testWidgets('第 2 步：全部服务商 + 自定义接口都列出，并给出选择建议', (tester) async {
     await _pump(tester);
     await _tapPrimary(tester, '我知道了，下一步');
 
     for (final preset in kApiPresets) {
       expect(find.text(preset.label), findsOneWidget, reason: preset.label);
     }
-    // 每张卡片都能打开获取 Key 的帮助入口
-    expect(find.text('去官网获取 Key'), findsNWidgets(4));
+    // 每张「需 Key」的卡片都能打开获取 Key 的帮助入口（Ollama 是下载页）
+    final remote = kApiPresets.where((p) => !p.note.contains('无需 Key')).length;
+    expect(find.text('去官网获取 Key'), findsNWidgets(remote));
     expect(find.text('去下载 Ollama'), findsOneWidget);
+    // 智谱 GLM-4-Flash 免费，排第一且有「免费」徽章
+    expect(kApiPresets.first.model, 'glm-4-flash');
+    expect(find.text('免费'), findsOneWidget);
     // 自定义接口（v0.18.0）
     expect(find.text('自定义接口'), findsOneWidget);
     expect(find.text('用自定义接口'), findsOneWidget);

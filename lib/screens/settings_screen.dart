@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import '../app_info.dart';
 import '../main.dart';
 import '../models/world_info.dart';
+import '../services/api_presets.dart';
 import '../services/external_links.dart';
 import '../services/storage.dart';
 import '../services/user_personas.dart';
@@ -31,7 +32,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _azureKeyCtrl;
   late final TextEditingController _azureRegionCtrl;
   late final TextEditingController _maxTokensCtrl;
-  late final TextEditingController _contextWindowCtrl;
   late double _temperature;
   late double _topP;
   late double _chatFontSize;
@@ -77,8 +77,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _azureRegionCtrl =
         TextEditingController(text: AppSettings.azureTranslatorRegion);
     _maxTokensCtrl = TextEditingController(text: '${AppSettings.maxTokens}');
-    _contextWindowCtrl =
-        TextEditingController(text: '${AppSettings.contextWindow}');
     _temperature = AppSettings.temperature.clamp(0.0, 2.0).toDouble();
     _topP = AppSettings.topP.clamp(0.0, 1.0).toDouble();
     _chatFontSize = AppSettings.chatFontSize;
@@ -101,7 +99,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _azureKeyCtrl.dispose();
     _azureRegionCtrl.dispose();
     _maxTokensCtrl.dispose();
-    _contextWindowCtrl.dispose();
     _hexCtrl.dispose();
     super.dispose();
   }
@@ -447,16 +444,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const _SubLine('每次发送保留最近多少条消息'),
           const SizedBox(height: 8),
-          TextField(
-            controller: _contextWindowCtrl,
-            keyboardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            decoration: const InputDecoration(
-              labelText: '模型上下文窗口',
-              helperText: '模型单次能装下的最大 token，超了会自动压缩（默认 1000000 = 1M）\n0 = 关闭占用%与自动压缩',
-              helperMaxLines: 2,
+          _actionRow(
+            title: '模型上下文窗口',
+            subtitle:
+                '当前 ${formatContextWindow(AppSettings.contextWindow)}（按模型自动）· '
+                '在 设置 → 模型服务 → 编辑配置 里改',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const ApiConfigsScreen(),
+              ),
             ),
-            onChanged: (v) => AppSettings.contextWindow = int.tryParse(v) ?? 0,
           ),
           const SizedBox(height: 8),
           const Divider(height: 1),

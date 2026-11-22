@@ -359,6 +359,70 @@ class ApiClient {
   static String _trimSlash(String url) =>
       url.trim().replaceAll(RegExp(r'/+$'), '');
 
+  /// 拉取这个接口支持的模型列表（OpenAI 兼容 `GET /models`）。
+  ///
+  /// 返回 model id（已去重、升序）；接口不支持 / 没权限时抛 [ApiException]。
+  Future<List<String>> fetchModels({
+    required String baseUrl,
+    required String apiKey,
+  }) async {
+    final uri = Uri.parse('${_trimSlash(baseUrl)}/models');
+    final http.Response response;
+    try {
+      response = await http.get(
+        uri,
+        headers: {
+          if (apiKey.trim().isNotEmpty) 'Authorization': 'Bearer ${apiKey.trim()}',
+          'Accept': 'application/json',
+        },
+      ).timeout(const Duration(seconds: 20));
+    } on TimeoutException {
+      throw const ApiException('获取模型列表超时，检查网络或 Base URL 是否正确');
+    } catch (e) {
+      throw ApiException('获取模型列表失败：$e');
+    }
+    if (response.statusCode != 200) {
+      throw ApiException(humanError(response.statusCode, response.body));
+    }
+    final ids = extractModelIds(response.body);
+    if (ids.isEmpty) {
+      throw const ApiException('这个接口没有返回模型列表（可能不支持 /models）');
+    }
+    return ids;
+  }
+
+  /// 从 `/models` 响应里提取模型 id。
+  ///
+  /// 兼容 `{data:[{id}]}`（OpenAI）、`{models:[{id}]}`、`{data:["x"]}`、
+  /// 以及直接是字符串数组的情况。
+  static List<String> extractModelIds(String body) {
+    final ids = <String>{};
+    void take(dynamic item) {
+      if (item is String) {
+        if (item.trim().isNotEmpty) ids.add(item.trim());
+      } else if (item is Map) {
+        final id = item['id'] ?? item['name'] ?? item['model'];
+        if (id is String && id.trim().isNotEmpty) ids.add(id.trim());
+      }
+    }
+
+    try {
+      final data = jsonDecode(body);
+      if (data is List) {
+        data.forEach(take);
+      } else if (data is Map) {
+        for (final key in const ['data', 'models', 'items', 'list']) {
+          final v = data[key];
+          if (v is List) v.forEach(take);
+        }
+      }
+    } catch (_) {
+      // 非 JSON：交给调用方按「拿不到列表」处理
+    }
+    final list = ids.toList()..sort();
+    return list;
+  }
+
   /// 非 200 → 中文可读错误。
   static String humanError(int code, String body) {
     if (code == 401 || code == 403) {

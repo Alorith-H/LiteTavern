@@ -10,6 +10,7 @@ import '../models/chat_group.dart';
 import '../models/character_card.dart';
 import '../models/world_info.dart';
 import 'hit_stats.dart';
+import 'api_presets.dart';
 import 'sampling_params.dart';
 import 'summarize.dart';
 
@@ -398,12 +399,16 @@ class ApiConfig {
   final String key;
   final String model;
 
+  /// 上下文长度（token）。0 = 按模型自动（v0.20.0）。
+  final int contextWindow;
+
   const ApiConfig({
     required this.id,
     required this.name,
     this.baseUrl = '',
     this.key = '',
     this.model = '',
+    this.contextWindow = 0,
   });
 
   factory ApiConfig.fromJson(Map<String, dynamic> json) => ApiConfig(
@@ -412,6 +417,9 @@ class ApiConfig {
         baseUrl: json['baseUrl'] is String ? json['baseUrl'] as String : '',
         key: json['key'] is String ? json['key'] as String : '',
         model: json['model'] is String ? json['model'] as String : '',
+        contextWindow: json['contextWindow'] is int
+            ? (json['contextWindow'] as int).clamp(0, 1 << 30)
+            : 0,
       );
 
   Map<String, dynamic> toJson() => {
@@ -420,15 +428,23 @@ class ApiConfig {
         'baseUrl': baseUrl,
         'key': key,
         'model': model,
+        'contextWindow': contextWindow,
       };
 
-  ApiConfig copyWith({String? name, String? baseUrl, String? key, String? model}) =>
+  ApiConfig copyWith({
+    String? name,
+    String? baseUrl,
+    String? key,
+    String? model,
+    int? contextWindow,
+  }) =>
       ApiConfig(
         id: id,
         name: name ?? this.name,
         baseUrl: baseUrl ?? this.baseUrl,
         key: key ?? this.key,
         model: model ?? this.model,
+        contextWindow: contextWindow ?? this.contextWindow,
       );
 }
 
@@ -656,16 +672,13 @@ class AppSettings {
     _sp.remove(_kMaxTokens);
   }
 
-  /// v0.14.1：上下文窗口默认值从 65,536 提升到 1,000,000（1M）。
+  /// v0.14.1 遗留：上下文窗口曾全局默认 1M。
   ///
-  /// 只迁移「没改过」的用户——键不存在，或值仍等于旧默认 65536；
-  /// 自己设过别的值的保持不变。迁移只跑一次（flag 记录）。
+  /// v0.20.0 起上下文长度跟着「模型配置」走（[ApiConfig.contextWindow]，
+  /// 0 = 按模型自动），旧的全局键只清掉，不再参与计算。
   static void _migrateContextWindow1M() {
     if (_sp.getBool(_kCtxWindow1MMigrated) ?? false) return;
-    final current = _sp.getInt(_kContextWindow);
-    if (current == null || current == 65536) {
-      _sp.setInt(_kContextWindow, 1000000);
-    }
+    _sp.remove(_kContextWindow);
     _sp.setBool(_kCtxWindow1MMigrated, true);
   }
 
@@ -1037,14 +1050,23 @@ class AppSettings {
   static const _kContextWindow = 'model_context_window';
   static const _kCtxWindow1MMigrated = 'context_window_1m_migrated';
 
-  /// 模型上下文窗口（token），默认 1,000,000（1M）；
-  /// 0 = 关闭上下文占用%显示与发送前自动压缩。
-  /// 默认值只在这里写一次，各处一律读本 getter。
-  static int get contextWindow =>
-      (_sp.getInt(_kContextWindow) ?? 1000000).clamp(0, 1 << 30).toInt();
+  /// 模型上下文窗口（token）。
+  ///
+  /// v0.20.0 起跟着「模型配置」走：配置里显式填了就用自己的值，
+  /// 留空（0）就按模型名自动推断（[contextWindowForModel]）。
+  /// 0 = 关闭上下文占用%显示与发送前自动压缩（用户显式设 0 时的兼容语义）。
+  static int get contextWindow {
+    final cfg = activeApiConfig;
+    if (cfg.contextWindow > 0) return cfg.contextWindow.clamp(0, 1 << 30);
+    return contextWindowForModel(cfg.model).clamp(0, 1 << 30);
+  }
 
-  static set contextWindow(int v) =>
-      _sp.setInt(_kContextWindow, v.clamp(0, 1 << 30).toInt());
+  static set contextWindow(int v) => _updateActiveApi(
+        (c) => c.copyWith(contextWindow: v.clamp(0, 1 << 30).toInt()),
+      );
+
+  /// 该模型「自动」算出的上下文长度（配置页展示用）。
+  static int autoContextWindowFor(String model) => contextWindowForModel(model);
 
   /// 聊天气泡字号（sp），13–20，默认 15（读取时钳制为整数步进值）
   static double get chatFontSize {
