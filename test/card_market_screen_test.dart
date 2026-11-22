@@ -8,6 +8,7 @@ import 'package:litetavern/models/card_translation.dart';
 import 'package:litetavern/screens/card_market_screen.dart';
 import 'package:litetavern/services/card_downloader.dart';
 import 'package:litetavern/services/card_market.dart';
+import 'package:litetavern/services/storage.dart';
 import 'package:litetavern/services/translation_store.dart';
 import 'package:litetavern/services/translator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -19,8 +20,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// 封面用空 thumbnailUrl 走占位图，避免 Image.network 发请求。
 
 void main() {
-  setUp(() {
+  setUp(() async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
+    await AppSettings.init();
     TranslationStore.resetForTest();
   });
 
@@ -103,6 +105,23 @@ void main() {
 
     expect(find.text('没有找到角色卡'), findsOneWidget);
   });
+
+  testWidgets('默认只请求 SFW（showNsfw=false），打开设置后请求 NSFW', (tester) async {
+    final source = _FakeSource();
+    await _pumpScreen(tester, source);
+
+    expect(AppSettings.showNsfw, isFalse);
+    expect(source.showNsfwFlags.last, isFalse);
+    expect(find.textContaining('仅显示全年龄'), findsOneWidget);
+
+    // 打开开关后重新进入市场页，应请求 nsfw=true 并更新说明文案
+    AppSettings.showNsfw = true;
+    await tester.pumpWidget(const SizedBox());
+    await _pumpScreen(tester, source);
+
+    expect(source.showNsfwFlags.last, isTrue);
+    expect(find.textContaining('已显示 NSFW'), findsOneWidget);
+  });
 }
 
 /// 把 [CardMarketScreen] 挂到 MaterialApp 里并等首屏加载完。
@@ -168,6 +187,7 @@ class _FakeSource implements CardMarketSource {
   final List<String> queries = <String>[];
   final List<int> pages = <int>[];
   final List<MarketFilters> filters = <MarketFilters>[];
+  final List<bool> showNsfwFlags = <bool>[];
 
   @override
   String get name => 'Fake';
@@ -183,10 +203,12 @@ class _FakeSource implements CardMarketSource {
     required String query,
     required int page,
     MarketFilters filters = MarketFilters.none,
+    bool showNsfw = false,
   }) {
     queries.add(query);
     pages.add(page);
     this.filters.add(filters);
+    showNsfwFlags.add(showNsfw);
     return Uri.parse('https://example.test/search?page=$page');
   }
 

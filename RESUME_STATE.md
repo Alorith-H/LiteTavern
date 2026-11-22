@@ -1,16 +1,38 @@
-# 交接状态：v0.15.0 手把手新手引导 + 配置页跳官网 + 导入页改版 + 摘要提示说人话（2026-11-22 更新）
+# 交接状态：v0.15.1 角色卡市场 NSFW 开关（默认不显示）（2026-11-22 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
 > v0.11.0（角色卡市场）、v0.12.0（市场筛选 + 设置开关）、v0.12.1（修正为「用户侧」建议回复）、
 > v0.13.x（建议条纵向、角色卡翻译、市场全量筛选、原文/译文、下载进度）、
 > v0.14.x（三风格建议、贴底、上下文占用提示、默认 1M 窗口、GitHub 页与首个 Release）。
 >
-> **本轮 v0.15.0**：① 新手引导重写为 **5 步零基础手把手教学**（默认用户什么都不会）；
+> **本轮 v0.15.1**：设置新增「角色卡市场 → 显示 NSFW 内容」开关（**默认关**）；
+> 关闭时市场只请求全年龄（SFW）内容，市场顶部说明随之变化。
+>
+> 历史 v0.15.0：① 新手引导重写为 **5 步零基础手把手教学**（默认用户什么都不会）；
 > ② 配置模型服务新增**「去官网获取 API Key」**（官网 / Key 页 / 文档 + 注册充值步骤，无浏览器降级复制链接）；
 > ③ 主页**导入角色卡弹窗改版**（分组标题、说明、市场推荐标记、格式解释）；
 > ④ 长对话摘要提示**说人话**：区分两种触发原因、显示条数、新增「为什么？」弹窗，取消改「跳过」。
 > 新增依赖 `url_launcher`。analyze 清零、测试 **224 条全过**、release APK 构建成功（58.6 MB / versionCode 12）。
 > **装机未完成**：构建时手机不在线（`adb devices` 为空），手机仍停留在 0.14.2 / versionCode 10。
+
+## 本轮变更（v0.15.1）
+
+### 角色卡市场「显示 NSFW 内容」开关（默认关）
+
+- `lib/services/storage.dart`：新增 `AppSettings.showNsfw`（SharedPreferences 键 `show_nsfw`，默认 **false**）。
+- `lib/services/card_market.dart`：`CardMarketSource.searchUri` / `ChubSource.searchUri` /
+  `CardMarketClient.search` 都新增 `bool showNsfw = false` 参数；`ChubSource` 按它发
+  `nsfw=false`（默认，只返回全年龄内容）或 `nsfw=true`（全部内容）。
+- `lib/screens/card_market_screen.dart`：`_load()` 每次请求都带 `showNsfw: AppSettings.showNsfw`
+  （设置改完重新进入市场即生效，无需重启）；顶部署名行文案随开关变化：
+  关 → 「数据来自 Chub.ai · 仅显示全年龄（SFW）内容，可在 设置 → 角色卡市场 打开 NSFW」；
+  开 → 「数据来自 Chub.ai · 已显示 NSFW 内容，可在 设置 → 角色卡市场 关闭」。
+- `lib/screens/settings_screen.dart`：新增分节「角色卡市场」+ 开关行「显示 NSFW 内容」
+  （副标题：默认关闭：市场只显示全年龄内容；打开后包含成人向角色卡）。
+- 测试：新增 `test/v16_test.dart` 4 例（默认 false、写入 `show_nsfw` 并读回、显式关掉持久化 false、
+  旧数据无键回落 false）；`test/card_market_test.dart` 中 5 处 `nsfw=true` 断言改为默认 `false`，
+  并新增 1 例 `showNsfw: true` 映射；`test/card_market_screen_test.dart` 新增 1 例验证页面按设置传参
+  并切换说明文案（`_FakeSource` 增加 `showNsfwFlags` 记录）。
 
 ## 本轮变更（v0.15.0）
 
@@ -83,22 +105,24 @@
 ## 仓库状态
 
 - 分支 `dev`，远端 `origin = https://github.com/Alorith-H/LiteTavern.git`
-- `pubspec.yaml:5` → `version: 0.15.0+12`；`lib/app_info.dart` → `kAppVersion = '0.15.0'`
+- `pubspec.yaml:5` → `version: 0.15.1+13`；`lib/app_info.dart` → `kAppVersion = '0.15.1'`
   （`test/version_test.dart` 校验两者一致）
 - 新增依赖：`url_launcher: ^6.3.0`（实际解析 6.3.3，含 `url_launcher_android 6.3.35` 等 4 个传递包）
 - 产物：`build\app\outputs\flutter-apk\app-release.apk`（58.6 MB；
-  `build\app\outputs\apk\release\output-metadata.json` → versionCode **12** / versionName **0.15.0**）
-- 装机：**未完成**（构建时 `adb devices -l` 为空；真机 `23113RKC6C` 上次记录为 0.14.2 / code 10）
+  `build\app\outputs\apk\release\output-metadata.json` → versionCode **13** / versionName **0.15.1**）
+- 装机：**未完成**（构建后 `adb devices -l` 仍为空；真机 `23113RKC6C` 上次记录为 0.14.2 / code 10）
 
 ## 验证表（2026-11-22）
 
 | 项 | 命令 | 结果 |
 |---|---|---|
-| 静态检查（全量） | `flutter analyze` | **No issues found!**（4.3s） |
-| 单元/组件测试（全量） | `flutter test` | **+224 All tests passed!** |
+| 静态检查（全量） | `flutter analyze` | **No issues found!**（4.8s） |
+| 单元/组件测试（全量） | `flutter test` | **+230 All tests passed!** |
+| 新增测试 | `flutter test test\v16_test.dart` | +4 全过（NSFW 设置默认/持久化/回落） |
 | 新增测试 | `flutter test test\v15_test.dart` | +6 全过（预设链接合法性、`presetForBaseUrl`、摘要三种文案/解释） |
 | 引导页测试 | `flutter test test\onboarding_screen_test.dart` | +10 全过（含 360×520 小屏无溢出） |
-| Release 构建 | `flutter build apk --release` | 成功，58.6 MB，versionCode 12 / 0.15.0（93.3s） |
+| 市场页测试 | `flutter test test\card_market_screen_test.dart` | +7 全过（含「默认 SFW / 开关后 NSFW」传参与文案） |
+| Release 构建 | `flutter build apk --release` | 成功，58.6 MB，versionCode 13 / 0.15.1（46.5s） |
 | 装机 | `adb install -r ...apk` | **未执行**：设备离线 |
 
 命令环境：`C:\flutter\bin\flutter.bat`（不在 PATH），每次先设
@@ -124,7 +148,9 @@ adb 在 `C:\Users\28351\Android\Sdk\platform-tools\adb.exe`（不在 PATH）。
    点 ⓘ 弹「为什么在总结早期对话？」说明，点「跳过」本次不总结直接发。
 5. 上下文接近窗口上限时（可把上下文窗口调到很小触发）：显示「上下文快满了，正在压缩…」，
    点 ⓘ 说明里带估算 token 与窗口值。
-6. 回归：单聊/群聊流式回复、建议回复、角色卡翻译、市场筛选与下载进度、上下文占用提示。
+6. 设置 → 角色卡市场 → 「显示 NSFW 内容」默认关；进市场顶部显示「仅显示全年龄（SFW）内容」，
+   打开开关后再进市场顶部变「已显示 NSFW 内容」且出现成人向卡（NSFW 卡在列表里有标记）。
+7. 回归：单聊/群聊流式回复、建议回复、角色卡翻译、市场筛选与下载进度、上下文占用提示。
 
 ## 已知边界（记录，不作为 bug）
 
@@ -137,6 +163,8 @@ adb 在 `C:\Users\28351\Android\Sdk\platform-tools\adb.exe`（不在 PATH）。
 - 免费翻译只有 MyMemory 稳定可用（约 5k 字符/天、单次 500 字符）；Google 免费端点常 429。
 - 建议回复仅单聊、每次额外 3 次请求；离开会话页即取消（页面私有，不进 `ActiveGenerations`）。
 - 市场列表译文只读缓存，未缓存的卡需手动点「译」。
+- NSFW 开关在**每次请求时**读取 `AppSettings.showNsfw`（搜索/翻页/下拉刷新/改筛选都会重新读），
+  所以设置改完再回到市场页（或下拉刷新）即生效，不需要重启 App。
 - v0.11 之前遗留：后台完成不续跑自动继续（S3）、创建器「生成角色卡」仍页面私有请求（S4）、
   删除会话先 remove 再异步落库的极小交错窗口（B2）、管理器落库不带变体记账（B3）。
 

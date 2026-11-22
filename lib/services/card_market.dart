@@ -369,10 +369,13 @@ abstract class CardMarketSource {
   /// 搜索第 [page] 页（1 起）。[query] 为空表示「浏览热门」。
   ///
   /// [filters] 为筛选条件；默认 [MarketFilters.none] 保持旧行为。
+  /// [showNsfw] 为 false（默认）时请求 SFW 内容（`nsfw=false`），
+  /// true 时请求全部内容（`nsfw=true`，列表里对 NSFW 卡做标注）。
   Uri searchUri({
     required String query,
     required int page,
     MarketFilters filters = MarketFilters.none,
+    bool showNsfw = false,
   });
 
   /// 解析搜索响应体（JSON 文本）为统一结构；坏数据尽量跳过而不是整体失败。
@@ -389,9 +392,10 @@ abstract class CardMarketSource {
 }
 
 /// Chub.ai 数据源。实测（2026-11）：
-/// `GET https://api.chub.ai/search?search=&first=24&page=1&nsfw=true`
-/// 免鉴权 200；`nsfw=true` 返回全部内容（含 NSFW）；空关键词 + `sort=star_count`
-/// 返回全站热门；每张卡的 `max_res_url` 即 `chara_card_v2.png`。
+/// `GET https://api.chub.ai/search?search=&first=24&page=1&nsfw=false`
+/// 免鉴权 200；`nsfw=false` 只返回全年龄内容，`nsfw=true` 返回全部内容；
+/// 空关键词 + `sort=star_count` 返回全站热门；每张卡的 `max_res_url` 即
+/// `chara_card_v2.png`。
 class ChubSource implements CardMarketSource {
   /// 仅用于可测试注入（标签目录需要 POST）；搜索/下载仍走
   /// [CardMarketClient] 自己的 client。不传时按需临时创建并在用完后关闭。
@@ -474,13 +478,14 @@ class ChubSource implements CardMarketSource {
     required String query,
     required int page,
     MarketFilters filters = MarketFilters.none,
+    bool showNsfw = false,
   }) {
     final q = query.trim();
     final params = <String, String>{
       'first': '$pageSize',
       'page': '$page',
-      // 展示全部内容：nsfw=true 表示不过滤（列表里对 NSFW 卡做标注）
-      'nsfw': 'true',
+      // 默认只取全年龄内容；用户在设置里打开「显示 NSFW 内容」才取全部
+      'nsfw': showNsfw ? 'true' : 'false',
     };
     // 空关键词 = 浏览，不带 search
     if (q.isNotEmpty) params['search'] = q;
@@ -618,13 +623,20 @@ class CardMarketClient {
   bool _closed = false;
 
   /// 搜索一页。失败抛 [CardMarketException]（中文原因可直接展示）。
+  /// [showNsfw] 透传给数据源：false（默认）只取全年龄内容。
   Future<MarketSearchPage> search({
     required String query,
     required int page,
     MarketFilters filters = MarketFilters.none,
+    bool showNsfw = false,
   }) async {
     if (_closed) throw const CardMarketException('市场已关闭');
-    final uri = source.searchUri(query: query, page: page, filters: filters);
+    final uri = source.searchUri(
+      query: query,
+      page: page,
+      filters: filters,
+      showNsfw: showNsfw,
+    );
     try {
       final response = await _http
           .get(uri, headers: const {'Accept': 'application/json'})

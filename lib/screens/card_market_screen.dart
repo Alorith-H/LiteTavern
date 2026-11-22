@@ -180,6 +180,7 @@ class _CardMarketScreenState extends State<CardMarketScreen> {
         query: _query,
         page: page,
         filters: _filters,
+        showNsfw: AppSettings.showNsfw,
       );
       if (!mounted || seq != _seq) return;
       setState(() {
@@ -358,8 +359,11 @@ class _CardMarketScreenState extends State<CardMarketScreen> {
                 const SizedBox(width: 5),
                 Expanded(
                   child: Text(
-                    '数据来自 ${_client.source.name} · 包含全部内容（含 NSFW），'
-                    '角色卡与图片版权归原作者所有',
+                    AppSettings.showNsfw
+                        ? '数据来自 ${_client.source.name} · 已显示 NSFW 内容，'
+                              '可在 设置 → 角色卡市场 关闭'
+                        : '数据来自 ${_client.source.name} · 仅显示全年龄（SFW）内容，'
+                              '可在 设置 → 角色卡市场 打开 NSFW',
                     style: TextStyle(
                       fontSize: AppType.meta,
                       color: scheme.onSurfaceVariant,

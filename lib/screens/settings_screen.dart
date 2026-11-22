@@ -37,6 +37,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late bool _autoSummarize;
   late bool _streaming;
   late bool _autoCandidates;
+  late bool _showNsfw;
 
   /// 当前主题色 seed 与自定义 HEX 输入
   late int _seed;
@@ -80,6 +81,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _autoSummarize = AppSettings.autoSummarize;
     _streaming = AppSettings.streaming;
     _autoCandidates = AppSettings.autoReplyCandidates;
+    _showNsfw = AppSettings.showNsfw;
     _seed = AppSettings.themeSeed;
     _hexCtrl = TextEditingController(text: _seedToHex(_seed));
     _loadWorldBooks();
@@ -462,6 +464,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ],
+
+          // ------------------------------------------ 角色卡市场 --
+          const SectionHeader('角色卡市场'),
+          _switchRow(
+            title: '显示 NSFW 内容',
+            subtitle: '默认关闭：市场只显示全年龄内容；打开后包含成人向角色卡',
+            value: _showNsfw,
+            onChanged: (v) {
+              setState(() => _showNsfw = v);
+              AppSettings.showNsfw = v;
+            },
+          ),
 
           // -------------------------------------------------- 聊天 --
           const SectionHeader('聊天'),

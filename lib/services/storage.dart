@@ -876,6 +876,12 @@ class AppSettings {
       _sp.setBool(_kAutoReplyCandidates, v);
   static const _kAutoReplyCandidates = 'auto_reply_candidates';
 
+  /// 角色卡市场是否显示 NSFW 内容（v0.15.1）：默认**关**，
+  /// 关掉时向市场请求 `nsfw=false`，只返回全年龄（SFW）内容。
+  static bool get showNsfw => _sp.getBool(_kShowNsfw) ?? false;
+  static set showNsfw(bool v) => _sp.setBool(_kShowNsfw, v);
+  static const _kShowNsfw = 'show_nsfw';
+
   /// 设置是否已加载（未初始化时读取默认值，供纯逻辑模块兜底）
   static bool get initialized => _ready;
 
