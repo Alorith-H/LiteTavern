@@ -70,6 +70,9 @@ class ChatMessage {
   /// 群聊发言者名字（v0.6.0），仅群聊 assistant 消息有值。
   final String? senderName;
 
+  /// 生成这条回复时用的模型名（v0.21.0），显示在气泡下方；旧数据为 null。
+  final String? model;
+
   const ChatMessage({
     required this.role,
     required this.content,
@@ -83,6 +86,7 @@ class ChatMessage {
     this.variantUsage = const [],
     this.senderId,
     this.senderName,
+    this.model,
   });
 
   /// 当前变体的 token 消耗（旧数据回退到消息级字段）。
@@ -143,6 +147,7 @@ class ChatMessage {
       variantUsage: usage,
       senderId: json['senderId'] as String?,
       senderName: json['senderName'] as String?,
+      model: json['model'] as String?,
     );
   }
 
@@ -154,6 +159,7 @@ class ChatMessage {
       if (error != null) 'error': error,
       if (senderId != null) 'senderId': senderId,
       if (senderName != null) 'senderName': senderName,
+      if (model != null) 'model': model,
       if (promptTokens != null) 'promptTokens': promptTokens,
       if (completionTokens != null) 'completionTokens': completionTokens,
       if (tokensEstimated) 'tokensEstimated': true,
@@ -173,6 +179,7 @@ class ChatMessage {
     int? promptTokens,
     int? completionTokens,
     bool? tokensEstimated,
+    String? model,
   }) {
     var v = variants != null ? List<String>.of(variants) : this.variants;
     var idx = variantIndex ?? this.variantIndex;
@@ -215,6 +222,7 @@ class ChatMessage {
       variantUsage: u,
       senderId: senderId,
       senderName: senderName,
+      model: model ?? this.model,
     );
   }
 }

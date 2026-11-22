@@ -19,9 +19,26 @@ import 'gen_presets_screen.dart';
 import 'onboarding_screen.dart';
 import 'personas_screen.dart';
 
+/// 设置页的二级分组（v0.21.0）。
+enum SettingsSection { generation, chat, market, worldBooks, appearance, help }
+
+extension SettingsSectionTitle on SettingsSection {
+  String get title => switch (this) {
+        SettingsSection.generation => '生成参数',
+        SettingsSection.chat => '聊天与上下文',
+        SettingsSection.market => '角色卡市场与翻译',
+        SettingsSection.worldBooks => '世界书',
+        SettingsSection.appearance => '外观',
+        SettingsSection.help => '帮助与关于',
+      };
+}
+
 /// 设置页。
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.section});
+
+  /// 二级分组；null = 设置首页。
+  final SettingsSection? section;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -353,13 +370,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final section = widget.section;
+    if (section != null) {
+      return Scaffold(
+        appBar: AppBar(title: Text(section.title)),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+          children: _sectionChildren(scheme, section),
+        ),
+      );
+    }
     return Scaffold(
       appBar: AppBar(title: const Text('设置')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
         children: [
-          // ---------------------------------------------- 模型服务 --
-          // 当前配置行：名称 + 模型名副文本 + 切换箭头 → 配置列表（选择/管理）
+          // ---------------------------------------- 当前模型（直达） --
           const SectionHeader('模型服务'),
           _actionRow(
             title: AppSettings.activeApiConfig.name,
@@ -374,456 +400,615 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onTap: _openApiConfigs,
           ),
 
-          // ---------------------------------------------- 生成参数 --
-          const SectionHeader('生成参数'),
-          // 当前预设行：名称 + 简要参数 → 预设列表（选择/另存/编辑）
+          // ---------------------------------------------- 二级菜单 --
+          const SectionHeader('设置'),
           _actionRow(
-            title: '预设 · ${AppSettings.activePreset.name}',
-            subtitle:
-                't${AppSettings.activePreset.temperature.toStringAsFixed(1)}'
-                ' · p${AppSettings.activePreset.topP.toStringAsFixed(1)}'
-                '${AppSettings.activePreset.maxTokens > 0 ? ' · 上限 ${AppSettings.activePreset.maxTokens}' : ''}'
-                ' · 下方滑条改动即存入此预设',
-            trailing: Icon(
-              Icons.chevron_right_outlined,
-              size: 22,
-              color: scheme.onSurfaceVariant,
-            ),
-            onTap: _openPresets,
-          ),
-          const SizedBox(height: 4),
-          _sliderLabel('随机度', _temperature.toStringAsFixed(2)),
-          Slider(
-            value: _temperature,
-            min: 0,
-            max: 2,
-            divisions: 40,
-            label: _temperature.toStringAsFixed(2),
-            onChanged: (v) {
-              setState(() => _temperature = v);
-              AppSettings.temperature = v;
-            },
-          ),
-          const _SubLine('越高回答越发散'),
-          const SizedBox(height: 8),
-          _sliderLabel('采样范围', _topP.toStringAsFixed(2)),
-          Slider(
-            value: _topP,
-            min: 0,
-            max: 1,
-            divisions: 20,
-            label: _topP.toStringAsFixed(2),
-            onChanged: (v) {
-              setState(() => _topP = v);
-              AppSettings.topP = v;
-            },
-          ),
-          const SizedBox(height: 4),
-          TextField(
-            controller: _maxTokensCtrl,
-            keyboardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            decoration: const InputDecoration(
-              labelText: '单次回复长度上限',
-              helperText: '0 = 不限',
-            ),
-            onChanged: (v) => AppSettings.maxTokens = int.tryParse(v) ?? 0,
-          ),
-          const SizedBox(height: 8),
-          _sliderLabel('记忆长度', '${_historyLimit.round()} 条'),
-          Slider(
-            value: _historyLimit.clamp(10, 100).toInt().toDouble(),
-            min: 10,
-            max: 100,
-            divisions: 18,
-            label: '${_historyLimit.round()} 条',
-            onChanged: (v) {
-              setState(() => _historyLimit = v.round());
-              AppSettings.contextHistoryLimit = v.round();
-            },
-          ),
-          const _SubLine('每次发送保留最近多少条消息'),
-          const SizedBox(height: 8),
-          _actionRow(
-            title: '模型上下文窗口',
-            subtitle:
-                '当前 ${formatContextWindow(AppSettings.contextWindow)}（按模型自动）· '
-                '在 设置 → 模型服务 → 编辑配置 里改',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const ApiConfigsScreen(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Divider(height: 1),
-          _stepperRow(
-            title: '自动继续次数',
-            subtitle: '回复达到长度上限时代写续接的次数，0 = 关闭',
-            value: _autoContinue,
-            onChanged: (v) {
-              setState(() => _autoContinue = v);
-              AppSettings.autoContinueCount = v;
-            },
-          ),
-          const Divider(height: 1),
-          _switchRow(
-            title: '流式传输',
-            subtitle: '关掉则整段生成完一次性显示',
-            value: _streaming,
-            onChanged: (v) {
-              setState(() => _streaming = v);
-              AppSettings.streaming = v;
-            },
-          ),
-          const Divider(height: 1),
-          // 交互辅助三选一（v0.18.0）：建议回复 / 替我说一句 / 都关闭。
-          // 两者都开会让输入栏左侧挤两个按钮，且都在偷偷花 token，故互斥。
-          const Text(
-            '输入栏辅助按钮',
-            style: TextStyle(
-              fontSize: AppType.caption,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const _SubLine('「建议回复」和「替我说一句」只能二选一；选「都关闭」则输入栏左侧不显示按钮'),
-          const SizedBox(height: 6),
-          SegmentedButton<AssistMode>(
-            segments: const [
-              ButtonSegment(
-                value: AssistMode.suggestions,
-                label: Text('建议回复', style: TextStyle(fontSize: 12.5)),
-              ),
-              ButtonSegment(
-                value: AssistMode.impersonate,
-                label: Text('替我说一句', style: TextStyle(fontSize: 12.5)),
-              ),
-              ButtonSegment(
-                value: AssistMode.off,
-                label: Text('都关闭', style: TextStyle(fontSize: 12.5)),
-              ),
-            ],
-            selected: {_assistMode},
-            showSelectedIcon: false,
-            style: ButtonStyle(
-              visualDensity: VisualDensity.compact,
-              textStyle: WidgetStateProperty.all(
-                const TextStyle(fontSize: 12.5),
-              ),
-            ),
-            onSelectionChanged: (selection) {
-              final v = selection.first;
-              setState(() => _assistMode = v);
-              AppSettings.assistMode = v;
-            },
-          ),
-          const SizedBox(height: 6),
-          Text(
-            _assistMode.summary,
-            style: TextStyle(
-              fontSize: AppType.caption,
-              height: 1.45,
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-          const Divider(height: 1),
-          // 高级设置入口（生成参数组末尾）：采样参数、停止词等不常用项
-          _actionRow(
-            title: '高级设置',
-            subtitle: '采样参数、停止词等不常用项',
-            trailing: Icon(
-              Icons.chevron_right_outlined,
-              size: 22,
-              color: scheme.onSurfaceVariant,
-            ),
-            onTap: _openAdvanced,
-          ),
-
-          // ------------------------------------------------ 世界书 --
-          const SectionHeader('世界书'),
-          _actionRow(
-            title: '导入世界书',
-            subtitle: 'SillyTavern 格式，聊天时按关键词自动注入',
-            onTap: _importWorldBook,
-          ),
-          for (final (id, book) in _worldBooks) ...[
-            const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          book.name.isEmpty ? '未命名世界书' : book.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: AppType.body,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${book.entries.length} 条'
-                          '${AppSettings.mountedWorldBookIds.contains(id) ? ' · 已启用' : ' · 未启用'}',
-                          style: TextStyle(
-                            fontSize: AppType.caption,
-                            color: scheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Switch(
-                    value: AppSettings.mountedWorldBookIds.contains(id),
-                    onChanged: (v) => _toggleWorldBook(id, v),
-                  ),
-                  SizedBox(
-                    width: 40,
-                    height: 40,
-                    child: IconButton(
-                      padding: EdgeInsets.zero,
-                      icon: Icon(
-                        Icons.delete_outline,
-                        size: 22,
-                        color: scheme.error,
-                      ),
-                      tooltip: '删除',
-                      onPressed: () => _deleteWorldBook(id),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-
-          // ------------------------------------------ 角色卡市场 --
-          const SectionHeader('角色卡市场'),
-          _switchRow(
-            title: '显示 NSFW 内容',
-            subtitle: '默认关闭：市场只显示全年龄内容；打开后包含成人向角色卡',
-            value: _showNsfw,
-            onChanged: (v) {
-              setState(() => _showNsfw = v);
-              AppSettings.showNsfw = v;
-            },
-          ),
-
-          // -------------------------------------------------- 翻译 --
-          const SectionHeader('翻译'),
-          _SubLine(
-            '角色卡和市场里的「译」按钮会用免费翻译。默认顺序：'
-            '必应（Azure Key）→ 必应网页版 → MyMemory → Google。',
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _azureKeyCtrl,
-            obscureText: true,
-            decoration: const InputDecoration(
-              labelText: '必应翻译 Key（Azure，可留空）',
-              hintText: '填了就用它翻译，速度和质量最稳',
-              helperText: 'Azure 翻译免费层每月 200 万字符；留空则用免 Key 的免费源',
-            ),
-            onChanged: (v) => AppSettings.azureTranslatorKey = v,
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: _azureRegionCtrl,
-            decoration: const InputDecoration(
-              labelText: '区域（可选）',
-              hintText: '例如 eastasia；有的 Key 需要填',
-            ),
-            onChanged: (v) => AppSettings.azureTranslatorRegion = v,
-          ),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: () => openExternalLink(
-                context,
-                'https://portal.azure.com/#create/Microsoft.CognitiveServicesTextTranslation',
-                title: '申请 Azure 翻译 Key',
-              ),
-              icon: const Icon(Icons.open_in_new, size: 16),
-              label: const Text('去申请必应（Azure）翻译 Key'),
-            ),
-          ),
-
-          // -------------------------------------------------- 聊天 --
-          const SectionHeader('聊天'),
-          _actionRow(
-            title: '用户人设',
-            subtitle: _personaSummary(),
-            onTap: _openPersonas,
-          ),
-          const Divider(height: 1),
-          TextField(
-            controller: _nameCtrl,
-            decoration: const InputDecoration(
-              labelText: '你在对话中的称呼',
-              hintText: '你',
-              helperText: '对话里对方怎么称呼你',
-            ),
-            onChanged: (v) => AppSettings.userName = v.isEmpty ? '你' : v,
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            '聊天气泡字号',
-            style: TextStyle(
-              fontSize: AppType.caption,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          Slider(
-            value: _chatFontSize.round().clamp(13, 20).toDouble(),
-            min: 13,
-            max: 20,
-            divisions: 7,
-            label: '${_chatFontSize.round()}sp',
-            onChanged: (v) {
-              setState(() => _chatFontSize = v.roundToDouble());
-              AppSettings.chatFontSize = v;
-            },
-          ),
-          const _SubLine('字号效果预览'),
-          Text(
-            '这句话用当前字号显示，拖动滑条试试',
-            style: TextStyle(fontSize: _chatFontSize, height: 1.5),
-          ),
-          const SizedBox(height: 8),
-          const Divider(height: 1),
-          _switchRow(
-            title: '消息时间戳',
-            value: _showTimestamps,
-            onChanged: (v) {
-              setState(() => _showTimestamps = v);
-              AppSettings.showTimestamps = v;
-            },
-          ),
-          const Divider(height: 1),
-          _switchRow(
-            title: '显示快捷回复',
-            subtitle: '在输入框上方显示一排点按即发的短语',
-            value: _showQuickReplies,
-            onChanged: (v) {
-              setState(() => _showQuickReplies = v);
-              AppSettings.showQuickReplies = v;
-            },
-          ),
-          const Divider(height: 1),
-          _switchRow(
-            title: '长对话自动摘要',
-            subtitle: '对话太长时把早期内容压成摘要，后台静默执行'
-                '（会额外调用一次模型、消耗 token）',
-            value: _autoSummarize,
-            onChanged: (v) {
-              setState(() => _autoSummarize = v);
-              AppSettings.autoSummarize = v;
-            },
+            title: '生成参数',
+            subtitle: _generationSummary(),
+            trailing: _chevron(scheme),
+            onTap: () => _openSection(SettingsSection.generation),
           ),
           const Divider(height: 1),
           _actionRow(
-            title: '自动摘要怎么工作',
-            subtitle: '什么时候触发、会不会多花 token、怎么关掉',
-            trailing: Icon(
-              Icons.chevron_right_outlined,
-              size: 22,
-              color: scheme.onSurfaceVariant,
-            ),
-            onTap: _showSummaryExplain,
+            title: '聊天与上下文',
+            subtitle: _chatSummary(),
+            trailing: _chevron(scheme),
+            onTap: () => _openSection(SettingsSection.chat),
           ),
           const Divider(height: 1),
           _actionRow(
-            title: '快捷回复管理',
-            subtitle: '${AppSettings.quickReplies.length} 条 · 常驻入口，可先配置再打开上面的开关',
-            trailing: Icon(
-              Icons.chevron_right_outlined,
-              size: 22,
-              color: scheme.onSurfaceVariant,
-            ),
-            onTap: () async {
-              await Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const QuickRepliesScreen()),
-              );
-              // 返回后刷新条数（页面内自行持久化）
-              if (mounted) setState(() {});
-            },
+            title: '角色卡市场与翻译',
+            subtitle: _marketSummary(),
+            trailing: _chevron(scheme),
+            onTap: () => _openSection(SettingsSection.market),
           ),
-
-          // -------------------------------------------------- 外观 --
-          const SectionHeader('外观'),
-          Row(
-            children: [
-              for (final (i, mode, label) in const [
-                (0, 'system', '跟随系统'),
-                (1, 'light', '浅色'),
-                (2, 'dark', '深色'),
-              ]) ...[
-                if (i > 0) const SizedBox(width: 8),
-                Expanded(child: _modePreview(mode, label)),
-              ],
-            ],
-          ),
-          const SizedBox(height: 8),
           const Divider(height: 1),
-          const SectionHeader('主题色'),
-          GridView.count(
-            crossAxisCount: 4,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 6,
-            crossAxisSpacing: 6,
-            childAspectRatio: 1.6,
-            children: [
-              for (final value in _themeColors) _buildColorSwatch(value),
-            ],
+          _actionRow(
+            title: '世界书',
+            subtitle: _worldBookSummary(),
+            trailing: _chevron(scheme),
+            onTap: () => _openSection(SettingsSection.worldBooks),
           ),
-          const SizedBox(height: 10),
-          const SectionHeader('自定义颜色'),
-          TextField(
-            controller: _hexCtrl,
-            keyboardType: TextInputType.text,
-            autocorrect: false,
-            decoration: InputDecoration(
-              hintText: '#2196F3',
-              helperText: '填入合法 HEX 立即应用',
-              helperMaxLines: 2,
-              errorText: _hexError,
-              isDense: true,
-            ),
-            onChanged: _onHexChanged,
+          const Divider(height: 1),
+          _actionRow(
+            title: '外观',
+            subtitle: _appearanceSummary(),
+            trailing: _chevron(scheme),
+            onTap: () => _openSection(SettingsSection.appearance),
           ),
 
           // -------------------------------------------------- 帮助 --
-          const SectionHeader('帮助'),
+          const SectionHeader('帮助与关于'),
           _actionRow(
-            title: '重看新手引导',
-            trailing: Icon(
-              Icons.chevron_right_outlined,
-              size: 22,
-              color: scheme.onSurfaceVariant,
-            ),
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const OnboardingScreen()),
-              );
-            },
-          ),
-          const Divider(height: 1),
-          _actionRow(
-            title: '关于',
-            trailing: Icon(
-              Icons.chevron_right_outlined,
-              size: 22,
-              color: scheme.onSurfaceVariant,
-            ),
-            onTap: _showAbout,
+            title: '帮助与关于',
+            subtitle: '版本 v$kAppVersion · 重看新手引导 · 作者 Alorith',
+            trailing: _chevron(scheme),
+            onTap: () => _openSection(SettingsSection.help),
           ),
         ],
       ),
     );
+  }
+
+  Icon _chevron(ColorScheme scheme) => Icon(
+        Icons.chevron_right_outlined,
+        size: 22,
+        color: scheme.onSurfaceVariant,
+      );
+
+  Future<void> _openSection(SettingsSection section) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettingsScreen(section: section),
+      ),
+    );
+    // 子页里可能改了称呼 / 预设 / 世界书，回来刷新摘要
+    if (mounted) setState(() {});
+  }
+
+  String _generationSummary() {
+    final p = AppSettings.activePreset;
+    final limit = p.maxTokens > 0 ? ' · 上限 ${p.maxTokens}' : '';
+    return '预设 · ${p.name} · t${p.temperature.toStringAsFixed(1)}'
+        ' · p${p.topP.toStringAsFixed(1)}$limit';
+  }
+
+  String _chatSummary() {
+    final name = AppSettings.userName.trim().isEmpty
+        ? '你'
+        : AppSettings.userName.trim();
+    return '称呼「$name」· 记忆 ${AppSettings.contextHistoryLimit} 条'
+        ' · 摘要${AppSettings.autoSummarize ? '开' : '关'}'
+        ' · ${AppSettings.assistMode.label}';
+  }
+
+  String _marketSummary() {
+    final nsfw = AppSettings.showNsfw ? '显示' : '不显示';
+    final azure =
+        AppSettings.azureTranslatorKey.trim().isEmpty ? '免费源顺序' : '必应（Azure）';
+    return 'NSFW $nsfw · 翻译 $azure';
+  }
+
+  String _worldBookSummary() {
+    if (_worldBooks.isEmpty) return '还没有导入 · 导入 SillyTavern 世界书';
+    final enabled = _worldBooks
+        .where((e) => AppSettings.mountedWorldBookIds.contains(e.$1))
+        .length;
+    return '${_worldBooks.length} 本 · $enabled 本启用';
+  }
+
+  String _appearanceSummary() {
+    final mode = switch (AppSettings.themeMode) {
+      'light' => '浅色',
+      'dark' => '深色',
+      _ => '跟随系统',
+    };
+    return '$mode · 主题色 ${_seedToHex(_seed)}'
+        ' · 字号 ${AppSettings.chatFontSize.round()}sp';
+  }
+
+  List<Widget> _sectionChildren(ColorScheme scheme, SettingsSection section) {
+    switch (section) {
+      case SettingsSection.generation:
+        return _generationChildren(scheme);
+      case SettingsSection.chat:
+        return _chatChildren(scheme);
+      case SettingsSection.market:
+        return _marketChildren(scheme);
+      case SettingsSection.worldBooks:
+        return _worldBookChildren(scheme);
+      case SettingsSection.appearance:
+        return _appearanceChildren(scheme);
+      case SettingsSection.help:
+        return _helpChildren(scheme);
+    }
+  }
+
+  // ------------------------------------------------ 生成参数（二级） --
+
+  List<Widget> _generationChildren(ColorScheme scheme) {
+    return [
+      const SectionHeader('生成参数'),
+      _actionRow(
+        title: '预设 · ${AppSettings.activePreset.name}',
+        subtitle:
+            't${AppSettings.activePreset.temperature.toStringAsFixed(1)}'
+            ' · p${AppSettings.activePreset.topP.toStringAsFixed(1)}'
+            '${AppSettings.activePreset.maxTokens > 0 ? ' · 上限 ${AppSettings.activePreset.maxTokens}' : ''}'
+            ' · 下方滑条改动即存入此预设',
+        trailing: _chevron(scheme),
+        onTap: _openPresets,
+      ),
+      const SizedBox(height: 4),
+      _sliderLabel('随机度', _temperature.toStringAsFixed(2)),
+      Slider(
+        value: _temperature,
+        min: 0,
+        max: 2,
+        divisions: 40,
+        label: _temperature.toStringAsFixed(2),
+        onChanged: (v) {
+          setState(() => _temperature = v);
+          AppSettings.temperature = v;
+        },
+      ),
+      const _SubLine('越高回答越发散'),
+      const SizedBox(height: 8),
+      _sliderLabel('采样范围', _topP.toStringAsFixed(2)),
+      Slider(
+        value: _topP,
+        min: 0,
+        max: 1,
+        divisions: 20,
+        label: _topP.toStringAsFixed(2),
+        onChanged: (v) {
+          setState(() => _topP = v);
+          AppSettings.topP = v;
+        },
+      ),
+      const SizedBox(height: 4),
+      TextField(
+        controller: _maxTokensCtrl,
+        keyboardType: TextInputType.number,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        decoration: const InputDecoration(
+          labelText: '单次回复长度上限',
+          helperText: '0 = 不限',
+        ),
+        onChanged: (v) => AppSettings.maxTokens = int.tryParse(v) ?? 0,
+      ),
+      const SizedBox(height: 12),
+      // 高级设置入口（生成参数组末尾）：采样参数、停止词等不常用项
+      _actionRow(
+        title: '高级设置',
+        subtitle: '采样参数、停止词等不常用项',
+        trailing: _chevron(scheme),
+        onTap: _openAdvanced,
+      ),
+      const Divider(height: 1),
+    ];
+  }
+
+  // -------------------------------------------- 聊天与上下文（二级） --
+
+  List<Widget> _chatChildren(ColorScheme scheme) {
+    return [
+      const SectionHeader('聊天与上下文'),
+      _actionRow(
+        title: '用户人设',
+        subtitle: _personaSummary(),
+        trailing: _chevron(scheme),
+        onTap: _openPersonas,
+      ),
+      const Divider(height: 1),
+      TextField(
+        controller: _nameCtrl,
+        decoration: const InputDecoration(
+          labelText: '你在对话中的称呼',
+          hintText: '你',
+          helperText: '对话里对方怎么称呼你',
+        ),
+        onChanged: (v) => AppSettings.userName = v.isEmpty ? '你' : v,
+      ),
+      const SizedBox(height: 12),
+      const SectionHeader('记忆与上下文'),
+      _sliderLabel('记忆长度', '${_historyLimit.round()} 条'),
+      Slider(
+        value: _historyLimit.clamp(10, 100).toInt().toDouble(),
+        min: 10,
+        max: 100,
+        divisions: 18,
+        label: '${_historyLimit.round()} 条',
+        onChanged: (v) {
+          setState(() => _historyLimit = v.round());
+          AppSettings.contextHistoryLimit = v.round();
+        },
+      ),
+      const _SubLine('每次发送保留最近多少条消息'),
+      const SizedBox(height: 8),
+      _actionRow(
+        title: '模型上下文窗口',
+        subtitle:
+            '当前 ${formatContextWindow(AppSettings.contextWindow)}（按模型自动）· '
+            '在 设置 → 模型服务 → 编辑配置 里改',
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => const ApiConfigsScreen(),
+          ),
+        ),
+      ),
+      const SizedBox(height: 8),
+      const Divider(height: 1),
+      _stepperRow(
+        title: '自动继续次数',
+        subtitle: '回复达到长度上限时代写续接的次数，0 = 关闭',
+        value: _autoContinue,
+        onChanged: (v) {
+          setState(() => _autoContinue = v);
+          AppSettings.autoContinueCount = v;
+        },
+      ),
+      const Divider(height: 1),
+      _switchRow(
+        title: '流式传输',
+        subtitle: '关掉则整段生成完一次性显示',
+        value: _streaming,
+        onChanged: (v) {
+          setState(() => _streaming = v);
+          AppSettings.streaming = v;
+        },
+      ),
+      const Divider(height: 1),
+      // 交互辅助三选一（v0.18.0）：建议回复 / 替我说一句 / 都关闭。
+      // 两者都开会让输入栏左侧挤两个按钮，且都在偷偷花 token，故互斥。
+      const Text(
+        '输入栏辅助按钮',
+        style: TextStyle(
+          fontSize: AppType.caption,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      const _SubLine('「建议回复」和「替我说一句」只能二选一；选「都关闭」则输入栏左侧不显示按钮'),
+      const SizedBox(height: 6),
+      SegmentedButton<AssistMode>(
+        segments: const [
+          ButtonSegment(
+            value: AssistMode.suggestions,
+            label: Text('建议回复', style: TextStyle(fontSize: 12.5)),
+          ),
+          ButtonSegment(
+            value: AssistMode.impersonate,
+            label: Text('替我说一句', style: TextStyle(fontSize: 12.5)),
+          ),
+          ButtonSegment(
+            value: AssistMode.off,
+            label: Text('都关闭', style: TextStyle(fontSize: 12.5)),
+          ),
+        ],
+        selected: {_assistMode},
+        showSelectedIcon: false,
+        style: ButtonStyle(
+          visualDensity: VisualDensity.compact,
+          textStyle: WidgetStateProperty.all(
+            const TextStyle(fontSize: 12.5),
+          ),
+        ),
+        onSelectionChanged: (selection) {
+          final v = selection.first;
+          setState(() => _assistMode = v);
+          AppSettings.assistMode = v;
+        },
+      ),
+      const SizedBox(height: 6),
+      Text(
+        _assistMode.summary,
+        style: TextStyle(
+          fontSize: AppType.caption,
+          height: 1.45,
+          color: scheme.onSurfaceVariant,
+        ),
+      ),
+      const Divider(height: 1),
+      _switchRow(
+        title: '长对话自动摘要',
+        subtitle: '对话太长时把早期内容压成摘要，后台静默执行'
+            '（会额外调用一次模型、消耗 token）',
+        value: _autoSummarize,
+        onChanged: (v) {
+          setState(() => _autoSummarize = v);
+          AppSettings.autoSummarize = v;
+        },
+      ),
+      const Divider(height: 1),
+      _actionRow(
+        title: '自动摘要怎么工作',
+        subtitle: '什么时候触发、会不会多花 token、怎么关掉',
+        trailing: _chevron(scheme),
+        onTap: _showSummaryExplain,
+      ),
+
+      // -------------------------------------------------- 显示 --
+      const SizedBox(height: 8),
+      const SectionHeader('显示'),
+      _actionRow(
+        title: '聊天气泡字号',
+        subtitle: '当前 ${AppSettings.chatFontSize.round()}sp · 点按可调',
+        trailing: _chevron(scheme),
+        onTap: _openFontSize,
+      ),
+      const Divider(height: 1),
+      _switchRow(
+        title: '消息时间戳',
+        value: _showTimestamps,
+        onChanged: (v) {
+          setState(() => _showTimestamps = v);
+          AppSettings.showTimestamps = v;
+        },
+      ),
+      const Divider(height: 1),
+      _switchRow(
+        title: '显示快捷回复',
+        subtitle: '在输入框上方显示一排点按即发的短语',
+        value: _showQuickReplies,
+        onChanged: (v) {
+          setState(() => _showQuickReplies = v);
+          AppSettings.showQuickReplies = v;
+        },
+      ),
+      const Divider(height: 1),
+      _actionRow(
+        title: '快捷回复管理',
+        subtitle: '${AppSettings.quickReplies.length} 条 · 常驻入口，可先配置再打开上面的开关',
+        trailing: _chevron(scheme),
+        onTap: () async {
+          await Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const QuickRepliesScreen()),
+          );
+          // 返回后刷新条数（页面内自行持久化）
+          if (mounted) setState(() {});
+        },
+      ),
+    ];
+  }
+
+  /// 字号调节放二级页里用滑条（首页只显示当前值）。
+  void _openFontSize() {
+    var size = _chatFontSize;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '聊天气泡字号',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                  Slider(
+                    value: size.round().clamp(13, 20).toDouble(),
+                    min: 13,
+                    max: 20,
+                    divisions: 7,
+                    label: '${size.round()}sp',
+                    onChanged: (v) {
+                      setSheet(() => size = v.roundToDouble());
+                      setState(() => _chatFontSize = size);
+                      AppSettings.chatFontSize = size;
+                    },
+                  ),
+                  Text(
+                    '这句话用当前字号显示，拖动滑条试试',
+                    style: TextStyle(fontSize: size, height: 1.5),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // -------------------------------------- 角色卡市场与翻译（二级） --
+
+  List<Widget> _marketChildren(ColorScheme scheme) {
+    return [
+      const SectionHeader('角色卡市场'),
+      _switchRow(
+        title: '显示 NSFW 内容',
+        subtitle: '默认关闭：市场只显示全年龄内容；打开后包含成人向角色卡',
+        value: _showNsfw,
+        onChanged: (v) {
+          setState(() => _showNsfw = v);
+          AppSettings.showNsfw = v;
+        },
+      ),
+      const SectionHeader('翻译'),
+      _SubLine(
+        '角色卡和市场里的「译」按钮会用免费翻译。默认顺序：'
+        '必应（Azure Key）→ 必应网页版 → MyMemory → Google。',
+      ),
+      const SizedBox(height: 8),
+      TextField(
+        controller: _azureKeyCtrl,
+        obscureText: true,
+        decoration: const InputDecoration(
+          labelText: '必应翻译 Key（Azure，可留空）',
+          hintText: '填了就用它翻译，速度和质量最稳',
+          helperText: 'Azure 翻译免费层每月 200 万字符；留空则用免 Key 的免费源',
+        ),
+        onChanged: (v) => AppSettings.azureTranslatorKey = v,
+      ),
+      const SizedBox(height: 10),
+      TextField(
+        controller: _azureRegionCtrl,
+        decoration: const InputDecoration(
+          labelText: '区域（可选）',
+          hintText: '例如 eastasia；有的 Key 需要填',
+        ),
+        onChanged: (v) => AppSettings.azureTranslatorRegion = v,
+      ),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: () => openExternalLink(
+            context,
+            'https://portal.azure.com/#create/Microsoft.CognitiveServicesTextTranslation',
+            title: '申请 Azure 翻译 Key',
+          ),
+          icon: const Icon(Icons.open_in_new, size: 16),
+          label: const Text('去申请必应（Azure）翻译 Key'),
+        ),
+      ),
+    ];
+  }
+
+  // -------------------------------------------------- 世界书（二级） --
+
+  List<Widget> _worldBookChildren(ColorScheme scheme) {
+    return [
+      const SectionHeader('世界书'),
+      _actionRow(
+        title: '导入世界书',
+        subtitle: 'SillyTavern 格式，聊天时按关键词自动注入',
+        onTap: _importWorldBook,
+      ),
+      for (final (id, book) in _worldBooks) ...[
+        const Divider(height: 1),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      book.name.isEmpty ? '未命名世界书' : book.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: AppType.body,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${book.entries.length} 条'
+                      '${AppSettings.mountedWorldBookIds.contains(id) ? ' · 已启用' : ' · 未启用'}',
+                      style: TextStyle(
+                        fontSize: AppType.caption,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                value: AppSettings.mountedWorldBookIds.contains(id),
+                onChanged: (v) => _toggleWorldBook(id, v),
+              ),
+              SizedBox(
+                width: 40,
+                height: 40,
+                child: IconButton(
+                  padding: EdgeInsets.zero,
+                  icon: Icon(
+                    Icons.delete_outline,
+                    size: 22,
+                    color: scheme.error,
+                  ),
+                  tooltip: '删除',
+                  onPressed: () => _deleteWorldBook(id),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ];
+  }
+
+  // ---------------------------------------------------- 外观（二级） --
+
+  List<Widget> _appearanceChildren(ColorScheme scheme) {
+    return [
+      const SectionHeader('外观'),
+      Row(
+        children: [
+          for (final (i, mode, label) in const [
+            (0, 'system', '跟随系统'),
+            (1, 'light', '浅色'),
+            (2, 'dark', '深色'),
+          ]) ...[
+            if (i > 0) const SizedBox(width: 8),
+            Expanded(child: _modePreview(mode, label)),
+          ],
+        ],
+      ),
+      const SizedBox(height: 8),
+      const Divider(height: 1),
+      const SectionHeader('主题色'),
+      GridView.count(
+        crossAxisCount: 4,
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        mainAxisSpacing: 6,
+        crossAxisSpacing: 6,
+        childAspectRatio: 1.6,
+        children: [
+          for (final value in _themeColors) _buildColorSwatch(value),
+        ],
+      ),
+      const SizedBox(height: 10),
+      const SectionHeader('自定义颜色'),
+      TextField(
+        controller: _hexCtrl,
+        keyboardType: TextInputType.text,
+        autocorrect: false,
+        decoration: InputDecoration(
+          hintText: '#2196F3',
+          helperText: '填入合法 HEX 立即应用',
+          helperMaxLines: 2,
+          errorText: _hexError,
+          isDense: true,
+        ),
+        onChanged: _onHexChanged,
+      ),
+    ];
+  }
+
+  // ---------------------------------------------------- 帮助（二级） --
+
+  List<Widget> _helpChildren(ColorScheme scheme) {
+    return [
+      const SectionHeader('帮助与关于'),
+      _actionRow(
+        title: '重看新手引导',
+        subtitle: '从零开始再过一遍：拿 Key、配模型、导入角色',
+        trailing: _chevron(scheme),
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const OnboardingScreen()),
+          );
+        },
+      ),
+      const Divider(height: 1),
+      _actionRow(
+        title: '关于',
+        subtitle: '版本 v$kAppVersion · 作者 Alorith',
+        trailing: _chevron(scheme),
+        onTap: _showAbout,
+      ),
+      const SizedBox(height: 10),
+      const _SubLine('聊天记录、角色卡、配置都只存在这台手机里，卸载应用会一起删除。'),
+    ];
   }
 
   /// 滑条上方标签行：名称 + 右侧数值（accent）。

@@ -56,6 +56,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   String? _testError;
   AssistMode _assistMode = AssistMode.suggestions;
 
+  /// 引导里新建的配置 id（v0.21.0）。
+  ///
+  /// 引导不再改写「之前填过的那套」，而是等用户真的填了内容后新建一套配置
+  /// 并设为激活；只点跳过不会留下空配置。
+  String? _draftConfigId;
+
   final _api = ApiClient();
 
   ColorScheme get _scheme => Theme.of(context).colorScheme;
@@ -68,9 +74,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   void initState() {
     super.initState();
-    _urlCtrl = TextEditingController(text: AppSettings.baseUrl);
-    _keyCtrl = TextEditingController(text: AppSettings.apiKey);
-    _modelCtrl = TextEditingController(text: AppSettings.model);
+    // v0.21.0：引导页从空白开始，不预填之前那套配置（避免"看着像已经配好"）。
+    _urlCtrl = TextEditingController();
+    _keyCtrl = TextEditingController();
+    _modelCtrl = TextEditingController();
     _assistMode = AppSettings.assistMode;
   }
 
@@ -86,10 +93,42 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   // ------------------------------------------------------------ 流程 --
 
+  /// 首次真正写入时新建一套配置（只点跳过不会建）。
+  void _ensureDraftConfig() {
+    if (_draftConfigId != null) return;
+    final id = AppSettings.newConfigId();
+    final preset = presetForBaseUrl(_urlCtrl.text.trim());
+    final model = _modelCtrl.text.trim();
+    final name = preset?.label ?? (model.isEmpty ? '新手配置' : model);
+    AppSettings.apiConfigs = [
+      ...AppSettings.apiConfigs,
+      ApiConfig(id: id, name: name),
+    ];
+    AppSettings.activeApiConfigId = id;
+    _draftConfigId = id;
+  }
+
+  /// 把三栏内容写进「引导新建的那套配置」，不碰其它配置。
   void _saveModelConfig() {
-    AppSettings.baseUrl = _urlCtrl.text;
-    AppSettings.apiKey = _keyCtrl.text;
-    AppSettings.model = _modelCtrl.text;
+    final url = _urlCtrl.text.trim();
+    final key = _keyCtrl.text.trim();
+    final model = _modelCtrl.text.trim();
+    if (url.isEmpty && key.isEmpty && model.isEmpty) return;
+    _ensureDraftConfig();
+    final preset = presetForBaseUrl(url);
+    final name = preset?.label ?? (model.isEmpty ? '新手配置' : model);
+    AppSettings.apiConfigs = [
+      for (final cfg in AppSettings.apiConfigs)
+        if (cfg.id == _draftConfigId)
+          cfg.copyWith(
+            name: name,
+            baseUrl: url,
+            key: key,
+            model: model,
+          )
+        else
+          cfg,
+    ];
   }
 
   void _finish() {
@@ -832,6 +871,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       _lead(
         '把第 2 步复制的 Key 粘贴到第二栏，再点「测试连接」确认能用。'
         '三栏分别是什么、从哪里抄，下面都写清楚了。',
+      ),
+      const SizedBox(height: 10),
+      _highlightPanel(
+        icon: Icons.add_card_outlined,
+        title: '这里会新建一套配置',
+        body: '引导里填的内容会存成一套新的模型配置并设为当前使用，'
+            '不会覆盖你之前已经填好的那套；想切回旧配置，随时去 设置 → 模型服务 里选。',
       ),
       const SizedBox(height: 8),
       const SectionHeader('点一下，自动填好地址和模型'),

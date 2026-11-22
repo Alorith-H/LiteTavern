@@ -1464,6 +1464,10 @@ class _ChatScreenState extends State<ChatScreen> {
       promptTokens: (m.promptTokens ?? 0) + p,
       completionTokens: (m.completionTokens ?? 0) + c,
       tokensEstimated: m.tokensEstimated || est,
+      // v0.21.0：记下这条回复用的模型名（气泡下方展示）
+      model: AppSettings.model.trim().isEmpty
+          ? null
+          : AppSettings.model.trim(),
     );
   }
 
@@ -2702,20 +2706,27 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
 
-    // AI：token/时间小字行；用户：时间戳开关下的时间行
+    // AI：模型名 + token/时间小字行；用户：时间戳开关下的时间行
     String? infoLine;
     if (!isUser) {
       final usage = m.currentVariantUsage;
+      String? tokens;
       if (usage != null) {
         final a = usage.estimated ? '约' : '';
         final pin = formatTokenCount(usage.prompt!);
         final cout = formatTokenCount(usage.completion!);
-        infoLine = showTs
-            ? '${_formatTime(m.timestamp)} · $a输入 $pin · $a输出 $cout'
+        tokens = showTs
+            ? '$a输入 $pin · $a输出 $cout'
             : '$a输入 $pin · $a输出 $cout tokens';
-      } else if (showTs) {
-        infoLine = _formatTime(m.timestamp);
       }
+      final modelName = (m.model ?? '').trim();
+      final parts = <String>[
+        // v0.21.0：气泡下方显示这条回复用的模型名
+        if (modelName.isNotEmpty) modelName,
+        ?tokens,
+        if (showTs) _formatTime(m.timestamp),
+      ];
+      infoLine = parts.isEmpty ? null : parts.join(' · ');
     }
 
     return Align(

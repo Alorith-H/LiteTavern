@@ -1,4 +1,4 @@
-# 交接状态：v0.20.0 模型配置与上下文长度改造（2026-11-22 更新）
+# 交接状态：v0.21.0 设置改版与对话细节（2026-11-22 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
 > v0.11.0（角色卡市场）、v0.12.0（市场筛选 + 设置开关）、v0.12.1（修正为「用户侧」建议回复）、
@@ -9,183 +9,92 @@
 > v0.16.0（用户人设 Persona、作者注释、宏增强、替我说一句、导出对话文件）、
 > v0.17.0（多聊天文件、对话分支、消息书签）、
 > v0.18.x（输入栏辅助三选一、6 步新手引导、自动摘要后台静默 + token 说明、菜单可滚动、建议回复并行提速）、
-> v0.19.0（翻译接入必应：Azure Key + 网页版兜底）。
+> v0.19.0（翻译接入必应：Azure Key + 网页版兜底）、
+> v0.20.0（智谱 GLM-4-Flash 免费置顶、上下文长度跟模型配置、获取模型列表）。
 >
-> **本轮 v0.20.0**（已发布）：
-> ① **智谱 GLM-4-Flash（免费）**加入预设并排在新手指引第 2 步第一位（「免费」徽章）；
-> ② **上下文长度跟模型配置走**：模型服务 → 编辑配置 新增「上下文长度（token）」，留空 = 按模型自动
->   （GLM-4 系列 128K、DeepSeek 64K、Kimi 128K、Gemini 1M…），也可手填覆盖；配置列表直接显示大小；
-> ③ **获取模型列表**：编辑配置 / 引导第 3 步点按钮从 `GET /models` 拉回可选模型，点一个自动填；
-> ④ 设置页全局「上下文窗口」输入框移除，改成一行说明（点进去即到模型服务）。
+> **本轮 v0.21.0**：
+> ① **新手引导不再覆盖旧配置**：引导里填的模型信息会新建一套配置并设为当前使用，
+>   之前填好的那套原样保留；只点跳过不会留下空配置。
+> ② **气泡下面显示模型名**：AI 消息信息行变成「模型名 · tokens · 时间」，旧消息为 null 不显示。
+> ③ **设置页二级菜单**：首页只留分组入口（生成参数 / 聊天与上下文 / 角色卡市场与翻译 /
+>   世界书 / 外观 / 帮助与关于），点进去才是具体开关。
 
 ## 仓库状态
 
-- 分支 `dev`，版本 `pubspec.yaml` = **0.20.0+19**，`lib/app_info.dart` `kAppVersion = '0.20.0'`。
-- v0.20.0 改动文件：`lib/services/api_presets.dart`（`free` / `contextWindow` / `contextWindowForModel` /
-  `formatContextWindow`、GLM-4-Flash 置顶）、`lib/services/storage.dart`（`ApiConfig.contextWindow`、
-  `AppSettings.contextWindow` 改为按配置/模型计算、旧全局键清理）、`lib/services/api_client.dart`
-  （`fetchModels` / `extractModelIds`）、`lib/screens/api_config_screen.dart`（上下文长度输入 +
-  「获取模型列表」+ `_ModelPickerSheet` + 列表行显示上下文）、`lib/screens/onboarding_screen.dart`
-  （第 2 步免费徽章/动态家数、第 3 步获取模型列表 + 上下文提示、`_ModelListSheet`）、
-  `lib/screens/settings_screen.dart`（上下文窗口改说明行）、`test/v20_test.dart`（新增 17 例）、
-  `test/v12_test.dart`（上下文测试改为按模型自动）、`test/onboarding_screen_test.dart`（家数动态）、
-  `CHANGELOG.md`、`RESUME_STATE.md`。
-- v0.19.0 改动文件：`lib/services/translator.dart`（两个必应 Provider + 默认源顺序）、
-  `lib/services/storage.dart`（`azureTranslatorKey` / `azureTranslatorRegion`）、
-  `lib/screens/settings_screen.dart`（「翻译」分节）、`lib/widgets/card_translation_sheet.dart`（文案）、
-  `test/translation_test.dart`、`test/v19_test.dart`、`README.md`。
-- v0.18.x 改动文件：`lib/services/storage.dart`（`AssistMode` + `assistMode`）、
-  `lib/screens/settings_screen.dart`、`lib/screens/chat_screen.dart`、
-  `lib/screens/onboarding_screen.dart`、`test/v12_test.dart`、`test/onboarding_screen_test.dart`。
+- 分支 `dev`，版本 `pubspec.yaml` = **0.21.0+20**，`lib/app_info.dart` `kAppVersion = '0.21.0'`。
+- v0.21.0 改动文件：
+  - `lib/screens/onboarding_screen.dart`：控制器初始为空；`String? _draftConfigId`；
+    `_ensureDraftConfig()`；`_saveModelConfig()` 改为「新建/更新草稿配置」；第 3 步加说明面板「这里会新建一套配置」。
+  - `lib/models/chat_message.dart`：新增 `String? model`（构造 / fromJson / toJson / copyWith）。
+  - `lib/screens/chat_screen.dart`：`_applyTokens` 写入本次模型名；`_buildMessage` 信息行
+    `parts = [模型名, tokens, 时间].join(' · ')`。
+  - `lib/screens/settings_screen.dart`：新增 `enum SettingsSection` + `SettingsSectionTitle`；
+    `SettingsScreen({super.key, this.section})`；首页分组入口 + `_sectionChildren` 分节构建
+    （`_generationChildren` / `_chatChildren` / `_marketChildren` / `_worldBookChildren` /
+    `_appearanceChildren` / `_helpChildren`）。
+  - `test/v21_test.dart`（新增 6 例）。
 
+## 本轮变更（v0.21.0）详解
 
-## 本轮变更（v0.20.0）
+### 1. 引导页配置另存为新的一套
 
-### 1. 智谱 GLM-4-Flash（免费）置顶
+- 三个输入框不再预填 `AppSettings.baseUrl/apiKey/model`，进来是空的。
+- 用户真正填了内容（三栏任一非空）后才 `AppSettings.newConfigId()` 新建一套
+  （名字取预设 label，或模型名，兜底「新手配置」），加入 `AppSettings.apiConfigs` 并设为激活；
+  后续输入只更新这套草稿，不再触碰旧配置。
+- 第 3 步顶部有说明面板，明确告知「不会覆盖你之前已经填好的那套；想切回去 设置 → 模型服务」。
 
-- `lib/services/api_presets.dart`：`ApiPreset` 新增 `free` 与 `contextWindow` 两个字段；
-  `kApiPresets` 顺序改为 **GLM-4-Flash（free: true，128K）** → GLM-4-Air（128K）→ DeepSeek（64K）
-  → Kimi moonshot-v1-8k（8K）→ 小米 MiMo（64K）→ Ollama（32K）。
-- 新手引导第 2 步按预设顺序渲染，GLM-4-Flash 第一张卡带「免费」徽章；「下面 5 家」改成按
-  `kApiPresets.length` 动态显示。
+### 2. 气泡下方显示模型名
 
-### 2. 上下文长度跟着模型配置走
+- `ChatMessage.model` 记录生成该条回复时 `AppSettings.model`；空串存 null。
+- 气泡下方信息行顺序：模型名 → tokens → 时间（时间是否显示仍由「显示时间戳」开关控制）。
+- 兼容：旧消息没有该字段，反序列化为 null，不会崩溃也不会写入空值。
 
-- `ApiConfig` 新增 `contextWindow`（默认 **0 = 按模型自动**），参与 `toJson` / `fromJson` / `copyWith`。
-- `AppSettings.contextWindow` 改为：配置里 > 0 就用配置值，否则 `contextWindowForModel(当前模型)`；
-  setter 写回**当前激活配置**，不再有全局键；`_migrateContextWindow1M()` 只负责清掉旧全局键。
-- 设置页「模型上下文窗口」由输入框改为说明行（显示当前值 + 「在 设置 → 模型服务 → 编辑配置 里改」，
-  点按直达模型服务页）。
-- 模型服务编辑页新增「上下文长度（token）」输入框：留空 = 自动（hint 显示自动值），手填则覆盖；
-  右侧 `autorenew` 按钮一键改回自动；预设 chip 会带上该预置的上下文长度。
-- 模型服务列表每行副标题显示「模型 · 上下文 128K（自动）」这一类信息。
+### 3. 设置页二级菜单
 
-### 3. 获取模型列表
+- 首页：`模型服务`（当前配置行）+ `设置`（五个分组行，副标题是各页当前状态摘要）+
+  `帮助与关于`（版本 / 重看新手引导 / 作者）。
+- 分组页：独立 `Scaffold` + AppBar 标题，内容即原来的分节；字号调节改为二级页内的滑条弹层。
+- 深链：`SettingsScreen(section: SettingsSection.chat)` 可直接打开某个分组（测试已覆盖）。
 
-- `ApiClient.fetchModels({baseUrl, apiKey})`：`GET {baseUrl}/models`，20s 超时，非 200 走中文错误映射；
-  `ApiClient.extractModelIds(body)` 兼容 `{data:[{id}]}`、`{models:[]}`、`{items:[]}`、`{list:[]}`、纯数组，
-  元素支持 `id` / `name` / `model`，去重排序。
-- 编辑配置页与引导第 3 步都有「获取模型列表」按钮：弹底部列表（带搜索），点一个即填入「模型名」。
+## 历史变更（v0.20.0，已发布）
 
-## 历史变更（v0.19.0）
-
-### 1. 必应翻译（Azure Key）
-
-- `lib/services/translator.dart` 新增 `AzureBingProvider`（id `azure`，label「必应翻译（Azure Key）」）：
-  `POST https://api.cognitive.microsofttranslator.com/translate?api-version=3.0&to=zh-Hans`，
-  header `Ocp-Apim-Subscription-Key`、可选 `Ocp-Apim-Subscription-Region`，body `[{"Text": …}]`；
-  401/403 → quotaExceeded（Key 无效），429 → 额度用尽；长文本按 ≤3000 字符分块。
-- Key 留空时立刻抛 `TranslationFailure`，不产生网络请求，由调度器换下一个源。
-
-### 2. 必应网页版（免 Key，best-effort）
-
-- 新增 `BingWebProvider`（id `bing`）：先 `GET https://www.bing.com/translator`，
-  用正则取页面里的 `IG:"…"` 与 `params_AbusePreventionHelper = [key,"token",ttl]`，
-  再 `POST /ttranslatev3?isVertical=1&&IG=…&IID=translator.5028.1`（表单 `fromLang=auto-detect`、
-  `text`、`to=zh-Hans`、`token`、`key`）。
-- 令牌静态缓存 45 分钟（`resetCacheForTest()` 供单测清理）；手动跟随 301/302/307/308 且保持 POST。
-- **实测限制**：本机网络下该接口返回 `{"ShowCaptcha":false}`（被要求人机验证），
-  因此它只作「先试一试」，失败即换 MyMemory；国内移动网络可能可用，不能用也不影响功能。
-- 分块上限 900 字符；`zh-CN → zh-Hans`、`zh-TW → zh-Hant`。
-
-### 3. 默认免费源顺序与设置
-
-- `TranslationService` 默认 `freeProviders` = `[AzureBingProvider(), BingWebProvider(),
-  MyMemoryProvider(), GoogleFreeProvider()]`（`_preferred` 记忆上次成功的源，跳过高成本试探）。
-- 设置页新增「翻译」分节（在「角色卡市场」之后、「聊天」之前）：说明默认顺序 +
-  「必应翻译 Key（Azure，可留空）」密码框 + 「区域（可选）」+ 「去申请必应（Azure）翻译 Key」外链；
-  `AppSettings.azureTranslatorKey` / `azureTranslatorRegion` 存 prefs（写入 trim，空值删键）。
-- 角色卡翻译弹层文案改为「优先使用免费翻译服务（必应 / MyMemory）」。
-
-## 历史变更（v0.18.0）
-
-
-### 1. 输入栏辅助方式三选一
-
-- `lib/services/storage.dart` 新增顶层 `enum AssistMode { suggestions, impersonate, off }`：
-  `fromLegacy(bool)`、`label`（生成建议回复 / 替我说一句 / 都关闭）、`summary`（含 token 提示）。
-- `AppSettings.assistMode` 读写 prefs 键 `assist_mode`；非法/缺失时回退旧键
-  `auto_reply_candidates` 的布尔语义（true → suggestions，false/缺失 → off）。
-  `autoReplyCandidates` 保留为兼容别名。
-- `lib/screens/settings_screen.dart`：「聊天」分节里把原「自动生成回复」开关换成
-  「输入栏辅助按钮」三选一 `SegmentedButton<AssistMode>` + 当前模式说明；
-  显式写明「两者只能二选一；选都关闭则输入栏左侧不显示按钮」。
-- `lib/screens/chat_screen.dart`：
-  - 输入栏左侧按钮按模式渲染：suggestions → ✨「生成建议回复」；impersonate → 「替我说一句」；
-    off → 两个都不显示（v0.18.0 之前替我说一句是常驻）。
-  - `_maybeSuggestReplies` 与建议条渲染都加了 `assistMode == AssistMode.suggestions` 门禁，
-    避免「选了替我说一句还在后台跑三次建议请求」。
-
-### 2. 自动摘要后台静默执行
-
-- 删除聊天页的摘要进度块（原 spinner + 「正在总结早期对话…」+ 帮助按钮 + 跳过），
-  以及 `_summarizeReason / _summarizeEarlyCount / _summarizeEstimatedTokens`、
-  `_showSummaryWhy()`。自动摘要现在不显示任何提示。
-- `_summarizing` 布尔保留：用于发送门禁；摘要期间发送钮显示为红色停止钮，仍可 `_cancelSummarize()` 打断。
-- 摘要完成后照旧把 `ChatSummary` 存进会话，并在下一条请求里替换早期原文（模型侧不可见差异）。
-
-### 3. 说明「自动摘要会花 token」
-
-- 设置里「长对话自动摘要」副标题：「对话太长时把早期内容压成摘要，后台静默执行（会额外调用一次模型、消耗 token）」。
-- 新增「自动摘要怎么工作」说明弹窗（`_showSummaryExplain`），5 段：
-  触发条件（超过记忆长度 / 上下文超 90%）、不是额度不够、会消耗 token（独立小请求，通常几千 token，
-  只在触发那次）、本机记录不删改、怎么关/怎么手动触发。
-- 结论口径：**会消耗 token**，因为摘要是额外一次模型调用（输入早期对话、输出摘要），按服务商价格计费。
-
-### 4. 新手指引完善（5 → 6 步）
-
-- `lib/screens/onboarding_screen.dart`：`_totalSteps = 6`，`_primaryLabels` 同步；
-  第 4 步新增 `_buildAssistMode()`（三张 `_assistCard`，点选即写入 `AppSettings.assistMode`），
-  同时科普自动摘要会额外花 token、后台无提示、可在设置关。
-- 第 2 步「新手怎么选、要注意什么」提示从底部**移到最上面**（标题之后、lead 之前）。
-- 第 2 步末尾新增 `_customProviderCard()`「自定义接口（进阶）」：任何 OpenAI 兼容服务都能接，
-  点「用自定义接口」清空地址/模型并直接翻到第 3 步填写。
-- 第 6 步（完成页）说明按所选模式动态显示「左侧那个帮手按钮」的作用，并补「长对话会自动摘要」。
-
-## 历史修复（v0.18.1）
-
-1. **聊天菜单滚不动 → 书签被挤到屏幕外**：`chat_screen.dart` 的 `_showMenu()`
-   改为 `isScrollControlled: true` + `SafeArea > ConstrainedBox(maxHeight: 屏高 * 0.72) >
-   SingleChildScrollView > Column`，菜单项再多也能滚到；顺带加了 `showDragHandle`。
-2. **建议回复出现慢**：`_suggestReplies()` 改为三条并行 + 谁先回就先显示（`unawaited(...).then`，
-   `_suggesting` 直到最后一条回来才关）；新增 `_buildSuggestionMessages()`
-   （只发 system + 最近 10 条，不再整段世界书/摘要/全历史）与 `_suggestionMaxTokens`
-   （单条上限 240 token），显著缩短等待。
+- 智谱 GLM-4-Flash（免费）加入预设并排在引导第 2 步第一位（「免费」徽章）。
+- 上下文长度跟模型配置走：`ApiConfig.contextWindow`（0 = 按模型自动），
+  `contextWindowForModel` 按模型名推断，配置列表显示大小；设置页旧的全局输入框改为说明行。
+- `ApiClient.fetchModels` + `extractModelIds`：编辑配置 / 引导第 3 步可「获取模型列表」并点选填入。
 
 ## 验证
 
 | 项目 | 结果 |
 | --- | --- |
-| `flutter analyze` | **No issues found!**（6.7s，v0.20.0） |
-| `flutter test` | **+300 All tests passed!**（7s，v0.20.0，其中 test/v20_test.dart 17 例） |
-| `flutter build apk --release` | 59.3MB（Gradle 48.3s），versionCode **19** / versionName **0.20.0** |
-| 装机 | **Success**（versionCode 19 / 0.20.0 / 2026-11-22 22:02:20，数据保留） |
-| 真机自测 | 见下「真机自测清单」 |
+| `flutter analyze` | **No issues found!**（4.8s） |
+| `flutter test` | **+306 All tests passed!**（9s，其中 test/v21_test.dart 6 例） |
+| `flutter build apk --release` | 见「本次运行记录」 |
+| 装机 | 见「本次运行记录」 |
 
-## 真机自测清单（v0.20.0）
+## 真机自测清单（v0.21.0）
 
-1. 设置页：原「上下文窗口」输入框已变成说明行「当前 64K（按模型自动）· 在 设置 → 模型服务 → 编辑配置 里改」
-   （已真机确认渲染，截图 `build\v200_settings.png`）。
-2. 设置 → 模型服务 → 编辑配置：可见「获取模型列表」按钮与「上下文长度（token）」输入框；
-   留空时 hint 显示自动值，手填后出现 `autorenew` 复位按钮。
-3. 点「获取模型列表」：能拉到当前 Key 可用的模型（接口不支持会明确提示），点选后模型名被填入。
-4. 换模型（如 deepseek-chat → glm-4-flash）后回到设置：上下文自动值跟着变（64K → 128K）。
-5. 全新安装/重看引导：第 2 步第一张卡是「智谱 GLM-4-Flash」且带「免费」徽章；
-   第 3 步能「获取模型列表」，下方提示上下文自动值。
+1. 设置页首页：只有分组入口，六行（生成参数 / 聊天与上下文 / 角色卡市场与翻译 / 世界书 /
+   外观 / 帮助与关于），每行副标题显示当前状态摘要。
+2. 点「生成参数」→ 二级页有预设行、随机度、采样范围、单次回复长度上限、高级设置。
+3. 点「聊天与上下文」→ 用户人设、称呼、记忆与上下文、自动继续、流式传输、输入栏辅助三选一、
+   自动摘要、显示（字号/时间戳/快捷回复）。
+4. 聊天页：发一条消息，AI 气泡下方显示「模型名 · tokens · 时间」。
+5. 重看新手引导（设置 → 帮助与关于）：第 3 步输入框是空的，填完后设置 → 模型服务里多出一套新配置，
+   旧配置仍在且数值未变。
 
 ## 已知边界
 
-- 上下文长度「自动」是按模型名规则推断（见 `contextWindowForModel`），不是真的问服务商；
-  特殊私有模型名会回落到 64K，可在配置里手填。
-- 「获取模型列表」依赖服务商支持 `GET /models`；不支持时给出中文提示，不影响手动填模型名。
-- 设置 0 仍保留旧语义「关闭占用%与自动压缩」，但 UI 上留空 = 自动，只有手填 0 才会关。
+- 模型名取的是「发送那一刻的 `AppSettings.model`」；若中途切了激活配置，旧消息仍显示当时的模型名（符合预期）。
+- 旧消息（v0.21.0 之前）没有 `model` 字段，气泡下方不显示模型名。
+- 引导页只填了一部分（比如只填 Key）也会新建一套配置；完全没填则不会。
+- 设置二级页是 `push` 新页面（不改底部导航），返回即首页。
+- 上下文长度「自动」是按模型名规则推断，不是真的问服务商；特殊私有模型名回落 64K，可手填。
+- 「获取模型列表」依赖服务商支持 `GET /models`；不支持时给中文提示，仍可手填。
 - 必应网页版接口按 IP/风控返回 `ShowCaptcha`，属正常现象：自动换源，不会卡住流程。
-- Azure 翻译 Key 存在本机 SharedPreferences，明文（与 API Key 同等处理）；免费层每月 200 万字符。
-- `assistMode` 默认值为 off（沿用旧版「自动生成回复默认关」）；从旧版本升级时读取 `auto_reply_candidates` 迁移一次。
-- 自动摘要静默执行意味着：长对话首次发送会有一次不易察觉的额外等待；可用发送钮的停止态打断。
-- 引导页第 5 步从市场返回即完成引导；外链/跳转未纳入单测（无平台通道 mock）。
-
-
+- `assistMode` 默认 off（沿用旧版「自动生成回复默认关」）；从旧版本升级时读 `auto_reply_candidates` 迁移一次。
+- 自动摘要静默执行：长对话首次发送会有一次不易察觉的额外等待；可用发送钮的停止态打断。
 
 ## 环境与常用命令
 
@@ -193,19 +102,15 @@
   `$env:FLUTTER_STORAGE_BASE_URL="https://storage.flutter-io.cn"`。
 - 构建：`flutter build apk --release` → `build\app\outputs\flutter-apk\app-release.apk`。
 - adb：`C:\Users\28351\Android\Sdk\platform-tools\adb.exe`；真机 23113RKC6C（Android 16，1440×3200）。
-  无线调试最近可用地址：`192.168.0.102:42543`（会变，用 `adb connect` 重连）。
+  无线调试地址会变：先 `adb devices`，必要时 `adb connect <ip>:<port>`。
 - 真机点按用**视觉坐标**（uiautomator bounds 常与视觉位置不符）。
+- git 提交不要传 `-c user.name/-c user.email`（仓库配置已是 `Alorith-H <2835147611@qq.com>`）。
 
-## 本次运行记录（v0.20.0）
+## 本次运行记录（v0.21.0）
 
-- `flutter analyze`：No issues found!（6.7s）
-- `flutter test`：+300 All tests passed!（7s）
-- `flutter build apk --release`：59.3MB（Gradle 48.3s），versionCode **19** / versionName **0.20.0**
-- 装机：`adb -s 192.168.0.102:42543 install -r` → **Success**；
-  dumpsys 确认 versionCode 19 / versionName 0.20.0 / lastUpdateTime 2026-11-22 22:02:20，数据保留。
-- 真机抽查：启动正常（2 个角色在）；设置页「模型上下文窗口」说明行渲染正常
-  （截图 `build\v200_device_home.png`、`build\v200_models.png`）。
-  编辑配置页因无线调试端口变化（`192.168.0.102:42543` 报 10061/offline）未继续点验，
-  下次连上后按上面「真机自测清单」第 2–4 条补验。
-
-
+- `flutter analyze`：No issues found!（4.8s）
+- `flutter test`：+306 All tests passed!（9s）
+- `flutter build apk --release`：59.3MB（Gradle 52.9s），versionCode **20** / versionName **0.21.0**
+  （`build\app\outputs\apk\release\output-metadata.json`），APK 62,136,051 字节。
+- 装机：**未完成**——`adb devices` 为空；`adb connect 192.168.0.102:42543` 报 10061（积极拒绝，端口已变）。
+  需手机重新开无线调试后 `adb connect <新 ip:port>` 再 `adb -s <addr> install -r`。
