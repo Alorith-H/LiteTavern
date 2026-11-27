@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import '../models/world_info.dart';
 import '../services/hit_stats.dart';
 import '../services/storage.dart';
+import '../services/world_book_files.dart';
+import '../services/world_info_engine.dart';
 import '../widgets/common.dart';
 
 /// 世界书条目列表页：查看 / 启停 / 编辑 / 新增 / 删除（用户导入的世界书）。
@@ -383,6 +385,152 @@ class _WorldBookEntriesScreenState extends State<WorldBookEntriesScreen> {
     await _persist();
   }
 
+  /// 当前编辑中的整本世界书（导出 / 命中测试用）。
+  WorldInfo get _currentBook => WorldInfo(
+        name: widget.book.name,
+        description: widget.book.description,
+        entries: _entries,
+      );
+
+  void _snack(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  /// 导出整本世界书（v0.27.0）：JSON + 系统分享。
+  Future<void> _exportBook() async {
+    try {
+      final ok = await WorldBookFiles.shareBook(_currentBook);
+      if (!ok) _snack('当前设备不支持分享文件');
+    } catch (e) {
+      _snack('导出失败：$e');
+    }
+  }
+
+  /// 命中测试（v0.27.0）：输入一段文字，看会激活哪些条目、为什么。
+  Future<void> _showHitTest() async {
+    final ctrl = TextEditingController();
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setLocal) {
+            final text = ctrl.text.trim();
+            final results = text.isEmpty
+                ? const <EntryInspection>[]
+                : WorldInfoEngine.inspect(
+                    books: [_currentBook],
+                    text: text,
+                    charName: widget.book.name.trim().isEmpty
+                        ? '角色'
+                        : widget.book.name.trim(),
+                    userName: '你',
+                  );
+            final hit = results.where((r) => r.activated).length;
+            final scheme = Theme.of(ctx).colorScheme;
+            return AlertDialog(
+              title: const Text('命中测试'),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: ctrl,
+                      minLines: 2,
+                      maxLines: 4,
+                      decoration: const InputDecoration(
+                        labelText: '测试文本',
+                        hintText: '粘贴或输入一句话，例如：我们走进酒馆…',
+                        isDense: true,
+                      ),
+                      onChanged: (_) => setLocal(() {}),
+                    ),
+                    const SizedBox(height: 10),
+                    if (results.isNotEmpty)
+                      Text(
+                        '激活 $hit / ${results.length} 条',
+                        style: TextStyle(
+                          fontSize: AppType.caption,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    const SizedBox(height: 6),
+                    Flexible(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            for (final r in results)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: Row(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Icon(
+                                      r.activated
+                                          ? Icons.check_circle
+                                          : Icons.remove_circle_outline,
+                                      size: 16,
+                                      color: r.activated
+                                          ? scheme.primary
+                                          : scheme.onSurfaceVariant,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            r.entry.keys.isEmpty
+                                                ? '（无关键词）'
+                                                : r.entry.keys.join('、'),
+                                            style: const TextStyle(
+                                              fontSize: AppType.caption,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                          Text(
+                                            r.reason,
+                                            style: TextStyle(
+                                              fontSize: AppType.caption,
+                                              height: 1.4,
+                                              color: scheme.onSurfaceVariant,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('关闭'),
+                ),
+              ],
+            );
+          },
+        ),
+      );
+    } finally {
+      ctrl.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -393,6 +541,36 @@ class _WorldBookEntriesScreenState extends State<WorldBookEntriesScreen> {
       appBar: AppBar(
         title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
+          PopupMenuButton<String>(
+            tooltip: '更多',
+            onSelected: (v) {
+              if (v == 'export') {
+                _exportBook();
+              } else if (v == 'test') {
+                _showHitTest();
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'test',
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.science_outlined, size: 20),
+                  title: Text('命中测试'),
+                  subtitle: Text('输入一句话，看看会激活哪些条目'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'export',
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.ios_share, size: 20),
+                  title: Text('导出世界书'),
+                  subtitle: Text('存成 .json，可分享或再导入'),
+                ),
+              ),
+            ],
+          ),
           TextButton.icon(
             onPressed: () => _showEntryDialog(null),
             icon: const Icon(Icons.add_outlined, size: 20),

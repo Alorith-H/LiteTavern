@@ -20,6 +20,8 @@ import 'api_config_screen.dart';
 import 'gen_presets_screen.dart';
 import 'onboarding_screen.dart';
 import 'personas_screen.dart';
+import 'world_book_bindings_screen.dart';
+import 'world_book_entries_screen.dart';
 
 /// 设置页的二级分组（v0.21.0）。
 enum SettingsSection { generation, chat, market, worldBooks, appearance, help }
@@ -306,6 +308,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
     AppSettings.mountedWorldBookIds = ids;
     setState(() {});
+  }
+
+  /// 四范围绑定页（v0.27.0）。
+  Future<void> _openWorldBookBindings() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const WorldBookBindingsScreen()),
+    );
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  /// 世界书条目页（v0.27.0 起从设置也能进，可命中测试 / 导出）。
+  Future<void> _openWorldBookEntries(String id, WorldInfo book) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => WorldBookEntriesScreen(bookId: id, book: book),
+      ),
+    );
+    if (!mounted) return;
+    await _loadWorldBooks();
+    if (mounted) setState(() {});
   }
 
   Future<void> _deleteWorldBook(String id) async {
@@ -909,6 +932,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         subtitle: 'SillyTavern 格式，聊天时按关键词自动注入',
         onTap: _importWorldBook,
       ),
+      _actionRow(
+        title: '世界书绑定',
+        subtitle: '全局 / 人设 / 角色 / 这段聊天，分别绑定（v0.27.0）',
+        onTap: _openWorldBookBindings,
+      ),
       for (final (id, book) in _worldBooks) ...[
         const Divider(height: 1),
         Padding(
@@ -916,28 +944,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Row(
             children: [
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      book.name.isEmpty ? '未命名世界书' : book.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: AppType.body,
-                        fontWeight: FontWeight.w500,
+                child: InkWell(
+                  onTap: () => _openWorldBookEntries(id, book),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        book.name.isEmpty ? '未命名世界书' : book.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: AppType.body,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${book.entries.length} 条'
-                      '${AppSettings.mountedWorldBookIds.contains(id) ? ' · 已启用' : ' · 未启用'}',
-                      style: TextStyle(
-                        fontSize: AppType.caption,
-                        color: scheme.onSurfaceVariant,
+                      const SizedBox(height: 2),
+                      Text(
+                        '${book.entries.length} 条'
+                        '${AppSettings.mountedWorldBookIds.contains(id) ? ' · 已启用' : ' · 未启用'}',
+                        style: TextStyle(
+                          fontSize: AppType.caption,
+                          color: scheme.onSurfaceVariant,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
               Switch(

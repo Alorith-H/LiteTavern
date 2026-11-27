@@ -36,6 +36,7 @@ import '../widgets/reply_suggestions_bar.dart';
 import 'authors_note_screen.dart';
 import 'character_edit_screen.dart';
 import 'settings_screen.dart';
+import 'world_book_bindings_screen.dart';
 
 /// 继续生成时附加在 messages 末尾的 system 指令。
 const String kContinueInstruction =
@@ -458,10 +459,18 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   /// 群聊合并世界书：各成员 enabled 挂载（跨成员去重）+ 各自卡内嵌。
+  /// v0.27.0：四范围（全局 / 人设 / 角色 / 这段聊天）合并后取启用项。
   Future<List<WorldInfo>> _loadWorldBooksForGroup(
       List<CharacterCard> members) async {
     final books = <WorldInfo>[];
     final enabledIds = <String>{};
+    final shared = await Storage.effectiveWorldBookMounts(
+      convId: _convId,
+      personaId: PersonaStore.active?.id,
+    );
+    for (final m in shared) {
+      enabledIds.add(m.id);
+    }
     for (final card in members) {
       final embedded = card.characterBook;
       if (embedded != null) {
@@ -473,14 +482,13 @@ class _ChatScreenState extends State<ChatScreen> {
               )
             : embedded);
       }
-      final explicit = await Storage.worldBookMountsFor(card.id);
-      final mounts = explicit ??
-          [
-            for (final id in AppSettings.mountedWorldBookIds)
-              (id: id, enabled: true),
-          ];
+      final mounts = await Storage.effectiveWorldBookMounts(
+        charId: card.id,
+        convId: _convId,
+        personaId: PersonaStore.active?.id,
+      );
       for (final m in mounts) {
-        if (m.enabled) enabledIds.add(m.id);
+        enabledIds.add(m.id);
       }
     }
     if (enabledIds.isNotEmpty) {
@@ -493,8 +501,8 @@ class _ChatScreenState extends State<ChatScreen> {
     return books;
   }
 
-  /// 该角色参与激活的世界书：卡内嵌 + 挂载配置里 enabled 的。
-  /// 挂载配置不存在时回退到全局默认挂载（v0.1 行为）。
+  /// 该角色参与激活的世界书：卡内嵌 + 四范围合并后启用的。
+  /// v0.27.0：全局 / 人设 / 角色 / 这段聊天，任一范围开启即注入。
   Future<List<WorldInfo>> _loadWorldBooksFor(CharacterCard card) async {
     final books = <WorldInfo>[];
     final embedded = card.characterBook;
@@ -508,16 +516,12 @@ class _ChatScreenState extends State<ChatScreen> {
             )
           : embedded);
     }
-    final explicit = await Storage.worldBookMountsFor(card.id);
-    final mounts = explicit ??
-        [
-          for (final id in AppSettings.mountedWorldBookIds)
-            (id: id, enabled: true),
-        ];
-    final enabledIds = {
-      for (final m in mounts)
-        if (m.enabled) m.id,
-    };
+    final mounts = await Storage.effectiveWorldBookMounts(
+      charId: card.id,
+      convId: _convId,
+      personaId: PersonaStore.active?.id,
+    );
+    final enabledIds = {for (final m in mounts) m.id};
     if (enabledIds.isNotEmpty) {
       final all = await Storage.loadWorldBooks();
       for (final (id, wb) in all) {
@@ -1670,6 +1674,37 @@ class _ChatScreenState extends State<ChatScreen> {
 
   // ------------------------------------------------------------- 菜单 --
 
+  /// 世界书绑定（v0.27.0）：默认定位到「这段聊天」，也可切到全局/人设/角色。
+  Future<void> _openWorldBookBindings() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => WorldBookBindingsScreen(
+          initialScope: WorldBookScope.chat,
+          initialOwnerId: _convId,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    // 绑定变了，重新算这对这条会话生效的世界书
+    final card = _card;
+    if (_isGroup) {
+      final group = _group;
+      if (group == null) return;
+      final members = <CharacterCard>[];
+      for (final id in group.memberIds) {
+        final c = await Storage.loadCharacter(id);
+        if (c != null) members.add(c);
+      }
+      final books = await _loadWorldBooksForGroup(members);
+      if (!mounted) return;
+      setState(() => _worldBooks = books);
+    } else if (card != null) {
+      final books = await _loadWorldBooksFor(card);
+      if (!mounted) return;
+      setState(() => _worldBooks = books);
+    }
+  }
+
   Future<void> _editCharacter() async {
     final card = _card;
     if (card == null) return;
@@ -1879,6 +1914,14 @@ class _ChatScreenState extends State<ChatScreen> {
               onTap: () {
                 Navigator.pop(ctx);
                 _openChatTree();
+              },
+            ),
+            ListTile(
+              title: const Text('世界书绑定'),
+              subtitle: const Text('全局 / 人设 / 角色 / 这段聊天，分别绑定'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _openWorldBookBindings();
               },
             ),
             ListTile(

@@ -356,6 +356,11 @@ class Storage {
           for (final m in e.value) {'id': m.id, 'enabled': m.enabled},
         ],
     };
+    // v0.27.0：绑定页可能在任何世界书之前就写配置，目录不一定存在
+    final parent = _mountsFile.parent;
+    if (!await parent.exists()) {
+      await parent.create(recursive: true);
+    }
     await _mountsFile.writeAsString(jsonEncode(data), flush: true);
   }
 
@@ -392,6 +397,131 @@ class Storage {
     }
     if (changed) await _writeAllMounts(all);
   }
+
+  // ------------------------------------------- 世界书四范围绑定（v0.27.0） --
+
+  /// 某个范围在 mounts.json 里的键名。
+  ///
+  /// 兼容旧数据：角色范围优先读 `char:<id>`，没有则回退到裸 `<charId>`。
+  static String worldBookMountKey(WorldBookScope scope, String? ownerId) {
+    switch (scope) {
+      case WorldBookScope.global:
+        return 'global';
+      case WorldBookScope.character:
+        return 'char:${ownerId ?? ''}';
+      case WorldBookScope.chat:
+        return 'chat:${ownerId ?? ''}';
+      case WorldBookScope.persona:
+        return 'persona:${ownerId ?? ''}';
+    }
+  }
+
+  /// 指定范围 + 归属者的挂载；null = 从未配置。
+  static Future<List<({String id, bool enabled})>?> worldBookMountsForScope(
+    WorldBookScope scope,
+    String? ownerId,
+  ) async {
+    final all = await _readAllMounts();
+    final key = worldBookMountKey(scope, ownerId);
+    if (all.containsKey(key)) return all[key];
+    if (scope == WorldBookScope.character &&
+        ownerId != null &&
+        all.containsKey(ownerId)) {
+      return all[ownerId];
+    }
+    return null;
+  }
+
+  static Future<void> saveWorldBookMountsForScope(
+    WorldBookScope scope,
+    String? ownerId,
+    List<({String id, bool enabled})> mounts,
+  ) async {
+    final all = await _readAllMounts();
+    all[worldBookMountKey(scope, ownerId)] = mounts;
+    await _writeAllMounts(all);
+  }
+
+  static Future<void> removeWorldBookMountsForScope(
+    WorldBookScope scope,
+    String? ownerId,
+  ) async {
+    final all = await _readAllMounts();
+    final key = worldBookMountKey(scope, ownerId);
+    var changed = all.remove(key) != null;
+    if (scope == WorldBookScope.character &&
+        ownerId != null &&
+        all.remove(ownerId) != null) {
+      changed = true;
+    }
+    if (changed) await _writeAllMounts(all);
+  }
+
+  /// 合并四个范围后「这次聊天实际会用到」的世界书（v0.27.0）。
+  ///
+  /// 顺序：全局 → 人设 → 角色 → 这段聊天；同一本书只要任一范围开启就算开启
+  /// （关闭某个范围不会关掉其它范围已开启的同一本）。
+  static Future<List<({String id, WorldBookScope scope})>>
+      effectiveWorldBookMounts({
+    String? charId,
+    String? convId,
+    String? personaId,
+  }) async {
+    final all = await _readAllMounts();
+    final merged = <String, WorldBookScope>{};
+
+    // 全局：设置里的开关（prefs）+ mounts.json 的 global 键
+    for (final id in AppSettings.mountedWorldBookIds) {
+      merged[id] = WorldBookScope.global;
+    }
+    for (final m in all[worldBookMountKey(WorldBookScope.global, null)] ?? []) {
+      if (m.enabled) {
+        merged[m.id] = WorldBookScope.global;
+      }
+    }
+
+    Future<void> addScope(WorldBookScope scope, String? ownerId) async {
+      if (ownerId == null || ownerId.isEmpty) return;
+      final key = worldBookMountKey(scope, ownerId);
+      var items = all[key];
+      if (items == null && scope == WorldBookScope.character) {
+        items = all[ownerId];
+      }
+      if (items == null) return;
+      for (final m in items) {
+        if (m.enabled) merged[m.id] = scope;
+      }
+    }
+
+    await addScope(WorldBookScope.persona, personaId);
+    await addScope(WorldBookScope.character, charId);
+    await addScope(WorldBookScope.chat, convId);
+
+    return [
+      for (final e in merged.entries) (id: e.key, scope: e.value),
+    ];
+  }
+}
+
+/// 世界书绑定范围（v0.27.0）。
+enum WorldBookScope { global, character, chat, persona }
+
+extension WorldBookScopeLabel on WorldBookScope {
+  String get label {
+    switch (this) {
+      case WorldBookScope.global:
+        return '全局';
+      case WorldBookScope.character:
+        return '角色';
+      case WorldBookScope.chat:
+        return '这段聊天';
+      case WorldBookScope.persona:
+        return '人设';
+    }
+  }
+
+  /// 除全局外都需要选一个归属者。
+  bool get needsOwner => this != WorldBookScope.global;
 }
 
 /// 一套 API 配置（v0.7.0 多配置）。存 SharedPreferences JSON 数组。
