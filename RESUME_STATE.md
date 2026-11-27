@@ -1,4 +1,4 @@
-# 交接状态：v0.27.0 世界书补全（2026-11-27 更新）
+# 交接状态：v0.28.0 提示词检视升级（2026-11-27 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
 > v0.11.0（角色卡市场）、v0.12.x（市场筛选、用户侧建议回复）、
@@ -15,93 +15,90 @@
 > v0.23.0（应用内自动更新）、
 > v0.24.0（消息操作三件套、对话内搜索、功能评估清单）、
 > v0.25.0（分支树页、导出长图 / EPUB）、
-> v0.26.0（整库备份与恢复 zip）。
+> v0.26.0（整库备份与恢复 zip）、
+> v0.27.0（世界书导出 / 命中测试 / 四范围绑定）。
 >
-> **本轮 v0.27.0 —— 世界书补全（评估清单 R4）**：
-> 世界书整本导出 .json（SillyTavern 兼容、可直接分享）；
-> 命中测试面板（输入一句话，逐条说明会激活 / 不会激活的原因，含位置与深度）；
-> 四范围绑定（全局 / 人设 / 角色 / 这段聊天），任一范围开启即注入、互不覆盖。
+> **本轮 v0.28.0 —— 提示词检视升级（评估清单 R5）**：
+> 聊天菜单新增「提示词检视」：逐段 token、哪几段在缓存前缀内（可复用）、从哪一段开始重付；
+> 摘要卡片给一句话结论；「可以省的地方」逐条指出时间宏 / 实时时钟 / 摘要改动 / 中间插入的系统注入；
+> 「省钱排序建议」给出稳定优先的排列（系统提示 → 人设/作者注释 → 摘要 → 历史 → 本轮消息）。
 
 ## 仓库状态
 
-- 分支 `dev`，版本 `pubspec.yaml` = **0.27.0+28**，`lib/app_info.dart` `kAppVersion = '0.27.0'`。
+- 分支 `dev`，版本 `pubspec.yaml` = **0.28.0+29**，`lib/app_info.dart` `kAppVersion = '0.28.0'`。
 - 本轮新增文件：
-  - `lib/services/world_book_files.dart`：`WorldBookFiles.buildJson(book)`（缩进 JSON）、
-    `parseBytes(bytes, {fallbackName})`（兼容 `{entries:{...}}` 与裸条目写法，校验空文件 / 非 JSON / 无条目）、
-    `safeName()`、`writeTempFile()`、`shareBook()`（写临时文件 → 系统分享 → 清理）；
-  - `lib/screens/world_book_bindings_screen.dart`：`WorldBookBindingsScreen({initialScope, initialOwnerId})`，
-    `SegmentedButton` 四范围 + 归属者选择弹层 + 逐本开关；全局范围写 `AppSettings.mountedWorldBookIds`，
-    其它范围写 `worldbooks/mounts.json` 的作用域键；
-  - `test/v27_test.dart`（11 例：导出→导入往返、裸条目、坏文件、safeName、mountKey、
-    作用域读写与旧键兼容、effective 合并去重、命中测试三类原因、递归命中、绑定页空态）。
+  - `lib/services/prompt_audit.dart`（纯逻辑，无 Flutter 依赖）：
+    `PromptPartAudit`（index / role / label / tokens / change / insideCachePrefix / preview）、
+    `PromptPartChange { same, changed, added, removed }`、
+    `PromptAuditReport`（totalTokens / cacheableTokens / repayingTokens / firstChangeIndex /
+    firstSend / cacheHitRatio / firstChangeLabel / summaryLine / suggestions）、
+    `PromptAudit.analyze({current, previous, contextWindow})`、
+    `PromptAudit.recommendedOrder(totalTokens)`；
+  - `lib/screens/prompt_audit_screen.dart`：`PromptAuditScreen({current, previous, contextWindow})`，
+    摘要卡片 + 省钱建议 + 可展开的逐段明细；右上「省钱排序建议」底部弹层；
+  - `test/v28_test.dart`（16 例：首次发送 / 完全一致 / 末尾新增 / 中间改动与重付 token / 标签 /
+    预览截断 / 五类省钱建议 / 推荐顺序 / 页面渲染与省钱排序弹层）。
 - 本轮修改文件：
-  - `lib/services/world_info_engine.dart`：新增 `EntryInspection` 与
-    `WorldInfoEngine.inspect({books, text, charName, userName, random})`（逐条原因 + 位置提示 + 递归轮），
-    新增私有 `_checkEntry` / `_positionHint`；
-  - `lib/services/storage.dart`：新增 `WorldBookScope`（global / character / chat / persona）与
-    `worldBookMountKey`、`worldBookMountsForScope`、`saveWorldBookMountsForScope`、
-    `removeWorldBookMountsForScope`、`effectiveWorldBookMounts({charId, convId, personaId})`；
-    `_writeAllMounts` 现在会按需创建 `worldbooks/` 目录（修复「先绑定、后导入世界书」时报错）；
-  - `lib/screens/world_book_entries_screen.dart`：右上「⋮」菜单新增「命中测试」「导出世界书」；
-  - `lib/screens/settings_screen.dart`：世界书分节新增「世界书绑定」入口，点书名进入条目页；
-  - `lib/screens/chat_screen.dart`：单聊 / 群聊的世界书加载改为 `effectiveWorldBookMounts`
-    （全局 + 人设 + 角色 + 聊天合并）；聊天菜单新增「世界书绑定」，返回后自动重算；
-  - `CHANGELOG.md` / `docs/FEATURE_AUDIT.md`（世界书行与 R4 标 ✅）。
+  - `lib/screens/chat_screen.dart`：新增 `_prevPrompt`（上一次发送的提示词，用于逐段比对），
+    `_runOnce` 与 `_adoptJob` 赋值 `_lastPrompt` 前记录；菜单「查看发送内容」后新增「提示词检视」→
+    `_openPromptAudit()`；未发送过时给提示「还没有发送过消息，先聊一句再来看」；
+  - `lib/screens/api_config_screen.dart`：删除重复的「模型名」输入框（v0.20.0 引入的
+    模型名 + 获取模型列表行已覆盖，旧的三件套里那一格是多余的，页面上会出现两个模型名）；
+  - `CHANGELOG.md` v0.28.0 段；`docs/FEATURE_AUDIT.md` 第 45 行（发送内容检视）与 R5 行标 ✅。
 
-## 世界书四范围怎么工作
+## 提示词检视怎么读
 
-1. 设置 → 世界书 →「世界书绑定」，选范围（全局 / 人设 / 角色 / 这段聊天）；
-2. 选归属者（人设 / 角色 / 具体聊天；全局不用选），逐本开关；
-3. 聊天组装提示词时按 全局 → 人设 → 角色 → 聊天 合并去重；
-4. 同一本书任一范围开启即注入，关掉某个范围不会关掉其它范围里已开启的同一本；
-5. 角色编辑器里的旧挂载（以裸 charId 为键）仍然兼容，会被当作「角色」范围读取。
-
-## 命中测试怎么读
-
-- 输入一段文字，列表里逐条显示：
-  - 「关键词「x」命中，注入在提示词开头 / 按深度 N 注入对话 / 注入在角色设定之后」；
-  - 「常驻条目（没有关键词，总是注入）」；
-  - 「关键词未命中：…」「主关键词「x」命中，但次级关键词未命中：…」；
-  - 「关键词命中，但概率（N%）这一次没通过」；
-  - 「递归命中：由其它已激活条目的内容触发」；
-  - 「已禁用，不会注入」。
+1. 聊天页右上「⋮ → 提示词检视」（必须先发过至少一条消息）。
+2. 顶部卡片：「共 N 段 · T token」+ 缓存条：
+   - 第一次发送 → 「第一次发送：暂无缓存可复用」；
+   - 与上次完全一致 → 「与上次完全一致：全部可复用（N token）」；
+   - 其它 → 「缓存可复用 X / Y token（Z%）；从「标签」起改动，其后约 N token 会重付」。
+3. 「可以省的地方」：时间宏（`{{time}}` 等）、实时时钟文字、摘要写在系统提示里、
+   插在中间的系统注入段、段落数变化、接近窗口上限，各给一句怎么改。
+4. 「逐段明细」：每段显示 token、变化徽章（未变 / 已变 / 新增 / 移除）、
+   是否在缓存前缀内（⚡ 图标），展开看全文。
+5. 右上「省钱排序建议」：越稳定越靠前、越常变越靠后，只给建议不会自动改设定。
 
 ## 验证
 
 | 项目 | 结果 |
 | --- | --- |
-| `flutter analyze` | No issues found!（5.0s） |
-| `flutter test` | **+392 All tests passed!**（10s） |
-| `flutter build apk --release` | 60.2MB，versionCode **28** / versionName **0.27.0** |
-| 模拟器安装 | `emulator-5556` Success（0.27.0 / code 28） |
-| 命中测试真机（模拟器）点验 | 「我们走进酒馆坐下」→ 激活 2 / 4 条，原因逐条正确（截图 `build/v270_hittest2.png`） |
-| 导出世界书点验 | 生成 `测试世界书_20261127_192643.json`，系统分享显示 `Sharing 1 file`（`build/v270_export.png`） |
-| 四范围绑定点验 | 全局 / 角色 / 这段聊天 / 人设 四段切换正常，角色范围显示归属者与逐本开关（`build/v270_bindings.png`、`build/v270_binding_role.png`） |
-| 导入世界书点验 | 从 Downloads 导入 4 条世界书成功并默认启用（`build/v270_imported.png`） |
+| `flutter analyze` | No issues found!（9.9s，含删除重复输入框后复跑） |
+| `flutter test` | **+408 All tests passed!**（15s） |
+| `flutter build apk --release` | 60.4MB，versionCode **29** / versionName **0.28.0** |
+| 模拟器安装 | `emulator-5556` Success（0.28.0 / code 29） |
+| 菜单入口点验 | 聊天「⋮」出现「提示词检视 · 逐段 token、缓存能复用到哪、哪里在浪费」 |
+| 首次发送点验 | 接本机 mock 接口发一句 → 页面「共 2 段 · 87 token / 第一次发送：暂无缓存可复用」，逐段标「新增」（`build/v280_audit1.png`） |
+| 第二次发送点验 | 再发一句 → 「前 75% 可复用，变动从「历史 · 角色回复 #2」开始」，系统提示段标「未变」（`build/v280_audit2.png`） |
+| 省钱排序点验 | 右上图标弹出五段顺序 + 「当前发送约 116 token」说明（`build/v280_order.png`） |
+| 模拟配置页点验 | 删除重复模型名后只剩一处「模型名 + 获取模型列表」，测试连接成功「模型：mock-model · 耗时 508 ms」（`build/v280_edit2.png`） |
 
 ## 真机 / 模拟器自测清单
 
-1. 设置 → 世界书 →「导入世界书」，选一个 ST 格式 .json，确认列表出现新书；
-2. 点书名进条目页 → 右上「⋮ → 命中测试」，输入一句含关键词的话，确认激活条数与原因；
-3. 右上「⋮ → 导出世界书」，确认分享面板里出现 `.json`；
-4. 设置 → 世界书 →「世界书绑定」，切到「角色」选一个角色、打开一本书；
-5. 回到聊天（同一角色）→ 菜单「世界书绑定」应默认停在「这段聊天」，返回后发送一句含关键词的话，
-   在「查看发送内容」里确认世界书内容被注入。
+1. 装 APK，配置一个接口（设置 → 模型服务 → 编辑 → 填地址 / Key / 模型名 → 测试连接 → 保存）；
+2. 进一个角色，发两条消息；
+3. 聊天「⋮ → 提示词检视」，确认：第一次是「暂无缓存可复用」，第二次出现「可复用 x%」；
+4. 展开「逐段明细」，确认系统提示段有 ⚡（在缓存前缀内）、「本轮新消息」在断点之后；
+5. 点右上「省钱排序建议」，确认五段顺序与说明。
+
+离线自测小技巧：本机跑 `python build/mock_llm.py`（监听 8765，返回固定回复 + /v1/models），
+模拟器里接口地址填 `http://10.0.2.2:8765/v1`、Key 随便填、模型 `mock-model`，
+并在「聊天与上下文」关掉「流式传输」（mock 不支持 SSE）。
 
 ## 已知边界
 
-- 合并语义是「并集」：任一范围开启即注入，无法用「某范围关闭」去覆盖另一个范围的开启；
-- 命中测试只对单本世界书做静态匹配，不包含概率随机的多次模拟（每次运行可能不同）；
-- 「这段聊天」绑定写在 `worldbooks/mounts.json`，删除会话时不会自动清理（无害，重名 id 概率低）；
-- 群聊合并时按成员逐个取「角色」范围，成员各自的角色绑定都会生效；
-- 世界书导出只含 `name / description / entries`，不含原文件里未知的扩展字段。
+- `_prevPrompt` 只在当前页面生命周期内有效：退出聊天页再进来，第一次打开检视会按「暂无上次记录」显示；
+- token 是本地估算（`estimateTokens`），与供应商计数可能有偏差；
+- 缓存断点按「从头连续相同的段」计算，供应商实际缓存粒度（如 128 token 对齐）可能更粗；
+- 「系统注入 #i」包含深度注入的世界书与聊天内作者注释，它们的插入位置由各自设置决定；
+- 检视页只做提示，不会自动改作者注释 / 世界书位置；
+- 省钱排序建议是通用建议，不保证所有供应商都按前缀缓存。
 
-## 下一轮（评估清单 R5 起）
+## 下一轮（评估清单 R6 起）
 
-- R5：提示词检视升级（缓存断点标注 + 省钱排序）；
-- R6：显示正则库（导入 ST 正则、作用域 / 深度、替换前后对比）；
-- R7：ST 预设兼容（导入 preset JSON、prompts / prompt_order 可视化）；
-- R8：CHARX 导入、ST `.jsonl` 聊天导入、导入体检报告。
+- R6：显示正则库（导入 ST 正则、作用域 / 深度、启用开关、替换前后对比）；
+- R7：ST 预设兼容（导入 preset JSON、prompts / prompt_order 可视化编辑、每聊天预设覆盖）；
+- R8：CHARX 导入、ST `.jsonl` 聊天导入、导入体检报告、变量状态只读展示。
 
 ## 环境命令
 
@@ -119,7 +116,9 @@ C:\Users\28351\Android\Sdk\platform-tools\adb.exe -s 19faf100 install -r build\a
 
 ## 本次运行记录
 
-- analyze：No issues found!（5.0s）
-- test：+392 All tests passed!（10s）
-- build：60.2MB，versionCode 28 / versionName 0.27.0
-- 装机：模拟器 `emulator-5556` Success（0.27.0 / code 28），命中测试 / 导出 / 四范围绑定 / 导入均已点验
+- analyze：No issues found!（8.4s；删除重复模型名后 9.9s 复跑，仍无 issue）
+- test：+408 All tests passed!（15s）
+- build：60.4MB，versionCode 29 / versionName 0.28.0
+- 装机：模拟器 `emulator-5556` Success（0.28.0 / code 29）
+- 真机流程：用本机 mock 接口（`build/mock_llm.py`，`http://10.0.2.2:8765/v1`）发两条消息，
+  提示词检视的首次发送 / 第二次可复用 75% / 省钱排序弹层均已点验通过

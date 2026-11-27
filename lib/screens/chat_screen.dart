@@ -35,6 +35,7 @@ import '../widgets/common.dart';
 import '../widgets/reply_suggestions_bar.dart';
 import 'authors_note_screen.dart';
 import 'character_edit_screen.dart';
+import 'prompt_audit_screen.dart';
 import 'settings_screen.dart';
 import 'world_book_bindings_screen.dart';
 
@@ -229,6 +230,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// 最近一次发送的完整 messages（供停止后估算 tokens）
   List<PromptMessage>? _lastPrompt;
+  /// 上一次发送的提示词（v0.28.0 提示词检视用来逐段比对缓存）。
+  List<PromptMessage>? _prevPrompt;
 
   @override
   void initState() {
@@ -422,6 +425,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _tokensApplied = false;
     _genFailed = false;
     _statsPending = false;
+    _prevPrompt = _lastPrompt;
     _lastPrompt = job.prompt;
     _sentAdvanced = job.sentAdvanced;
     _lastErrorAdvanced = job.error != null && job.sentAdvanced;
@@ -1246,6 +1250,7 @@ class _ChatScreenState extends State<ChatScreen> {
         content: kContinueInstruction,
       ));
     }
+    _prevPrompt = _lastPrompt;
     _lastPrompt = toSend;
 
     // v0.9.0：统一走激活预设的完整参数集（高级字段默认不进 body）
@@ -1879,6 +1884,14 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
             ListTile(
+              title: const Text('提示词检视'),
+              subtitle: const Text('逐段 token、缓存能复用到哪、哪里在浪费'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _openPromptAudit();
+              },
+            ),
+            ListTile(
               title: const Text('上下文占用'),
               onTap: () {
                 Navigator.pop(ctx);
@@ -2504,6 +2517,24 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         );
       },
+    );
+  }
+
+  /// 提示词检视（v0.28.0）：逐段 token / 缓存断点 / 省钱建议。
+  Future<void> _openPromptAudit() async {
+    final current = _lastPrompt;
+    if (current == null || current.isEmpty) {
+      _toast('还没有发送过消息，先聊一句再来看');
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PromptAuditScreen(
+          current: current,
+          previous: _prevPrompt,
+          contextWindow: AppSettings.contextWindow,
+        ),
+      ),
     );
   }
 

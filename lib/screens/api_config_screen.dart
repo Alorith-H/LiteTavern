@@ -521,15 +521,6 @@ class _ApiConfigEditScreenState extends State<ApiConfigEditScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            TextField(
-              controller: _modelCtrl,
-              decoration: const InputDecoration(
-                labelText: '模型名',
-                hintText: 'deepseek-chat',
-                helperText: '服务商的模型标识，照服务商文档填',
-                isDense: true,
-              ),
-            ),
             const SizedBox(height: 20),
             Row(
               children: [
