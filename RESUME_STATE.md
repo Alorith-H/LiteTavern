@@ -1,4 +1,4 @@
-# 交接状态：v0.33.0 变量与状态只读 + 卡内脚本安全提示（2026-11-27 更新）
+# 交接状态：v0.34.0 每聊天生成参数覆盖（2026-11-27 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
 > v0.11.0（角色卡市场）、v0.12.x（市场筛选、用户侧建议回复）、
@@ -21,7 +21,7 @@
 > v0.29.0（显示正则库：导入 ST 正则 / 作用域 / 试一下 / 只改显示）、
 > v0.30.0（SillyTavern 预设只读解析）、
 > v0.31.0（SillyTavern 兼容模式：预设提示词真实注入）、
-> v0.32.0（CHARX 导入、`.jsonl` 聊天导入、导入体检报告）。
+> v0.32.0（CHARX 导入、`.jsonl` 聊天导入、导入体检报告）、v0.33.0（变量与状态只读、卡内脚本安全提示）。
 >
 > **本轮 v0.33.0 —— 评估清单 R8（变量与状态只读 + 卡内脚本安全提示）**：
 > 1. **角色卡保留 `extensions` 字段**：导入 / 编辑 / 导出不再丢扩展信息（旧卡不受影响，
@@ -35,10 +35,20 @@
 >    明确写「只读展示、不会执行、不会渲染」。
 > 4. **边界**：变量只读、不参与提示词、不写回对话；不支持变量编辑与 MVU 回退语义；
 >    卡内脚本永不执行（这是产品选择，不是没做完）。
-
+>
+> **本轮 v0.34.0 —— 评估清单「每聊天预设覆盖」（6 个采样键）**：
+> 1. 聊天页 ⋮ →「这段聊天的生成参数」：给这一段聊天单独设 temperature / top_p / top_k /
+>    max_tokens / frequency_penalty / presence_penalty；留空 = 跟随全局生成预设。
+> 2. 覆盖只作用于这一段聊天的生成（含「重新生成」「继续生成」「替我说一句」）；
+>    菜单副标题显示当前覆盖（如「覆盖 t1.3 · k40」），随时点「全部恢复」回到跟随全局。
+> 3. 存储：`AppSettings.chatPresetOverridesJson`（prefs 键 `chat_preset_overrides`，
+>    `{convId: {temperature, top_p, top_k, max_tokens, frequency_penalty, presence_penalty}}`），
+>    空覆盖会删键，坏 JSON 回退空。解析逻辑在 `lib/services/chat_gen_settings.dart`。
+> 4. 边界：只覆盖这 6 个键，重复惩罚 / min_p / seed / stop 仍跟全局预设；群聊每段聊天各自独立。
+>
 ## 仓库状态
 
-- 分支 `dev`，版本 `pubspec.yaml` = **0.33.0+34**，`lib/app_info.dart` `kAppVersion = '0.33.0'`。
+- 分支 `dev`，版本 `pubspec.yaml` = **0.34.0+35**，`lib/app_info.dart` `kAppVersion = '0.34.0'`。
 - 本轮新增文件：
   - `lib/services/mvu_state.dart`：
     - `MvuValue{name, value}`、`MvuSnapshot{values, updateCount, initCount}`（`isEmpty` / `entries` / `groupOf`）；
@@ -72,8 +82,8 @@
 | --- | --- |
 | `flutter analyze` | No issues found! |
 | `flutter test` | +479 All tests passed! |
-| `flutter build apk --release` | 60.9MB，versionCode **34** / versionName **0.33.0** |
-| 模拟器（Android 14，emulator-5556） | `install -r` Success，versionCode 34 / 0.33.0 |
+| `flutter build apk --release` | 61.0MB，versionCode **35** / versionName **0.34.0** |
+| 模拟器（Android 14，emulator-5556） | `install -r` Success，versionCode 35 / 0.34.0；mock 接口 body 确认 `temperature 1.3 / top_k 40` 生效 |
 | 变量与状态页（卡内变量） | ✅ 导入含 `extensions.mvu.initialVariables` 与 `[InitVar]` 的测试卡，页面显示 `stats.好感度 0 / stats.体力 100 / 金币 10 / 天气 晴` |
 | 变量与状态页（会话更新） | ✅ 用 `.jsonl` 导入一条带 `<UpdateVariable>{"stats":{"好感度":7,"体力":90}}</UpdateVariable>` 的消息后，页面显示「找到 1 个状态更新块」，数值变为 `7 / 90`，未涉及的 `金币 / 天气` 保持原值 |
 | 卡内脚本提示 | ✅ 同一张卡显示「卡内脚本扩展：mvu、regex_scripts」+「轻酒馆只读取、不运行它们」说明 |
@@ -120,6 +130,6 @@ $adb='C:\Users\28351\Android\Sdk\platform-tools\adb.exe'
 
 - analyze：No issues found!（9.0s）
 - test：+479 All tests passed!（17s）
-- build：60.9MB，versionCode 34 / versionName 0.33.0
-- 装机：`adb -s emulator-5556 install -r` → Success（versionCode 34 / 0.33.0）
+- build：61.0MB，versionCode 35 / versionName 0.34.0
+- 装机：`adb -s emulator-5556 install -r` → Success（versionCode 35 / 0.34.0）
 - 真机不在手边，用 Android 14 模拟器点验「变量与状态」页两段状态与脚本提示

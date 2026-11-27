@@ -14,6 +14,7 @@ import '../services/authors_note.dart';
 import '../services/bookmarks.dart';
 import '../services/chat_export.dart';
 import '../services/chat_export_files.dart';
+import '../services/chat_gen_settings.dart';
 import '../services/chat_index.dart';
 import '../services/chat_transcript.dart';
 import '../services/display_regex.dart';
@@ -41,6 +42,7 @@ import '../widgets/common.dart';
 import '../widgets/reply_suggestions_bar.dart';
 import 'authors_note_screen.dart';
 import 'card_state_screen.dart';
+import 'chat_preset_screen.dart';
 import 'character_edit_screen.dart';
 import 'prompt_audit_screen.dart';
 import 'settings_screen.dart';
@@ -1264,8 +1266,9 @@ class _ChatScreenState extends State<ChatScreen> {
     _prevPrompt = _lastPrompt;
     _lastPrompt = toSend;
 
-    // v0.9.0：统一走激活预设的完整参数集（高级字段默认不进 body）
-    final sampling = AppSettings.activePreset.sampling;
+    // v0.34.0：这一段聊天可以有自己的采样参数；留空继续跟全局预设
+    final gen = ChatGenSettings.resolve(_convId);
+    final sampling = gen.sampling;
     _sentAdvanced = !sampling.isDefault;
 
     // v0.10.0：请求交给后台生成管理器 —— 页面 dispose 只解绑不取消，
@@ -1279,9 +1282,9 @@ class _ChatScreenState extends State<ChatScreen> {
         apiKey: AppSettings.apiKey,
         model: AppSettings.model,
         messages: toSend,
-        temperature: AppSettings.temperature,
-        topP: AppSettings.topP,
-        maxTokens: AppSettings.maxTokens,
+        temperature: gen.temperature,
+        topP: gen.topP,
+        maxTokens: gen.maxTokens,
         stream: AppSettings.streaming,
         sampling: sampling,
       ),
@@ -1755,6 +1758,20 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  /// 每聊天的生成参数覆盖（v0.34.0）：留空 = 跟随全局预设。
+  Future<void> _openChatPreset() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ChatPresetScreen(
+          convId: _convId,
+          chatTitle: _chatTitle,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    setState(() {});
+  }
+
   Future<void> _editCharacter() async {
     final card = _card;
     if (card == null) return;
@@ -1999,6 +2016,16 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
             ListTile(
+              title: const Text('这段聊天的生成参数'),
+              subtitle: Text(
+                ChatPresetOverrideStore.load(_convId).summary,
+              ),
+              onTap: () {
+                Navigator.pop(ctx);
+                _openChatPreset();
+              },
+            ),
+            ListTile(
               title: const Text('搜索对话'),
               subtitle: const Text('在这段聊天里找关键词，点结果跳过去'),
               onTap: () {
@@ -2236,17 +2263,19 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() => _impersonating = true);
     final buf = StringBuffer();
     String? err;
+    // v0.34.0：替我说一句同样用这一天聊天的覆盖参数
+    final gen = ChatGenSettings.resolve(_convId);
     try {
       await client.streamChat(
         baseUrl: AppSettings.baseUrl,
         apiKey: AppSettings.apiKey,
         model: AppSettings.model,
         messages: withImpersonateInstruction(built.messages),
-        temperature: AppSettings.temperature,
-        topP: AppSettings.topP,
-        maxTokens: AppSettings.activePreset.maxTokens,
+        temperature: gen.temperature,
+        topP: gen.topP,
+        maxTokens: gen.maxTokens,
         stream: false,
-        sampling: AppSettings.activePreset.sampling,
+        sampling: gen.sampling,
         onDelta: buf.write,
         onError: (e) => err = e,
         onDone: () {},

@@ -1166,6 +1166,20 @@ class AppSettings {
 
   static const _kAuthorNoteDefault = 'author_note_default';
 
+  /// 每聊天生成参数覆盖（v0.34.0）：JSON map，{convId: {...}}；null = 无覆盖。
+  static String? get chatPresetOverridesJson =>
+      _sp.getString(_kChatPresetOverrides);
+
+  static Future<void> setChatPresetOverridesJson(String? v) async {
+    if (v == null || v.isEmpty) {
+      await _sp.remove(_kChatPresetOverrides);
+    } else {
+      await _sp.setString(_kChatPresetOverrides, v);
+    }
+  }
+
+  static const _kChatPresetOverrides = 'chat_preset_overrides';
+
   /// 显示正则库（JSON 数组，v0.29.0）；null = 空库。
   static String? get displayRegexesJson => _sp.getString(_kDisplayRegexes);
   static Future<void> setDisplayRegexesJson(String? v) async {

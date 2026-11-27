@@ -2,6 +2,11 @@
 
 本项目遵循语义化版本：`MAJOR.MINOR.PATCH`，Android `versionCode` 随每次发版递增。
 
+## v0.34.0
+- 新增 **每聊天生成参数覆盖**（聊天页 ⋮ → 这段聊天的生成参数）：可以给这一段聊天单独设 temperature / top_p / top_k / max_tokens / frequency_penalty / presence_penalty，留空就跟随全局预设；别的聊天、别的角色都不受影响。
+- 覆盖只作用于这一段聊天的生成（含「重新生成」「继续生成」「替我说一句」），显示在菜单副标题里（如「覆盖 t1.1 · 上限 512」），随时可以点「全部恢复」回到跟随全局。
+- 边界：只覆盖这 6 个键，重复惩罚 / min_p / seed / stop 仍跟全局预设；群聊里每段聊天各自独立。
+
 ## v0.33.0
 - 新增 **变量与状态（只读）**：聊天页 ⋮ → 变量与状态。读卡扩展里的初始变量（`extensions.mvu` / `extensions.variables` / 正文里的 `[InitVar]{...}`）和对话里的状态更新块（`<UpdateVariable>` / `<JSONPatch>`），拍平成 `分组.变量 = 值` 展示。
 - 新增 **卡内脚本安全提示**：识别 `regex_scripts`、`tavern_helper`、`mvu` 等脚本类扩展，以及正文里的 `<script>` / `<iframe>` / `onerror=` 等片段，明确告诉你「只读展示、不会执行」。

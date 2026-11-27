@@ -40,7 +40,7 @@
 | 提示词 | 宏（{{char}}/{{user}}/{{persona}}/时间/随机/字段） | ✅ | `lib/services/macros.dart`、`test/v17_test.dart` |
 | 提示词 | 生成预设（多套）+ 高级采样参数 | ✅ | `lib/screens/gen_presets_screen.dart`、`test/v9_test.dart` |
 | 提示词 | SillyTavern 预设 JSON 导入（prompts/prompt_order/注入位置深度） | 🟡 | v0.30.0 已支持导入 + 只读解析 + 采样参数套用 + 顺序/开关可视化（`lib/services/st_preset.dart`、`lib/screens/st_preset_screen.dart`）；尚未把这些提示词注入实际对话（下一步「兼容模式」） |
-| 提示词 | **每聊天预设覆盖（temperature 等 6 键）** | ❌ | 只有全局预设 |
+| 提示词 | **每聊天预设覆盖（temperature 等 6 键）** | ✅ | `lib/services/chat_gen_settings.dart`、`lib/screens/chat_preset_screen.dart`（v0.34.0） |
 | 提示词 | 显示正则库（导入 ST 正则、作用域/深度、替换对比） | ✅ | `lib/services/display_regex.dart`、`lib/screens/display_regex_screen.dart`（v0.29.0；目前只作用于显示，不改提示词与原文） |
 | 提示词 | 发送内容检视（全文 + 分段 + 缓存断点 + 省钱排序） | ✅ | `lib/services/prompt_audit.dart`、`lib/screens/prompt_audit_screen.dart`（v0.28.0） |
 | 角色卡 | 导入 PNG/JSON、编辑、导出 | ✅ | `card_parser.dart`、`character_edit_screen.dart`、`test/` |
@@ -88,7 +88,7 @@
 
 11. 导入 ST 预设 JSON，按 `prompts` / `prompt_order` 可视化编辑（v0.30.0 只读解析与排序 ✅；v0.31.0 兼容模式真实注入 ✅）
 12. 注入位置与深度、`system_prompt` 覆盖、`continue_prefill` 子集
-13. 每聊天预设覆盖（6 个采样键）
+13. ~~每聊天预设覆盖（6 个采样键）~~ ✅ v0.34.0
 14. 与自研预设合并成「兼容模式」开关，失败可退回
 
 ### D. 卡生态与只读状态（中高风险）
