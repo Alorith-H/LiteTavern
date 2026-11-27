@@ -1190,6 +1190,12 @@ class AppSettings {
 
   static const _kStPreset = 'st_preset';
 
+  /// ST 兼容模式（v0.31.0）：把导入预设里启用的提示词真正发出去。
+  static bool get stCompatEnabled => _sp.getBool(_kStCompat) ?? false;
+  static set stCompatEnabled(bool v) => _sp.setBool(_kStCompat, v);
+
+  static const _kStCompat = 'st_compat_enabled';
+
   /// 设置是否已加载（未初始化时读取默认值，供纯逻辑模块兜底）
   static bool get initialized => _ready;
 

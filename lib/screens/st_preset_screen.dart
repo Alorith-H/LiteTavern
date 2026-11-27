@@ -26,6 +26,9 @@ class StPresetScreen extends StatefulWidget {
 class _StPresetScreenState extends State<StPresetScreen> {
   StPresetSnapshot? _snapshot;
 
+  /// ST 兼容模式开关（v0.31.0）
+  bool _compatEnabled = false;
+
   @override
   void initState() {
     super.initState();
@@ -37,6 +40,7 @@ class _StPresetScreenState extends State<StPresetScreen> {
     if (!mounted) return;
     setState(() {
       _snapshot = StPresetSnapshot.tryParseStored(AppSettings.stPresetJson);
+    _compatEnabled = AppSettings.stCompatEnabled;
     });
   }
 
@@ -265,6 +269,8 @@ class _StPresetScreenState extends State<StPresetScreen> {
                   const SizedBox(height: 12),
                   _buildWarnings(scheme, snapshot),
                 ],
+                const SizedBox(height: 12),
+                _buildCompat(scheme, snapshot),
                 const SizedBox(height: 8),
                 const SectionHeader('提示词顺序'),
                 Padding(
@@ -272,7 +278,7 @@ class _StPresetScreenState extends State<StPresetScreen> {
                   child: Text(
                     '共 ${snapshot.prompts.length} 条 · 启用 ${snapshot.enabledCount} 条'
                     '${snapshot.markerCount > 0 ? ' · 含 ${snapshot.markerCount} 个占位' : ''}。'
-                    '本轮只做查看与排序，不会改动实际发给模型的内容。',
+                    '兼容模式打开时，启用的条目会按下面的顺序真实注入请求；关闭时只用于查看。',
                     style: TextStyle(
                         fontSize: AppType.caption,
                         height: 1.5,
@@ -405,6 +411,60 @@ class _StPresetScreenState extends State<StPresetScreen> {
     );
   }
 
+  /// 兼容模式（v0.31.0）：把启用的条目真正注入请求，而不只是查看。
+  Widget _buildCompat(ColorScheme scheme, StPresetSnapshot s) {
+    final active = s.prompts
+        .where((p) => p.enabled && !p.isMarker && p.content.trim().isNotEmpty)
+        .toList();
+    final sysCount =
+        active.where((p) => !p.injectsInChat && p.role == 'system').length;
+    final preCount =
+        active.where((p) => !p.injectsInChat && p.role != 'system').length;
+    final depthCount = active.where((p) => p.injectsInChat).length;
+    final parts = <String>[
+      if (sysCount > 0) 'system 开头 $sysCount 条',
+      if (preCount > 0) '历史前 $preCount 条',
+      if (depthCount > 0) '按深度注入 $depthCount 条',
+    ];
+    return Card(
+      color: scheme.surfaceContainerHigh,
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SwitchListTile(
+            key: const ValueKey('st-compat-switch'),
+            value: _compatEnabled,
+            onChanged: (v) {
+              setState(() => _compatEnabled = v);
+              AppSettings.stCompatEnabled = v;
+            },
+            title: const Text('兼容模式（真实注入）',
+                style: TextStyle(fontSize: AppType.body)),
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                _compatEnabled
+                    ? '已开启：启用的 ${active.length} 条会按顺序注入 —— '
+                        '${parts.isEmpty ? '当前没有可注入的条目' : parts.join(' · ')}。'
+                        '与角色自己的设定是叠加关系，不是替换。'
+                    : '关闭时只用于查看与排序。打开后，启用的条目会按顺序真正发给模型；'
+                        'role 为 user / assistant 的条目会作为消息插到历史前，'
+                        '带「聊天内注入」的条目按深度插进历史。',
+                style: TextStyle(
+                    fontSize: AppType.caption,
+                    height: 1.5,
+                    color: scheme.onSurfaceVariant),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildWarnings(ColorScheme scheme, StPresetSnapshot s) {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -506,6 +566,7 @@ class _StPresetScreenState extends State<StPresetScreen> {
                     index == s.prompts.length - 1 ? null : () => _move(index, 1),
               ),
               Switch(
+                key: ValueKey('st-prompt-switch-${item.identifier}-$index'),
                 value: item.enabled,
                 onChanged: marker ? null : (v) => _toggle(index, v),
               ),

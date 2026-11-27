@@ -16,6 +16,15 @@ class PromptMessage {
   Map<String, dynamic> toJson() => {'role': role, 'content': content};
 }
 
+/// 按深度注入历史的一条块（v0.31.0，SillyTavern 兼容模式用）。
+/// depth 0 = 最后一条之后；n = 倒数第 n 条之前。
+class DepthInjection {
+  final PromptMessage message;
+  final int depth;
+
+  const DepthInjection({required this.message, required this.depth});
+}
+
 /// PromptBuilder 的组装结果。
 class PromptBuildResult {
   /// 发送给 API 的完整 messages（第一条是 system）
@@ -61,6 +70,9 @@ class PromptBuilder {
     String? personaText,
     AuthorNote? authorNote,
     DateTime? now,
+    String? stSystemPrefix,
+    List<PromptMessage>? stPreHistory,
+    List<DepthInjection>? stDepthInjections,
   }) {
     // 上下文保留条数来自设置；SharedPreferences 未初始化（如单元测试）时回退默认 40
     var limit = historyLimit ??
@@ -91,6 +103,12 @@ class PromptBuilder {
         );
 
     final sb = StringBuffer();
+    // ST 兼容模式（v0.31.0）：导入预设里启用的顺序提示词放在 system 最开头
+    final stPrefix = macro((stSystemPrefix ?? '').trim()).trim();
+    if (stPrefix.isNotEmpty) {
+      sb.writeln(stPrefix);
+      sb.writeln();
+    }
     if (parts.front.isNotEmpty) {
       sb.writeln(parts.front.map((a) => a.content).join('\n\n'));
       sb.writeln();
@@ -155,6 +173,11 @@ class PromptBuilder {
       messages.add(PromptMessage(role: 'assistant', content: firstMes));
     }
 
+    // ST 兼容模式：role 为 user / assistant 的顺序提示词放在历史之前
+    for (final m in stPreHistory ?? const <PromptMessage>[]) {
+      messages.add(PromptMessage(role: m.role, content: macro(m.content)));
+    }
+
     // 3. 历史：宏替换后渲染，跳过空内容（如生成中的占位消息），最多最近 limit 条
     var hist = history.where((m) => m.content.trim().isNotEmpty).toList();
     if (hist.length > limit) {
@@ -166,6 +189,7 @@ class PromptBuilder {
     // position=1：以 user 消息形式按 depth 插入历史
     messages.addAll(_injectDepthEntries(rendered, parts.depth));
     _insertAuthorNote(messages, authorNote, macro);
+    _insertDepthInjections(messages, stDepthInjections, macro);
 
     return PromptBuildResult(
       messages: messages,
@@ -193,6 +217,9 @@ class PromptBuilder {
     String? personaText,
     AuthorNote? authorNote,
     DateTime? now,
+    String? stSystemPrefix,
+    List<PromptMessage>? stPreHistory,
+    List<DepthInjection>? stDepthInjections,
   }) {
     var limit = historyLimit ??
         (AppSettings.initialized ? AppSettings.contextHistoryLimit : maxHistory);
@@ -236,6 +263,13 @@ class PromptBuilder {
         sb.writeln(a.content);
         sb.writeln();
       }
+    }
+
+    // ST 兼容模式（v0.31.0）：导入预设里启用的顺序提示词放在 system 最开头
+    final stPrefix = macroFor((stSystemPrefix ?? '').trim(), speaker).trim();
+    if (stPrefix.isNotEmpty) {
+      sb.writeln(stPrefix);
+      sb.writeln();
     }
 
     writeEntries(parts.front);
@@ -288,6 +322,13 @@ class PromptBuilder {
       PromptMessage(role: 'system', content: systemText),
     ];
 
+    // ST 兼容模式：role 为 user / assistant 的顺序提示词放在历史之前
+    for (final m in stPreHistory ?? const <PromptMessage>[]) {
+      messages.add(
+        PromptMessage(role: m.role, content: macroFor(m.content, speaker)),
+      );
+    }
+
     // 历史：`名字: 内容`，跳过空占位，最多最近 limit 条
     var hist = history.where((m) => m.content.trim().isNotEmpty).toList();
     if (hist.length > limit) {
@@ -308,6 +349,11 @@ class PromptBuilder {
     // position=1：与单聊一致，按 depth 插入（不带名字前缀）
     messages.addAll(_injectDepthEntries(rendered, parts.depth));
     _insertAuthorNote(messages, authorNote, (s) => macroFor(s, speaker));
+    _insertDepthInjections(
+      messages,
+      stDepthInjections,
+      (s) => macroFor(s, speaker),
+    );
 
     return PromptBuildResult(
       messages: messages,
@@ -343,6 +389,38 @@ class PromptBuilder {
     }
     if (index <= 0) return;
     messages.insert(index, PromptMessage(role: role, content: text));
+  }
+
+  /// ST 兼容模式（v0.31.0）：按 depth 把多条块插进历史。
+  ///
+  /// 与作者注释同一套语义（0 = 最后一条之后，n = 倒数第 n 条之前）。
+  /// 从大 depth 到小 depth 依次插入，避免下标互相影响；同 depth 保持原始顺序。
+  static void _insertDepthInjections(
+    List<PromptMessage> messages,
+    List<DepthInjection>? injections,
+    String Function(String) macro,
+  ) {
+    if (injections == null || injections.isEmpty) return;
+    final pending = [
+      for (final inj in injections)
+        if (macro(inj.message.content).trim().isNotEmpty)
+          (inj: inj, text: macro(inj.message.content).trim()),
+    ];
+    if (pending.isEmpty) return;
+    pending.sort((a, b) => b.inj.depth.compareTo(a.inj.depth));
+    for (final entry in pending) {
+      final len = messages.length;
+      final int index;
+      if (entry.inj.depth <= 0) {
+        index = len;
+      } else {
+        index = (len - entry.inj.depth).clamp(1, len).toInt();
+      }
+      messages.insert(
+        index,
+        PromptMessage(role: entry.inj.message.role, content: entry.text),
+      );
+    }
   }
 
   /// 激活条目按 position 分流（保持传入的 insertion_order 升序）：

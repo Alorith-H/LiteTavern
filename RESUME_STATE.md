@@ -1,4 +1,4 @@
-# 交接状态：v0.30.0 SillyTavern 预设导入（只读解析 + 采样套用）（2026-11-27 更新）
+# 交接状态：v0.31.0 SillyTavern 兼容模式（预设真实注入）（2026-11-27 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
 > v0.11.0（角色卡市场）、v0.12.x（市场筛选、用户侧建议回复）、
@@ -18,48 +18,54 @@
 > v0.26.0（整库备份与恢复 zip）、
 > v0.27.0（世界书导出 / 命中测试 / 四范围绑定）、
 > v0.28.0（提示词检视升级：缓存断点 + 省钱排序）、
-> v0.29.0（显示正则库：导入 ST 正则 / 作用域 / 试一下 / 只改显示）。
+> v0.29.0（显示正则库：导入 ST 正则 / 作用域 / 试一下 / 只改显示）、
+> v0.30.0（SillyTavern 预设只读解析：导入 / 展示 / 采样套用 / 顺序编辑）。
 >
-> **本轮 v0.30.0 —— SillyTavern 预设兼容第一步（评估清单 R6 的「只读解析」）**：
-> 设置 → 生成参数 → SillyTavern 预设：从文件或粘贴导入 ST 预设 JSON，
-> 解析采样参数（可一键套用到当前生成预设，超范围自动收敛）与提示词顺序
-> （按 `prompt_order` 展示、逐条开关、上移下移、退出后保留）；
-> 不认识的字段不报错，在「导入说明」里列出哪些本轮不参与。
-> **本轮不注入**这些提示词——执行阶段（兼容模式）留给下一步。
+> **本轮 v0.31.0 —— SillyTavern 兼容第二步（评估清单 R6 的「执行」）**：
+> 设置 → 生成参数 → SillyTavern 预设 → 「兼容模式（真实注入）」开关。
+> 打开后，预设里**启用**的提示词按顺序真正进入请求：
+> role=system 的拼到 system 最开头；role=user/assistant 的作为消息插到历史之前；
+> 带「聊天内注入」的按深度插进历史（0 = 最后一条之后，n = 倒数第 n 条之前）。
+> 占位标记、关闭的、空内容一律跳过；注入文本支持 `{{char}}` / `{{user}}` 等宏。
+> 与角色自己的设定是**叠加**关系，不是替换；关掉开关立即恢复 v0.30 行为。
 
 ## 仓库状态
 
-- 分支 `dev`，版本 `pubspec.yaml` = **0.30.0+31**，`lib/app_info.dart` `kAppVersion = '0.30.0'`。
+- 分支 `dev`，版本 `pubspec.yaml` = **0.31.0+32**，`lib/app_info.dart` `kAppVersion = '0.31.0'`。
 - 本轮新增文件：
-  - `lib/services/st_preset.dart`：
-    - `StPromptItem`（identifier / name / role（system|user|assistant）/ content /
-      isMarker / isSystemPrompt / injectionPosition / injectionDepth / enabled；
-      `hasContent`、`injectsInChat`、`roleLabel`、`orderNote`、`preview`、`copyWith(enabled)`）；
-    - `StPresetSnapshot`（name + 采样字段 + prompts + warnings；
-      `hasSampling`、`samplingCount`、`enabledCount`（只算非占位且启用）、`markerCount`、
-      `samplingRows`（界面逐行）、`copyWith(prompts)`、`toJson` / `toJsonString` / `fromJson`、
-      `tryParseStored`）；
-    - `StPresetParser.parse(raw, {fallbackName})`：支持整份预设与 `{preset:{...}}` 包裹；
-      读 `temperature/top_p/top_k/frequency_penalty/presence_penalty/repetition_penalty/
-      min_p/max_tokens（或 openai_max_tokens）/seed/stop（或 stopstrings/stop_strings）`；
-      `prompts` 数组映射 + 未知 role 落 system 并记 warning；
-      `_applyOrder` 按第一份 `prompt_order`（character_id 100000 那种）重排并带 enabled，
-      顺序表里缺失的条目保持原相对顺序追加；顺序表引用不存在的 identifier 记 warning。
-  - `lib/screens/st_preset_screen.dart`：`StPresetScreen`
-    （AppBar：文件导入 / 粘贴 JSON / 清除；空态引导；摘要卡「采样参数 N 项 · 提示词 M 条」；
-    采样参数表 + 「套用到当前生成预设」；导入说明（warnings）；提示词顺序列表
-    `ExpansionTile` + 序号 + 角色/占位/深度徽章 + 开关 + 上移下移 + 展开看正文）。
-  - `test/v30_test.dart`（11 例：解析采样与顺序、越界/未知 role/忽略字段进 warnings、
-    无 prompt_order 保序、`{preset:{}}` 与 stopstrings、坏 JSON / 空 prompts 抛错、
-    快照 JSON 往返、坏存储回 null、套用采样写入 AppSettings（含越界收敛）、
-    开关与上移落盘、清除删除存储）。
+  - `lib/services/st_injection.dart`：
+    - `StInjectionPlan{systemPrefix, preHistory, depthInjections, injectedCount}`
+      （`empty`、`isEmpty`、`summaryLine`）；
+    - `StInjectionPlan.fromSnapshot(snapshot)`：按 `enabled / isMarker / content.trim()` 过滤，
+      `injectsInChat` 进 `depthInjections`（带 `injectionDepth`），
+      `role == system` 的顺序条目按原顺序 `\n\n` 拼成 `systemPrefix`，
+      `role` 为 user/assistant 的进 `preHistory`，未知 role 归一为 system；
+    - `DepthInjection{message, depth}`（定义在 `prompt_builder.dart`）。
+  - `test/v31_test.dart`（10 例）：
+    - `StInjectionPlan.fromSnapshot` 5 例（空计划 / 跳过占位·关闭·空内容 / preHistory 角色保持 /
+      深度注入 / summaryLine 三种注入）；
+    - `PromptBuilder` 3 例（ST 前缀在 system 最前且角色设定仍在 / preHistory 与深度 0、1 落位 /
+      注入内容里的宏替换）；
+    - 开关默认关闭且持久化 1 例；`StPresetScreen` 点开关落盘 1 例。
 - 本轮修改文件：
-  - `lib/services/storage.dart`：`stPresetJson` / `setStPresetJson(String?)`，键 `st_preset`。
-  - `lib/screens/settings_screen.dart`：生成参数子页「高级设置」之后新增
-    「SillyTavern 预设」入口 → `_openStPreset()`；返回后 `_syncFromSettings()`
-    （修掉「套用采样后滑条仍显示旧值」的问题）。
-  - `CHANGELOG.md` 新增 v0.30.0 段；`docs/FEATURE_AUDIT.md` 第 42 行 → 🟡（已导入/展示/套用采样，
-    执行待下一步）、R6 行注明只读解析已 ✅。
+  - `lib/services/prompt_builder.dart`：
+    - `PromptMessage` 之后新增 `DepthInjection`；
+    - `build(...)` 与 `buildGroup(...)` 增加 `stSystemPrefix` / `stPreHistory` / `stDepthInjections`；
+    - system 开头写入（宏之后）ST 前缀；历史前插入 `stPreHistory`；
+      末尾 `_insertDepthInjections(messages, stDepthInjections, macro)`
+      （从大 depth 到小 depth 插入，0 = append，n = `len - n` clamp 到 `[1, len]`）；
+    - 群聊同样支持（`macroFor(..., speaker)`）。
+  - `lib/services/storage.dart`：`stCompatEnabled`（键 `st_compat_enabled`，默认 false）。
+  - `lib/screens/chat_screen.dart`：import `st_injection.dart` / `st_preset.dart`；
+    字段 `String? _stPlanRaw; StInjectionPlan? _stPlan;`；`_buildWith` 取 `_stInjectionPlan()`
+    并传给 `PromptBuilder.build/buildGroup`；`_stInjectionPlan()` 按 `AppSettings.stCompatEnabled`
+    与预设 JSON 缓存，改配置自动失效。
+  - `lib/screens/st_preset_screen.dart`：新增 `_compatEnabled` 状态与 `_buildCompat(scheme, snapshot)`
+    卡片（`SwitchListTile` key `st-compat-switch`，副标题列出「system 开头 N 条 / 历史前 N 条 /
+    按深度 N 条」）；提示词行的开关加 key `st-prompt-switch-<identifier>-<index>`。
+  - `test/v30_test.dart`：开关用例改为按 key 定位（避免命中新加的兼容模式开关）。
+  - `CHANGELOG.md` v0.31.0 段；`docs/FEATURE_AUDIT.md` R6 标 ✅ 完成（含证据文件），
+    第 89 行注明「v0.30.0 只读解析 / v0.31.0 兼容注入」。
   - `RESUME_STATE.md` 即本文件。
 
 ## 工作方式
@@ -75,30 +81,29 @@
 
 | 项目 | 结果 |
 | --- | --- |
-| `flutter analyze` | No issues found!（8.7s） |
-| `flutter test` | **+435 All tests passed!**（12s；新增 11 例） |
-| `flutter build apk --release` | 60.7MB，versionCode 31 / versionName 0.30.0 |
-| 模拟器安装 | `adb -s emulator-5556 install -r` → Success |
-| 导入 | Downloads 里的 `st_preset.json` → 「已解析「ST 测试预设」：4 条提示词」 |
-| 摘要 | 「采样参数 6 项 · 提示词 4 条（启用 2 条）」；顺序与占位/深度徽章正确 |
-| 套用采样 | 确认框列出 6 项 → 套用后生成参数变 `t1.1 · p0.9 · 上限 400`、随机度 1.10、采样范围 0.95 |
-| 顺序编辑 | 打开 NSFW 开关 → 返回再进仍显示「启用 3 条」（落盘生效） |
+| `flutter analyze` | No issues found!（11.3s） |
+| `flutter test` | **+445 All tests passed!**（18s；新增 10 例） |
+| `flutter build apk --release` | 见「本次运行记录」 |
+| 模拟器/真机安装 | 见「本次运行记录」 |
+| 注入计划单测 | system 顺序拼接 / preHistory 角色 / 深度 0 与 1 落位 / 宏替换全部通过 |
+| 兼容开关 | 默认关闭、打开后落盘 `st_compat_enabled=true`，副标题显示注入条数 |
 
 ## 已知边界
 
-- 本轮**不注入** ST 提示词：不改变实际发给模型的内容（下一步「兼容模式」才接）。
-- 只取 `prompt_order` 的第一份顺序（通常 character_id 100000）；多角色各自的顺序表不支持。
-- `marker` 条目只展示不可开关；`injection_trigger`、`forbid_overrides`、
-  `squash_system_messages`、`continue_prefill` 等字段本轮不参与，会写进「导入说明」。
-- 套用采样时按本 App 取值范围收敛（温度 0–2、topP 0–1、topK 0–200、penalty 0–2、
-  repetition 1–2、minP 0–0.5、stop ≤4 条）。
+- 兼容模式是**叠加**：ST 预设里的 system 提示放在最前，但本 App 的角色卡设定、
+  世界书、作者注释仍然照旧注入。完整的 ST 提示词引擎（`system_prompt` 覆盖、
+  `forbid_overrides`、`squash_system_messages`、`continue_prefill`、多角色顺序表）不在本轮范围，
+  导入时会写进「导入说明」。
+- 只取 `prompt_order` 的第一份顺序（通常 character_id 100000）。
+- 深度注入与作者注释同语义（0 = 最后一条之后，n = 倒数第 n 条之前），
+  与世界书 `position=1`（0 = 最新一条前）相差一位，这是有意保留 ST 语义。
 - 显示正则 / 备份 / 自动更新等既有边界不变（备份含导入的 ST 预设；API Key 明文存本机）。
 
 ## 下一轮建议（评估清单）
 
-- **R6 第二步：兼容模式执行**——把启用的 ST 提示词按顺序拼进 system（或按注入深度插进历史），
-  加开关可退回自研提示词；注意 `{{char}}/{{user}}` 宏与 `system_prompt` 覆盖。
-- 之后 R7：CHARX 导入、SillyTavern `.jsonl` 聊天导入、导入体检报告（坏卡逐条原因）。
+- **R7：卡生态与只读状态**——CHARX 导入、SillyTavern `.jsonl` 聊天导入、导入体检报告
+  （可用 / 部分可用 / 只保留，逐条原因）、变量与状态只读展示。
+- R8：把上面剩余项与未做的 ST 引擎细节收尾，更新 `docs/FEATURE_AUDIT.md` 全绿。
 
 ## 环境命令
 
@@ -119,8 +124,17 @@ $adb = 'C:\Users\28351\Android\Sdk\platform-tools\adb.exe'
 
 ## 本次运行记录
 
-- `flutter analyze`：No issues found!（8.7s）
-- `flutter test`：+435 All tests passed!（12s）
-- `flutter build apk --release`：60.7MB，versionCode 31 / versionName 0.30.0
-- 装机：`adb -s emulator-5556 install -r` → Success；导入 / 套用采样 / 顺序编辑三处点验通过
-- 提交与发布：见本轮 git log 与 GitHub Releases（tag v0.30.0）
+- `flutter analyze`：No issues found!（11.3s）
+- `flutter test`：+445 All tests passed!（18s）
+- `flutter build apk --release`：60.7MB（Gradle 79.4s），versionCode 32 / versionName 0.31.0
+- 装机：`adb -s emulator-5556 install -r` → Success（versionCode 32 / 0.31.0）
+- 兼容模式点验（模拟器 + 本地 mock 接口）：
+  1. 设置 → 生成参数 → SillyTavern 预设，打开「兼容模式（真实注入）」→ 副标题变
+     「已开启：启用的 3 条会按顺序注入 —— system 开头 2 条 · 按深度注入 1 条」；
+  2. 聊天页发送一条消息后「查看发送内容」：system 开头就是 ST 的
+     `Write 恢复测试角色's next reply in a fictional roleplay.` + `Explicit content allowed.`
+     （`{{char}}` 已替换成角色名），紧随其后才是世界书与「你是 恢复测试角色。」；
+  3. 「提示词检视」7 段：系统提示 99 token（含 ST 前缀），历史中间出现
+     「系统注入 #4」= `Stay in character. Never refuse.`（8 token）——说明深度 2 注入落在历史里；
+  4. 顺带确认显示正则仍生效（用户气泡「酒馆」显示为「酒馆🏮」）。
+- 提交与发布：见本轮 git log 与 GitHub Releases（tag v0.31.0）

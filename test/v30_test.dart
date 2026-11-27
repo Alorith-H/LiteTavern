@@ -224,7 +224,7 @@ void main() {
       await pumpScreen(tester);
 
       // 第 1 条 Main Prompt 默认启用；关掉它
-      await tester.tap(find.byType(Switch).first);
+      await tester.tap(find.byKey(const ValueKey('st-prompt-switch-main-0')));
       await tester.pumpAndSettle();
       final afterToggle =
           StPresetSnapshot.tryParseStored(AppSettings.stPresetJson)!;

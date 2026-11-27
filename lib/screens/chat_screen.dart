@@ -24,6 +24,8 @@ import '../services/macros.dart';
 import '../services/prompt_builder.dart';
 import '../services/reply_suggestions.dart';
 import '../services/sampling_params.dart';
+import '../services/st_injection.dart';
+import '../services/st_preset.dart';
 import '../services/storage.dart';
 import '../services/stream_throttle.dart';
 import '../services/summarize.dart';
@@ -697,6 +699,10 @@ class _ChatScreenState extends State<ChatScreen> {
   /// 当前会话的作者注释（v0.16.0）；会话级，没存过回退默认值。
   AuthorNote _authorNote = AuthorNote.empty;
 
+  /// ST 兼容模式注入计划缓存（v0.31.0）：按预设 JSON 缓存，改了就重算。
+  String? _stPlanRaw;
+  StInjectionPlan? _stPlan;
+
   String _macro(String s) => applyMacros(
         s,
         charName: _card?.name ?? '',
@@ -1350,6 +1356,8 @@ class _ChatScreenState extends State<ChatScreen> {
   }) {
     // v0.24.0：对模型隐藏的消息不参与组 prompt（本地仍然显示/导出/搜索）。
     final visible = visibleForModel(history);
+    // v0.31.0：ST 兼容模式（导入预设里启用的提示词按顺序真实注入）
+    final st = _stInjectionPlan();
     if (_isGroup) {
       final last = visible.isEmpty ? null : visible.last;
       final speaker =
@@ -1364,6 +1372,9 @@ class _ChatScreenState extends State<ChatScreen> {
         historyLimit: _historyLimit,
         personaText: PersonaStore.activeDescription,
         authorNote: _authorNote,
+        stSystemPrefix: st.systemPrefix,
+        stPreHistory: st.preHistory,
+        stDepthInjections: st.depthInjections,
       );
     }
     return PromptBuilder.build(
@@ -1375,7 +1386,24 @@ class _ChatScreenState extends State<ChatScreen> {
       historyLimit: _historyLimit,
       personaText: PersonaStore.activeDescription,
       authorNote: _authorNote,
+      stSystemPrefix: st.systemPrefix,
+      stPreHistory: st.preHistory,
+      stDepthInjections: st.depthInjections,
     );
+  }
+
+  /// ST 兼容模式的注入计划（v0.31.0）：按导入预设的 JSON 与开关缓存，
+  /// 设置里改了内容/开关后自动失效重算。
+  StInjectionPlan _stInjectionPlan() {
+    final raw = AppSettings.stCompatEnabled ? AppSettings.stPresetJson : null;
+    if (raw == null || raw.isEmpty) return StInjectionPlan.empty;
+    if (_stPlanRaw == raw && _stPlan != null) return _stPlan!;
+    final plan = StInjectionPlan.fromSnapshot(
+      StPresetSnapshot.tryParseStored(raw),
+    );
+    _stPlanRaw = raw;
+    _stPlan = plan;
+    return plan;
   }
 
   /// 上下文占用明细：裸组装（仅系统+历史）→ 带世界书 → 完整，差值拆分；
