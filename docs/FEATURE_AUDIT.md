@@ -56,6 +56,7 @@
 | 数据 | 删除角色/群聊时的级联清理 | ✅ | `home_screen.dart` |
 | 设置 | 两级菜单、6 分组、状态摘要 | ✅ | `settings_screen.dart`、`test/v21` |
 | 设置 | 主题色/亮度/字号/时间戳/快捷回复 | ✅ | `settings_screen.dart` |
+| 对话 | **对话排版（气泡 / 小说）** | ✅ v0.37.0 | `lib/services/chat_layout.dart`、`chat_screen.dart` _buildMessage |
 | 设置 | 应用内自动更新（检查/下载/系统安装/静默检查） | ✅ v0.23.0 | `updater.dart`、`update_flow.dart`、`test/v23_test.dart` |
 | 引导 | 6 步零基础引导（拿 Key/配模型/选辅助/导入/完成） | ✅ | `onboarding_screen.dart`、`test/onboarding_screen_test.dart` |
 | 模型 | 任意 OpenAI 兼容、多配置、获取模型列表、按模型自动上下文 | ✅ | `api_config_screen.dart`、`api_client.dart`、`test/v20_test.dart` |

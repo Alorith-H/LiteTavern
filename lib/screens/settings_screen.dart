@@ -9,6 +9,7 @@ import '../app_info.dart';
 import '../main.dart';
 import '../models/world_info.dart';
 import '../services/api_presets.dart';
+import '../services/chat_layout.dart';
 import '../services/external_links.dart';
 import '../services/storage.dart';
 import '../services/user_personas.dart';
@@ -809,6 +810,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       const SizedBox(height: 8),
       const SectionHeader('显示'),
       _actionRow(
+        title: '对话排版',
+        subtitle:
+            '当前 ${AppSettings.chatLayout.label}：${AppSettings.chatLayout.description}',
+        trailing: _chevron(scheme),
+        onTap: _openChatLayout,
+      ),
+      const Divider(height: 1),
+      _actionRow(
         title: '聊天气泡字号',
         subtitle: '当前 ${AppSettings.chatFontSize.round()}sp · 点按可调',
         trailing: _chevron(scheme),
@@ -859,6 +868,102 @@ class _SettingsScreenState extends State<SettingsScreen> {
         },
       ),
     ];
+  }
+
+  /// 对话排版：气泡 / 小说（v0.37.0，只改显示）。
+  void _openChatLayout() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '对话排版',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '只影响看到的样子：聊天记录、发给模型的提示词都不会变。',
+                style: TextStyle(
+                  fontSize: AppType.caption,
+                  height: 1.45,
+                  color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 16),
+              for (final layout in ChatLayout.values)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Material(
+                    color: AppSettings.chatLayout == layout
+                        ? Theme.of(ctx)
+                            .colorScheme
+                            .primary
+                            .withValues(alpha: 0.08)
+                        : Theme.of(ctx).colorScheme.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () {
+                        setState(() => AppSettings.chatLayout = layout);
+                        Navigator.of(ctx).pop();
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 12),
+                        child: Row(
+                          children: [
+                            Icon(
+                              layout == ChatLayout.bubble
+                                  ? Icons.chat_bubble_outline
+                                  : Icons.menu_book_outlined,
+                              size: 20,
+                              color: Theme.of(ctx).colorScheme.primary,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    layout.label,
+                                    style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    layout.description,
+                                    style: TextStyle(
+                                      fontSize: AppType.caption,
+                                      color: Theme.of(ctx)
+                                          .colorScheme
+                                          .onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (AppSettings.chatLayout == layout)
+                              Icon(Icons.check,
+                                  size: 18,
+                                  color: Theme.of(ctx).colorScheme.primary),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   /// 字号调节放二级页里用滑条（首页只显示当前值）。

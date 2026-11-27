@@ -17,6 +17,7 @@ import '../services/chat_export_files.dart';
 import '../services/chat_gen_settings.dart';
 import '../services/chat_index.dart';
 import '../services/chat_transcript.dart';
+import '../services/chat_layout.dart';
 import '../services/display_regex.dart';
 import '../services/file_pick.dart';
 import '../services/context_usage.dart';
@@ -2996,41 +2997,83 @@ class _ChatScreenState extends State<ChatScreen> {
     final fontSize = AppSettings.chatFontSize;
     final showTs = AppSettings.showTimestamps;
 
+    // v0.37.0 对话排版：气泡 / 小说（只影响显示，不改记录与提示词）
+    final layout = AppSettings.chatLayout;
+    final style = MessageLayoutStyle.of(layout, isUser: isUser);
+    final novel = layout == ChatLayout.novel;
+    final senderLabel = isUser ? '' : _senderLabelOf(m);
+
     // 气泡令牌：用户 = accent 10% 淡底、右侧、圆角 16（右下 4）；
     // 角色 = surface 底 + hairline 描边、左侧、圆角 16（左下 4）；无阴影。
     Widget bubble = Container(
-      margin: const EdgeInsets.symmetric(vertical: 5),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      margin: EdgeInsets.symmetric(vertical: style.verticalMargin),
+      padding: EdgeInsets.symmetric(
+        horizontal: style.horizontalPadding,
+        vertical: style.verticalPadding,
+      ),
       constraints: BoxConstraints(
-        maxWidth: MediaQuery.of(context).size.width * 0.78,
+        maxWidth: MediaQuery.of(context).size.width * style.maxWidthFactor,
       ),
-      decoration: BoxDecoration(
-        color: isUser
-            ? scheme.primary.withValues(alpha: 0.10)
-            : scheme.surface,
-        border: isUser ? null : Border.all(color: scheme.outline),
-        borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(16),
-          topRight: const Radius.circular(16),
-          bottomLeft: Radius.circular(isUser ? 16 : 4),
-          bottomRight: Radius.circular(isUser ? 4 : 16),
-        ),
-      ),
+      decoration: style.bubble
+          ? BoxDecoration(
+              color: isUser
+                  ? scheme.primary.withValues(alpha: 0.10)
+                  : scheme.surface,
+              border: isUser ? null : Border.all(color: scheme.outline),
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(16),
+                topRight: const Radius.circular(16),
+                bottomLeft: Radius.circular(isUser ? 16 : 4),
+                bottomRight: Radius.circular(isUser ? 4 : 16),
+              ),
+            )
+          : (style.userAccentBar
+              ? BoxDecoration(
+                  border: Border(
+                    left: BorderSide(
+                      color: scheme.primary.withValues(alpha: 0.35),
+                      width: 3,
+                    ),
+                  ),
+                )
+              : null),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 群聊：角色气泡左上角显示发言者名字（12sp w600 次要色）
-          if (_isGroup &&
-              !isUser &&
-              (m.senderName ?? '').trim().isNotEmpty)
+          // 气泡模式：群聊角色气泡显示发言者名字；小说模式每段都标（你 / 角色名）
+          if (!novel && _isGroup && senderLabel.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(bottom: 4),
               child: Text(
-                m.senderName!.trim(),
+                senderLabel,
                 style: TextStyle(
                   fontSize: AppType.section,
                   fontWeight: FontWeight.w600,
                   color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          if (novel && senderLabel.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                senderLabel,
+                style: TextStyle(
+                  fontSize: AppType.section,
+                  fontWeight: FontWeight.w600,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          if (novel && isUser)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                '你',
+                style: TextStyle(
+                  fontSize: AppType.section,
+                  fontWeight: FontWeight.w600,
+                  color: scheme.primary.withValues(alpha: 0.75),
                 ),
               ),
             ),
@@ -3168,11 +3211,12 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     return Align(
-      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+      alignment: style.alignRight ? Alignment.centerRight : Alignment.centerLeft,
       child: Column(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment:
-            isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment: style.alignRight
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         children: [
           bubble,
           if (m.hidden)
@@ -3221,6 +3265,10 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
     );
   }
+
+  /// 群里取发言者名字，单聊取角色名（小说模式的段落标签用）。
+  String _senderLabelOf(ChatMessage m) =>
+      (_isGroup ? (m.senderName ?? '') : (_card?.name ?? '')).trim();
 
   /// 变体圆点指示器（可点按切换），变体数 >1 时显示在气泡底部。
   Widget _buildVariantDots(ColorScheme scheme, ChatMessage m) {

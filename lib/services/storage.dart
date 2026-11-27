@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/chat_message.dart';
 import '../models/chat_group.dart';
 import '../models/character_card.dart';
+import 'chat_layout.dart';
 import '../models/world_info.dart';
 import 'hit_stats.dart';
 import 'api_presets.dart';
@@ -1359,6 +1360,13 @@ class AppSettings {
   /// 消息时间戳显示开关，默认关
   static bool get showTimestamps => _sp.getBool(_kShowTimestamps) ?? false;
   static set showTimestamps(bool v) => _sp.setBool(_kShowTimestamps, v);
+
+  static const _kChatLayout = 'chat_layout';
+
+  /// 对话排版（v0.37.0）：气泡（默认）/ 小说。只影响显示。
+  static ChatLayout get chatLayout =>
+      chatLayoutFromId(_sp.getString(_kChatLayout));
+  static set chatLayout(ChatLayout v) => _sp.setString(_kChatLayout, v.id);
 
   static const _kAutoContinue = 'auto_continue_count';
   static const _kAutoSummarize = 'auto_summarize';
