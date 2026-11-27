@@ -1,4 +1,4 @@
-# 交接状态：v0.25.0 分支树与导出长图 / EPUB（2026-11-27 更新）
+# 交接状态：v0.26.0 整库备份与恢复（2026-11-27 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
 > v0.11.0（角色卡市场）、v0.12.x（市场筛选、用户侧建议回复）、
@@ -13,71 +13,65 @@
 > v0.21.x（设置页二级菜单、引导新建配置、气泡下模型名、上下文按接口自报）、
 > v0.22.0（服务商改回 DeepSeek 第一、智谱只留一家、本地 LibreTranslate）、
 > v0.23.0（应用内自动更新）、
-> v0.24.0（消息操作三件套、对话内搜索、功能评估清单）。
+> v0.24.0（消息操作三件套、对话内搜索、功能评估清单）、
+> v0.25.0（分支树页、导出长图 / EPUB）。
 >
-> **本轮 v0.25.0 —— 分支树 + 导出长图 / EPUB（评估清单 R2）**：
-> 聊天菜单新增「分支树」，按层级列出同一角色下的所有聊天与分叉；
-> 导出菜单从 文本 / JSON 扩成 文本 / JSON / **长图 .png** / **电子书 .epub** 四种。
-> 长图用纯 Canvas 自绘（无新依赖），EPUB 用 archive 手写最小 EPUB3 包。
+> **本轮 v0.26.0 —— 整库备份与恢复（评估清单 R3）**：
+> 设置 → 帮助与关于 →「备份与恢复」，一个 .zip 带走角色卡与头像、聊天记录、世界书、
+> 群聊和全部设置（模型配置、生成预设、人设、翻译 Key、书签、聊天索引）；
+> 恢复时先解包校验（格式 / 版本 / 路径安全），列出备份时间与条数，确认后才写回。
 
 ## 仓库状态
 
-- 分支 `dev`，版本 `pubspec.yaml` = **0.25.0+26**，`lib/app_info.dart` `kAppVersion = '0.25.0'`。
+- 分支 `dev`，版本 `pubspec.yaml` = **0.26.0+27**，`lib/app_info.dart` `kAppVersion = '0.26.0'`。
 - 本轮新增文件：
-  - `lib/screens/chat_tree_screen.dart`：`ChatTreeScreen({ownerId, currentConvId})`，
-    用 `ChatIndex.tree` 按深度缩进列出根与分支，点一行 `pop(ChatInfo)` 回去切换；
-    副标题显示条数 / 时间 / 「从第 N 条分出」；空态提示怎么创建分支。
-  - `lib/services/chat_image_export.dart`：`ChatImageExport.render(...)` 纯 Canvas 长图
-    （先量高再开图，宽 1080，最大高 20000px，超长自动截断并标注；隐藏消息画「对模型隐藏」）。
-  - `lib/services/chat_epub_export.dart`：`ChatEpubExport.build(...)` 生成 EPUB3
-    （mimetype / container.xml / content.opf / nav.xhtml / style.css / chapter1.xhtml）。
-  - `test/v25_test.dart`（15 例：分支字段、`ChatIndex.tree`、EPUB 解包校验、长图 PNG 魔数与高度、导出格式常量、落盘）。
+  - `lib/services/backup_service.dart`：`BackupManifest` / `BackupArchive` / `BackupException`；
+    `createBackup({docs, prefs, appVersion, now})` 递归收集四个数据目录并打包 zip；
+    `parseBackup(bytes)` 校验 `format=litetavern-backup`、`formatVersion<=1`、路径合法；
+    `restoreBackup(archive, {docs, replacePrefs})` 写回并导入设置；`writeTempZip(...)`。
+  - `lib/widgets/backup_sheet.dart`：`showBackupSheet(context)` 底部弹层（导出 / 恢复 / 安全说明），
+    导出走 `BackupService.createBackup` + 系统分享，恢复走 FilePicker + 确认框 + 忙态提示。
+  - `test/v26_test.dart`（13 例：打包与解析一致性、空目录、非 zip、缺清单、格式不对、版本过新、
+    `../` 穿越、绝对路径、写回一致性、写盘前二次校验、prefs 导出/恢复、临时 zip 命名、弹层渲染）。
 - 本轮修改文件：
-  - `lib/services/chat_index.dart`：`ChatInfo` 新增 `parentId` / `forkIndex` / `isBranch`，
-    JSON 只在有值时写；`ChatIndex.touch` 新增可选 `parentId` / `forkIndex`；
-    新增 `ChatIndex.tree(chats)` → `List<ChatTreeNode>`（根按最近使用排序、子分支紧跟、孤儿当根、环安全）。
-  - `lib/services/chat_export_files.dart`：新增 `ChatExportFormat { text, json, image, epub }`
-    （label / hint / extension / isBinary）、`buildBytes(...)`、`writeTempBytes(...)`；
-    `shareChat(...)` 改为按 `format` 分派（文本走字符串、长图与 EPUB 走字节）。
-  - `lib/screens/chat_screen.dart`：`_branchFrom` 写入 `parentId: _convId` 与 `forkIndex: index`；
-    聊天菜单新增「分支树」→ `_openChatTree()`；`_exportChatFile()` 改为四选一（二进制格式先 toast「正在生成…」）。
-  - `docs/FEATURE_AUDIT.md`：分支树页、长图/EPUB 标为 ✅，R2 标为已完成。
-  - `CHANGELOG.md`：新增 v0.25.0 段；版本号两处同步。
+  - `lib/services/storage.dart`：`Storage.docsDir` 访问器；`AppSettings.exportPrefs()` /
+    `importPrefs(Map)`（只处理 bool/int/double/String/List<String>）。
+  - `lib/screens/settings_screen.dart`：帮助子页新增「备份与恢复」行。
+  - `docs/FEATURE_AUDIT.md`：数据行与 R3 标为 ✅。
+  - `CHANGELOG.md`：新增 v0.26.0 段；版本号两处同步。
 
 ## 验证
 
 | 命令 | 结果 |
 | --- | --- |
-| `flutter analyze` | No issues found（7.0s） |
-| `flutter test` | **+368 All tests passed!**（新增 15 例） |
-| `flutter build apk --release` | 59.9 MB（62,759,695 字节，Gradle 54.2s）versionCode **26** / 0.25.0 |
-| 真机装机 | 手机不在线（`192.168.0.100:39203` offline）；改用 Android 模拟器验证 |
-| 模拟器装机 | `emulator-5556 install -r` → Success，versionName 0.25.0 / code 26 |
+| `flutter analyze` | No issues found（6.4s） |
+| `flutter test` | **+381 All tests passed!**（新增 13 例） |
+| `flutter build apk --release` | 60.1 MB，versionCode **27** / 0.26.0 |
+| 装机（模拟器） | `emulator-5556 install -r` → Success（0.26.0 / code 27） |
 
-## 模拟器（无真机时的测试环境）
+## 模拟器端到端验证（导出 + 恢复都走了一遍）
 
-- SDK：`C:\Users\28351\Android\Sdk`；本轮新装 `emulator` + `system-images;android-34;google_apis;x86_64`，已接受全部 licenses。
-- AVD：`litetavern_test`（pixel_6 / Android 14 / x86_64），启动：
-  `C:\Users\28351\Android\Sdk\emulator\emulator.exe -avd litetavern_test -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -port 5556`
-- 端口 5556 → `adb -s emulator-5556 shell ...`；屏幕 1080x2400。
-- 已验证：冷启动 → 6 步引导（1/6 正常）→ 跳过 → 主页 → 设置（六入口 + 帮助与关于；版本 v0.25.0）
-  → 帮助子页（检查更新 / 自动检查 / 重看引导 / 关于）→ 从链接导入 Chub 卡成功 →
-  聊天菜单出现「导出对话文件…（纯文本 / JSON / 长图 / EPUB）」与「分支树」→
-  长图导出调起系统分享（Sharing image + 缩略图）→ EPUB 导出调起分享（Sharing 1 file）→
-  分支树页显示根聊天「当前 · 0 条消息」。
+1. 设置 → 帮助与关于 → 拉到底「备份与恢复」→ 弹层两个入口与安全说明正常。
+2. 点「导出备份 (.zip)」→ 生成 `LiteTavern_backup_20261127_190202.zip` → 系统分享出现（Sharing 1 file）。
+3. 用同一套 `BackupService` 生成一份样例备份（manifest + `files/characters/9999/card.json`，
+   prefs 里 `user_name=恢复测试`）推到 `/sdcard/Download/`，点「从备份恢复」→ 系统文件选择器出现该 zip。
+4. 选中后弹确认框：「备份时间：2026-11-27 19:03 / 来自版本：v0.26.0 / 包含：1 个文件、1 项设置」
+   + 覆盖提示 → 点「恢复」。
+5. 重启 App 后主页出现 **「恢复测试角色 / 从备份恢复进来的角色卡」** → 文件写回成功，设置项也已导入。
+
+截图：`build\v260_home.png`、`build\v260_backup_sheet.png`、`build\v260_backup_share.png`、
+`build\v260_picker.png`、`build\v260_restore_confirm.png`、`build\v260_after_restore.png`。
 
 ## 已知边界
 
-- 分支树只展示 `ChatIndex` 里有记录的聊天；父节点被删除的分支会当作根显示（不会丢）。
-- 分支是「创建时的快照」，之后父子各写各的，不双向同步；重命名只改索引显示名。
-- 长图：单张最大高 20000px，超出在图上标注条数；不含附件图片，只有文字。
-- EPUB：最小 EPUB3（单章 + 目录 + 内联样式），archive 3.6 限制了 mimetype store 方式，主流阅读器可读。
-- 导出二进制格式生成需 1–3 秒，期间 toast「正在生成…」，完成后弹系统分享。
-- 「对模型隐藏」的消息不进 prompt，但长图/EPUB 仍会导出并标注。
+- 恢复是「覆盖同名文件」，不会删除备份里没有的数据；想彻底重来请先清空数据/卸载重装。
+- 备份含 API Key 等敏感设置，界面上已提示只保存到信任的地方；不加密。
+- 恢复后需要重启 App 让内存里的设置（模型配置、主题等）全部生效，界面会提示。
+- 大备份（几百 MB）打包时是同步读文件，期间显示「正在打包备份…」忙态；未做后台 isolate。
+- 备份不包含：缓存（翻译缓存、市场译文缓存）、更新临时文件。
 
 ## 下一轮建议（详见 `docs/FEATURE_AUDIT.md` 第 3 节）
 
-R3：整库备份与恢复 zip（角色卡 / 聊天 / 世界书 / 预设 / 设置）；
 R4：世界书整本导入导出 + 命中测试 + 四范围绑定；
 R5：显示正则库 + 提示词检视升级；
 R6：ST 预设兼容（先只读解析）；
@@ -104,8 +98,8 @@ token 用 `git credential fill` 取；含中文的脚本保存为 UTF-8 并用 `
 
 ## 本次运行记录
 
-- `flutter analyze`：No issues found（7.0s）
-- `flutter test`：+368 All tests passed!
-- `flutter build apk --release`：59.9 MB，versionCode 26 / versionName 0.25.0
+- `flutter analyze`：No issues found（6.4s）
+- `flutter test`：+381 All tests passed!
+- `flutter build apk --release`：60.1 MB，versionCode 27 / versionName 0.26.0
 - 真机：不在线（未装机）
-- 模拟器：Success（0.25.0 / code 26），导出长图/EPUB、分支树、引导、设置、导入均逐项点过
+- 模拟器：Success（0.26.0 / code 27）；备份导出与恢复的完整链路已按上面 5 步点验通过

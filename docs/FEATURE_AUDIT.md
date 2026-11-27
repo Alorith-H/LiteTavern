@@ -52,7 +52,7 @@
 | 世界书 | 条目管理、位置/深度/递归/概率 | ✅ | `world_book_entries_screen.dart`、`world_info_engine.dart` |
 | 导出 | 剪贴板纯文本、`.txt` / `.json` 文件分享 | ✅ | `chat_export.dart`、`chat_export_files.dart` |
 | 导出 | **长图 / EPUB / 故事书排版** | ✅ | v0.25.0：`chat_image_export.dart`（Canvas 长图）、`chat_epub_export.dart`（EPUB3） |
-| 数据 | **整库备份与恢复（zip：卡/聊天/世界书/预设）** | ❌ | 未实现 |
+| 数据 | **整库备份与恢复（zip：卡/聊天/世界书/预设）** | ✅ | `lib/services/backup_service.dart` + `lib/widgets/backup_sheet.dart`；路径越界校验、恢复前确认（v0.26.0） |
 | 数据 | 删除角色/群聊时的级联清理 | ✅ | `home_screen.dart` |
 | 设置 | 两级菜单、6 分组、状态摘要 | ✅ | `settings_screen.dart`、`test/v21` |
 | 设置 | 主题色/亮度/字号/时间戳/快捷回复 | ✅ | `settings_screen.dart` |
@@ -111,7 +111,7 @@
 | --- | --- | --- |
 | R1（本轮） | 消息操作三件套 + 对话内搜索 + 本评估文档 | 新增 18 例测试全过；全量 353 例；analyze 干净 |
 | R2 | 分支树页 + 导出长图/EPUB | ✅ 已完成（v0.25.0）；真机/模拟器验证见 RESUME |
-| R3 | 整库备份与恢复 | 导出 zip → 清数据 → 恢复后角色/聊天/世界书一致 |
+| R3 | 整库备份与恢复 | ✅ v0.26.0：导出 zip → 清数据 → 恢复后角色/聊天/世界书一致（单测覆盖打包/解析/越界/写回） |
 | R4 | 世界书导入导出 + 命中测试 + 四范围绑定 | 导入 ST 世界书；命中测试与引擎结果一致 |
 | R5 | 显示正则库 + 检视升级 | 正则导入/开关/对比；检视标注缓存断点 |
 | R6 | ST 预设兼容（分两步：只读解析 → 执行） | 导入 ST 预设后提示词与原文对齐 |

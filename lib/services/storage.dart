@@ -42,6 +42,9 @@ class Storage {
     _docs = docs;
   }
 
+  /// 文档根目录（整库备份用）。
+  static Directory get docsDir => _docs;
+
   static Directory get _charRoot => Directory('${_docs.path}/characters');
   static Directory get _convRoot => Directory('${_docs.path}/conversations');
   static Directory get _wbRoot => Directory('${_docs.path}/worldbooks');
@@ -1035,6 +1038,45 @@ class AppSettings {
 
   /// 设置是否已加载（未初始化时读取默认值，供纯逻辑模块兜底）
   static bool get initialized => _ready;
+
+  // ------------------------------------------------- 备份与恢复（v0.26.0） --
+
+  /// 导出全部设置项（供整库备份）。只收 prefs 里能序列化的基础类型。
+  static Map<String, Object?> exportPrefs() {
+    final out = <String, Object?>{};
+    for (final key in _sp.getKeys()) {
+      final value = _sp.get(key);
+      if (value is bool || value is int || value is double || value is String) {
+        out[key] = value;
+      } else if (value is List) {
+        if (value.every((e) => e is String)) {
+          out[key] = List<String>.from(value);
+        }
+      }
+    }
+    return out;
+  }
+
+  /// 恢复设置项（覆盖同名键）。用于备份恢复，不做迁移逻辑。
+  static Future<void> importPrefs(Map<String, Object?> data) async {
+    for (final entry in data.entries) {
+      final v = entry.value;
+      if (v is bool) {
+        await _sp.setBool(entry.key, v);
+      } else if (v is int) {
+        await _sp.setInt(entry.key, v);
+      } else if (v is double) {
+        await _sp.setDouble(entry.key, v);
+      } else if (v is String) {
+        await _sp.setString(entry.key, v);
+      } else if (v is List) {
+        await _sp.setStringList(
+          entry.key,
+          v.map((e) => e.toString()).toList(growable: false),
+        );
+      }
+    }
+  }
 
   static const _kBaseUrl = 'api_base_url';
   static const _kApiKey = 'api_key';

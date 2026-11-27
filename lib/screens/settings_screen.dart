@@ -13,6 +13,7 @@ import '../services/external_links.dart';
 import '../services/storage.dart';
 import '../services/user_personas.dart';
 import '../widgets/common.dart';
+import '../widgets/backup_sheet.dart';
 import '../widgets/update_flow.dart';
 import 'advanced_settings_screen.dart';
 import 'api_config_screen.dart';
@@ -1033,6 +1034,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
           setState(() => _autoCheckUpdates = v);
           AppSettings.autoCheckUpdates = v;
         },
+      ),
+      const Divider(height: 1),
+      _actionRow(
+        title: '备份与恢复',
+        subtitle: '打包角色卡 / 聊天 / 世界书 / 设置成 .zip，换手机可还原',
+        trailing: _chevron(scheme),
+        onTap: () => showBackupSheet(context),
       ),
       const Divider(height: 1),
       _actionRow(
