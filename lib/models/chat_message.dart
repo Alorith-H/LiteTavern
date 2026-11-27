@@ -73,6 +73,10 @@ class ChatMessage {
   /// 生成这条回复时用的模型名（v0.21.0），显示在气泡下方；旧数据为 null。
   final String? model;
 
+  /// 对模型隐藏（v0.24.0）：本地仍显示、仍导出，但组 prompt 时跳过。
+  /// 旧数据无此字段 → false。
+  final bool hidden;
+
   const ChatMessage({
     required this.role,
     required this.content,
@@ -87,6 +91,7 @@ class ChatMessage {
     this.senderId,
     this.senderName,
     this.model,
+    this.hidden = false,
   });
 
   /// 当前变体的 token 消耗（旧数据回退到消息级字段）。
@@ -148,6 +153,7 @@ class ChatMessage {
       senderId: json['senderId'] as String?,
       senderName: json['senderName'] as String?,
       model: json['model'] as String?,
+      hidden: json['hidden'] == true,
     );
   }
 
@@ -167,6 +173,7 @@ class ChatMessage {
       if (variantIndex != 0) 'variantIndex': variantIndex,
       if (variantUsage.isNotEmpty)
         'variantUsage': [for (final u in variantUsage) u.toJson()],
+      if (hidden) 'hidden': true,
     };
   }
 
@@ -180,6 +187,7 @@ class ChatMessage {
     int? completionTokens,
     bool? tokensEstimated,
     String? model,
+    bool? hidden,
   }) {
     var v = variants != null ? List<String>.of(variants) : this.variants;
     var idx = variantIndex ?? this.variantIndex;
@@ -223,6 +231,7 @@ class ChatMessage {
       senderId: senderId,
       senderName: senderName,
       model: model ?? this.model,
+      hidden: hidden ?? this.hidden,
     );
   }
 }

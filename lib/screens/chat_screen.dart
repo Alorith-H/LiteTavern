@@ -15,6 +15,7 @@ import '../services/bookmarks.dart';
 import '../services/chat_export.dart';
 import '../services/chat_export_files.dart';
 import '../services/chat_index.dart';
+import '../services/chat_transcript.dart';
 import '../services/context_usage.dart';
 import '../services/hit_stats.dart';
 import '../services/impersonate.dart';
@@ -28,6 +29,7 @@ import '../services/summarize.dart';
 import '../services/token_estimate.dart';
 import '../services/user_personas.dart';
 import '../services/world_info_engine.dart';
+import '../widgets/chat_search_sheet.dart';
 import '../widgets/common.dart';
 import '../widgets/reply_suggestions_bar.dart';
 import 'authors_note_screen.dart';
@@ -1335,13 +1337,15 @@ class _ChatScreenState extends State<ChatScreen> {
     required List<WorldInfo> worldBooks,
     required String? summaryText,
   }) {
+    // v0.24.0：对模型隐藏的消息不参与组 prompt（本地仍然显示/导出/搜索）。
+    final visible = visibleForModel(history);
     if (_isGroup) {
-      final last = history.isEmpty ? null : history.last;
+      final last = visible.isEmpty ? null : visible.last;
       final speaker =
           (last != null && last.role == 'assistant') ? last.senderName : null;
       return PromptBuilder.buildGroup(
         members: _members,
-        history: history,
+        history: visible,
         worldBooks: worldBooks,
         userName: _macroUserName,
         speakerName: speaker,
@@ -1353,7 +1357,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     return PromptBuilder.build(
       card: _card!,
-      history: history,
+      history: visible,
       worldBooks: worldBooks,
       userName: _macroUserName,
       summaryText: summaryText,
@@ -1866,6 +1870,14 @@ class _ChatScreenState extends State<ChatScreen> {
               onTap: () {
                 Navigator.pop(ctx);
                 _showChatList();
+              },
+            ),
+            ListTile(
+              title: const Text('搜索对话'),
+              subtitle: const Text('在这段聊天里找关键词，点结果跳过去'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showSearch();
               },
             ),
             ListTile(
@@ -2681,6 +2693,10 @@ class _ChatScreenState extends State<ChatScreen> {
           m.content.isEmpty ? null : () => _showMessageActions(m),
       child: bubble,
     );
+    // v0.24.0：对模型隐藏的消息视觉上淡化，避免误以为还在发给模型。
+    if (m.hidden) {
+      bubble = Opacity(opacity: 0.45, child: bubble);
+    }
     if (!isUser && isLast) {
       bubble = _SwipeVariantWrap(
         enabled: !_generating && m.variants.length > 1,
@@ -2737,6 +2753,28 @@ class _ChatScreenState extends State<ChatScreen> {
             isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
           bubble,
+          if (m.hidden)
+            Padding(
+              padding: const EdgeInsets.only(top: 2, left: 6, right: 6),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.visibility_off_outlined,
+                    size: 12,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 3),
+                  Text(
+                    '对模型隐藏',
+                    style: TextStyle(
+                      fontSize: AppType.meta,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           if (infoLine != null)
             Padding(
               padding: const EdgeInsets.only(top: 2, left: 6, right: 6),
@@ -2812,56 +2850,205 @@ class _ChatScreenState extends State<ChatScreen> {
 
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
       builder: (ctx) => SafeArea(
-        child: ListBody(
-          children: [
-            ListTile(
-              title: const Text('复制'),
-              onTap: () async {
-                Navigator.pop(ctx);
-                await Clipboard.setData(ClipboardData(text: m.content));
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('已复制')),
-                );
-              },
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.72,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  title: const Text('复制'),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    await Clipboard.setData(ClipboardData(text: m.content));
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('已复制')),
+                    );
+                  },
+                ),
+                ListTile(
+                  title: const Text('编辑'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _editMessage(m);
+                  },
+                ),
+                if (canRegen)
+                  ListTile(
+                    title: const Text('重新生成'),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _regenerate();
+                    },
+                  ),
+                if (!_busy)
+                  ListTile(
+                    title: const Text('从这里创建分支'),
+                    subtitle: const Text('把这条及之前的对话复制成一段新聊天'),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _branchFrom(index);
+                    },
+                  ),
+                ListTile(
+                  title: const Text('书签'),
+                  subtitle: const Text('加入或取消这条消息的书签'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _toggleBookmark(m);
+                  },
+                ),
+                const Divider(height: 1),
+                // v0.24.0：对模型隐藏 / 删除单条 / 删除这条及以后
+                ListTile(
+                  leading: Icon(
+                    m.hidden
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                  ),
+                  title: Text(m.hidden ? '取消隐藏' : '对模型隐藏'),
+                  subtitle: Text(
+                    m.hidden
+                        ? '恢复后这条会重新发给模型'
+                        : '本地仍然保留并显示，只是不再发给模型',
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _toggleHidden(index);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.delete_outline),
+                  title: const Text('删除这一条'),
+                  subtitle: const Text('只删这一条，前后对话保持连续'),
+                  enabled: !_busy,
+                  onTap: !_busy
+                      ? () {
+                          Navigator.pop(ctx);
+                          _deleteMessage(index);
+                        }
+                      : null,
+                ),
+                ListTile(
+                  leading: Icon(
+                    Icons.delete_sweep_outlined,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                  title: Text(
+                    '删除这条及以后',
+                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                  subtitle: Text('会一起删掉后面 ${_messages.length - index - 1} 条，不可撤销'),
+                  enabled: !_busy,
+                  onTap: !_busy
+                      ? () {
+                          Navigator.pop(ctx);
+                          _deleteMessagesFrom(index);
+                        }
+                      : null,
+                ),
+              ],
             ),
-            ListTile(
-              title: const Text('编辑'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _editMessage(m);
-              },
-            ),
-            if (canRegen)
-              ListTile(
-                title: const Text('重新生成'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _regenerate();
-                },
-              ),
-            if (!_busy)
-              ListTile(
-                title: const Text('从这里创建分支'),
-                subtitle: const Text('把这条及之前的对话复制成一段新聊天'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _branchFrom(index);
-                },
-              ),
-            ListTile(
-              title: const Text('书签'),
-              subtitle: const Text('加入或取消这条消息的书签'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _toggleBookmark(m);
-              },
-            ),
-          ],
+          ),
         ),
       ),
     );
+  }
+
+  /// 切换「对模型隐藏」（v0.24.0）：只改这一条的标记，不动其它消息。
+  void _toggleHidden(int index) {
+    if (index < 0 || index >= _messages.length) return;
+    final before = _messages[index].hidden;
+    setState(() {
+      _messages[index] = _messages[index].copyWith(hidden: !before);
+      _msgCache.clear();
+    });
+    _save(force: true);
+    _toast(before ? '已取消隐藏，下一条回复会带上这条' : '已对模型隐藏，本地记录仍在');
+  }
+
+  /// 删除单条消息（v0.24.0）。
+  Future<void> _deleteMessage(int index) async {
+    if (index < 0 || index >= _messages.length) return;
+    final ok = await _confirmDelete(
+      title: '删除这一条消息？',
+      body: '只影响这一段聊天的本地记录，删掉后不可恢复。',
+      confirmText: '删除',
+    );
+    if (ok != true || !mounted) return;
+    setState(() {
+      _messages.removeAt(index);
+      _msgCache.clear();
+    });
+    _save(force: true);
+    _toast('已删除 1 条消息');
+  }
+
+  /// 删除这条及以后的消息（v0.24.0）。
+  Future<void> _deleteMessagesFrom(int index) async {
+    if (index < 0 || index >= _messages.length) return;
+    final count = _messages.length - index;
+    final ok = await _confirmDelete(
+      title: '删除这条及以后？',
+      body: '会删除 $count 条消息（含这一条），不可恢复。'
+          '想保留前面的分支，可以用「从这里创建分支」。',
+      confirmText: '删除 $count 条',
+    );
+    if (ok != true || !mounted) return;
+    setState(() {
+      _messages.removeRange(index, _messages.length);
+      _msgCache.clear();
+    });
+    _save(force: true);
+    _followBottom();
+    _toast('已删除 $count 条消息');
+  }
+
+  Future<bool?> _confirmDelete({
+    required String title,
+    required String body,
+    required String confirmText,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(body),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: scheme.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(confirmText),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 打开对话内搜索（v0.24.0），选中结果后跳到那条消息。
+  Future<void> _showSearch() async {
+    final name = _isGroup
+        ? (_group?.name ?? '群聊')
+        : (_card?.name ?? '角色');
+    final picked = await showChatSearchSheet(
+      context,
+      messages: _messages,
+      assistantName: name,
+    );
+    if (picked == null || !mounted) return;
+    if (picked < 0 || picked >= _messages.length) return;
+    _jumpToMessage(_messages[picked].timestamp);
   }
 
   /// 编辑某条消息当前显示的变体，保存写回存储并刷新 UI。
