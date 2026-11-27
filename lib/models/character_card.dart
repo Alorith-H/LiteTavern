@@ -16,6 +16,9 @@ class CharacterCard {
   /// 卡内嵌世界书，可能为 null
   final WorldInfo? characterBook;
 
+  /// 卡内扩展字段（v0.33.0 起保留，用于只读展示脚本 / 变量等信息）
+  final Map<String, dynamic> extensions;
+
   /// 角色 id（时间戳字符串），导入后由存储层生成
   final String id;
 
@@ -31,6 +34,7 @@ class CharacterCard {
     required this.tags,
     required this.creator,
     this.characterBook,
+    this.extensions = const <String, dynamic>{},
     this.id = '',
   });
 
@@ -62,6 +66,7 @@ class CharacterCard {
       tags: _strList(data['tags']),
       creator: _str(data['creator']),
       characterBook: _parseBook(data['character_book']),
+      extensions: _parseExtensions(data['extensions']),
     );
   }
 
@@ -81,6 +86,8 @@ class CharacterCard {
         'tags': tags,
         'creator': creator,
         'character_book': characterBook?.toSTJson(),
+        if (extensions.isNotEmpty) 'extensions': extensions,
+        if (extensions.isNotEmpty) 'extensions': extensions,
       },
     };
   }
@@ -105,6 +112,7 @@ class CharacterCard {
       tags: tags,
       creator: creator,
       characterBook: characterBook,
+      extensions: extensions,
       id: id ?? this.id,
     );
   }
@@ -121,6 +129,7 @@ class CharacterCard {
         tags: tags,
         creator: creator,
         characterBook: characterBook,
+        extensions: extensions,
         id: newId,
       );
 
@@ -129,6 +138,13 @@ class CharacterCard {
   static List<String> _strList(dynamic v) {
     if (v is List) return v.whereType<String>().toList();
     return [];
+  }
+
+  static Map<String, dynamic> _parseExtensions(dynamic v) {
+    if (v is Map) {
+      return v.map((k, value) => MapEntry('$k', value));
+    }
+    return const <String, dynamic>{};
   }
 
   static WorldInfo? _parseBook(dynamic v) {

@@ -40,6 +40,7 @@ import 'chat_tree_screen.dart';
 import '../widgets/common.dart';
 import '../widgets/reply_suggestions_bar.dart';
 import 'authors_note_screen.dart';
+import 'card_state_screen.dart';
 import 'character_edit_screen.dart';
 import 'prompt_audit_screen.dart';
 import 'settings_screen.dart';
@@ -1742,6 +1743,18 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  /// 变量与状态（v0.33.0）：只读展示卡内变量、对话里的状态更新与卡内脚本提示。
+  Future<void> _openCardState() async {
+    final cards = _isGroup
+        ? _members
+        : (_card == null ? <CharacterCard>[] : <CharacterCard>[_card!]);
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CardStateScreen(cards: cards, messages: _messages),
+      ),
+    );
+  }
+
   Future<void> _editCharacter() async {
     final card = _card;
     if (card == null) return;
@@ -1975,6 +1988,14 @@ class _ChatScreenState extends State<ChatScreen> {
               onTap: () {
                 Navigator.pop(ctx);
                 _openWorldBookBindings();
+              },
+            ),
+            ListTile(
+              title: const Text('变量与状态'),
+              subtitle: const Text('只读查看卡内变量、对话里的状态更新与卡内脚本提示（v0.33.0）'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _openCardState();
               },
             ),
             ListTile(

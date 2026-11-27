@@ -1,4 +1,4 @@
-# 交接状态：v0.32.0 卡生态与只读状态（CHARX / .jsonl 导入 + 导入体检）（2026-11-27 更新）
+# 交接状态：v0.33.0 变量与状态只读 + 卡内脚本安全提示（2026-11-27 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
 > v0.11.0（角色卡市场）、v0.12.x（市场筛选、用户侧建议回复）、
@@ -20,72 +20,72 @@
 > v0.28.0（提示词检视升级：缓存断点 + 省钱排序）、
 > v0.29.0（显示正则库：导入 ST 正则 / 作用域 / 试一下 / 只改显示）、
 > v0.30.0（SillyTavern 预设只读解析）、
-> v0.31.0（SillyTavern 兼容模式：预设提示词真实注入）。
+> v0.31.0（SillyTavern 兼容模式：预设提示词真实注入）、
+> v0.32.0（CHARX 导入、`.jsonl` 聊天导入、导入体检报告）。
 >
-> **本轮 v0.32.0 —— 评估清单 R7（卡生态与只读状态）**：
-> 1. **CHARX 导入**：把 SillyTavern v3 的压缩卡（zip）解出来，找 `card.json`、
->    取包内体积最大的图片当头像，其余资源只计数不导入。
-> 2. **SillyTavern `.jsonl` 聊天导入**：聊天页 ⋮ →「导入聊天记录」，
->    按 `is_user` / `name` 分角色，读 `send_date`（ISO 字符串或秒级 / 毫秒时间戳），
->    接在当前对话后面。
-> 3. **导入体检报告**：导入角色卡或聊天后弹「导入体检」，
->    给出「可用 / 部分可用 / 只保留」，并逐条说明缺了什么、
->    哪些扩展（regex_scripts / mvu / depth_prompt / tavern_helper / st-script 等）不会执行、
->    哪些字段只是只读保留（变量与状态系统本轮只做「只读提示」，不做编辑与回退）。
-> 4. **顺手修的坑**：Android 的 file_picker 遇到 `.charx` / `.jsonl` 这种它不认识的扩展名
->    会直接抛 `PlatformException(Unsupported filter)`，导致点了没反应。
->    新增 `lib/services/file_pick.dart` 的 `pickFilesWithExtensions`：
->    先按扩展名过滤，失败自动退回「任意文件」，导入前照旧按内容校验。
+> **本轮 v0.33.0 —— 评估清单 R8（变量与状态只读 + 卡内脚本安全提示）**：
+> 1. **角色卡保留 `extensions` 字段**：导入 / 编辑 / 导出不再丢扩展信息（旧卡不受影响，
+>    没有扩展时也不会往 JSON 里写空对象）。
+> 2. **变量与状态（只读）**：聊天页 ⋮ →「变量与状态」。读卡扩展里的初始变量
+>    （`extensions.mvu.initialVariables` / `extensions.variables` / 正文里的 `[InitVar]{...}`），
+>    再合并对话里的状态更新块（`<UpdateVariable>` / `<UpdateVariableBlock>` / `<JSONPatch>`），
+>    拍平成 `分组.变量 = 值` 展示。支持 JSON Patch 的 add / replace / remove 子集。
+> 3. **卡内脚本安全提示**：识别 `regex_scripts` / `tavern_helper` / `mvu` / `st-script` 等
+>    脚本类扩展，以及正文里的 `<script>` / `<iframe>` / `onerror=` / `javascript:` 片段，
+>    明确写「只读展示、不会执行、不会渲染」。
+> 4. **边界**：变量只读、不参与提示词、不写回对话；不支持变量编辑与 MVU 回退语义；
+>    卡内脚本永不执行（这是产品选择，不是没做完）。
 
 ## 仓库状态
 
-- 分支 `dev`，版本 `pubspec.yaml` = **0.32.0+33**，`lib/app_info.dart` `kAppVersion = '0.32.0'`。
+- 分支 `dev`，版本 `pubspec.yaml` = **0.33.0+34**，`lib/app_info.dart` `kAppVersion = '0.33.0'`。
 - 本轮新增文件：
-  - `lib/services/import_report.dart`：
-    - `enum ImportFit { usable, partial, preserveOnly }` + `ImportFitLabel`（label / isWarning）；
-    - `ImportFinding{title, detail, isWarning}`、`ImportReport{fit, summary, findings, hasWarnings}`、`ImportReport.empty`；
-    - `ImportAnalyzer.forCard(raw, card, {hasAvatar, assetCount})`：检查描述 / 开场白 / 性格场景系统提示 / 示例对话，
-      列出卡内世界书、备用开场白、头像、CHARX 资源数，并按 `knownCardKeys` + `unsupportedExtensions`
-      分出「不支持的扩展」「其它扩展字段（只读）」「未识别的字段（只读）」；
-    - `ImportAnalyzer.forChat(messages, {rawLineCount, skippedLines})`：条数 / 双方条数 / 跳过行 / 额外行 / 角色不明。
-  - `lib/services/charx_importer.dart`：
-    - `CharxFormatException`、`CharxImportResult{card, avatarBytes, report, assetCount}`；
-    - `CharxImporter.looksLikeZip` / `isCharxName` / `parse(bytes, {filename})` / `toParseResult`；
-      卡 JSON 先按 `card.json` → `chara_card_v3.json` → `character.json` → `data/card.json` → `data/character.json`，
-      再退到「任意非 assets 下能解出 name 的 .json」。
-  - `lib/services/st_chat_importer.dart`：
-    - `StChatFormatException`、`StChatImportResult{messages, report, lineCount, skippedLines}`；
-    - `StChatImporter.isJsonlName` / `looksLikeJsonl` / `parse(bytes, {charName, userName})`。
-  - `lib/services/file_pick.dart`：`pickFilesWithExtensions(extensions, {allowMultiple})`（过滤失败退回任意文件）。
-  - `lib/widgets/import_report_dialog.dart`：`showImportReportDialog(context, report, {title, subtitle})`。
-  - `test/v32_test.dart`：18 例（体检报告、CHARX zip 造包与头像挑选、jsonl 解析 / 时间戳 / 跳过行 / 错误）。
+  - `lib/services/mvu_state.dart`：
+    - `MvuValue{name, value}`、`MvuSnapshot{values, updateCount, initCount}`（`isEmpty` / `entries` / `groupOf`）；
+    - `MvuStateReader.fromCard(card)`：读 `extensions.mvu` 的
+      `initialVariables` / `initial_variables` / `variables` / `initvar` / `state` / `stats`，
+      读 `extensions.variables`，再读开场白 / 系统提示里的 `[InitVar]{...}`；
+    - `MvuStateReader.fromMessages(messages, {base})`：找
+      `<UpdateVariable>` / `<UpdateVariableBlock>` / `<JSONPatch>` 三种块，Map 直接合并，
+      List 当作 JSON Patch（add / replace / remove），坏 JSON 跳过不抛；
+    - 补丁路径优先匹配「扁平点号键」（如已有 `stats.好感度` 时，`/stats/好感度` 直接改它，
+      不会再建一层 `stats` 造成两行同名变量）。
+  - `lib/services/card_scripts.dart`：`ScriptFinding`、`CardScriptScan`（`hasScript` / `summary` / `findings`）、
+    `CardScriptScanner.scan(card)` 与 `scanAll(cards)`（群聊合并，正文片段带角色名前缀）。
+  - `lib/screens/card_state_screen.dart`：`CardStateScreen({cards, messages})` —— 只读说明卡、
+    「卡内初始变量」表、「对话里读到的状态」表（无更新块时只提示，不重复列表）、
+    「卡内脚本与动态内容」提示区；值用 `SelectableText` 方便复制。
+  - `test/v33_test.dart`：16 例（扩展字段往返 / 拷贝 / withId；卡内变量解析三种来源；
+    会话更新 Map / JSON Patch / 坏 JSON / 多条累积；脚本扩展与正文 HTML 识别、干净卡、群聊合并；
+    页面正常渲染与空态）。
 - 本轮修改：
-  - `lib/services/card_importer.dart`：新增 `ImportedCard{card, report}` 与 `importCardFile`（CHARX 自动分流），
-    `importCardBytes` 保持旧签名给市场 / 链接用。
-  - `lib/screens/home_screen.dart`：文件选择加 `.charx`（走 `pickFilesWithExtensions`），
-    `_importBytes` 用 `importCardFile` 并在有提醒 / 非可用时先弹体检报告；导入弹窗文案补 `.charx`。
-  - `lib/screens/chat_screen.dart`：菜单新增「导入聊天记录」（`.jsonl`）：选择 → 确认条数 →
-    追加到当前会话 → 清 `_msgCache` → 保存 → 体检报告。
-  - `CHANGELOG.md`、`docs/FEATURE_AUDIT.md`（角色卡行 ✅、MVU 行 🟡 只读提示、R7 ✅）、本文件。
+  - `lib/models/character_card.dart`：新增 `final Map<String, dynamic> extensions`（构造默认 `const {}`），
+    `fromJson` 读 `data['extensions']` 或顶层，`toJson` 非空才写，`copyWith` / `withId` 透传，
+    新增 `_parseExtensions`。
+  - `lib/screens/chat_screen.dart`：菜单「世界书绑定」之后新增「变量与状态」入口；
+    新增 `_openCardState()`（单聊用 `_card`，群聊用 `_members`）。
+  - `CHANGELOG.md`（v0.33.0 段）、`docs/FEATURE_AUDIT.md`（MVU 行 ✅、R8 ✅、卡内脚本行补安全提示说明）、本文件。
 
 ## 验证表（本轮）
 
 | 项目 | 结果 |
 | --- | --- |
 | `flutter analyze` | No issues found! |
-| `flutter test` | +463 All tests passed! |
-| `flutter build apk --release` | 60.8MB，versionCode **33** / versionName **0.32.0** |
-| 模拟器（Android 14，emulator-5556） | `install -r` Success，versionCode 33 / 0.32.0 |
-| CHARX 导入（真机流程：文件选择 → 导入 → 体检） | ✅ 角色卡进入主页（头像取包内图），体检弹窗显示「可用」+「随身资源 1 个」+「不支持的扩展 mvu、regex_scripts」+「未识别的字段 unknown_extra」 |
-| `.jsonl` 导入 | ✅ 选中 `chat_test.jsonl` → 确认「要导入 3 条消息吗」→ 3 条接在对话后面（2 你 / 1 角色），体检显示「可用 / 跳过 1 行」 |
-| 文件选择器兼容 | ✅ 修复前 `.jsonl` 直接抛 Unsupported filter；修复后自动退回任意文件并可选中 |
+| `flutter test` | +479 All tests passed! |
+| `flutter build apk --release` | 60.9MB，versionCode **34** / versionName **0.33.0** |
+| 模拟器（Android 14，emulator-5556） | `install -r` Success，versionCode 34 / 0.33.0 |
+| 变量与状态页（卡内变量） | ✅ 导入含 `extensions.mvu.initialVariables` 与 `[InitVar]` 的测试卡，页面显示 `stats.好感度 0 / stats.体力 100 / 金币 10 / 天气 晴` |
+| 变量与状态页（会话更新） | ✅ 用 `.jsonl` 导入一条带 `<UpdateVariable>{"stats":{"好感度":7,"体力":90}}</UpdateVariable>` 的消息后，页面显示「找到 1 个状态更新块」，数值变为 `7 / 90`，未涉及的 `金币 / 天气` 保持原值 |
+| 卡内脚本提示 | ✅ 同一张卡显示「卡内脚本扩展：mvu、regex_scripts」+「轻酒馆只读取、不运行它们」说明 |
+| 导入体检（回归） | ✅ 导入该卡时弹「可用 / 有 1 处小提醒」+「不支持的扩展 mvu、regex_scripts」 |
 
 ## 已知边界
 
-- CHARX 只取一张头像图，其它资源不导入；卡内脚本、变量系统不执行（体检里会提示「不生效」）。
-- `.jsonl` 里认不出的行会计入「跳过 N 行」；没有 `is_user` 时按 `name` 与角色名 / 用户名比对判断。
-- 体检报告只是提示，不阻断导入（除了连卡名都解析不出来的坏文件会直接报错）。
-- `pickFilesWithExtensions` 在过滤失败时退回「任意文件」，用户会看到全部文件——导入前仍按内容校验。
+- 变量只读：不参与提示词、不写回对话、不能编辑，也没有 MVU 的「回退 / 重算」语义。
+- 卡内脚本永不执行（包括 regex_scripts / tavern_helper / st-script 等），只看提示。
+- `<UpdateVariable>` / `<JSONPatch>` 只认 JSON；不是 JSON 的块会被静默跳过（`updateCount` 只统计解析成功的块）。
+- 变量名用「点号拼接」的扁平形式展示（`stats.好感度`），嵌套层级原样保留但只做只读展示。
+- 群聊时合并所有成员的卡内变量与所有成员的脚本提示；同名变量按出现顺序后者覆盖前者。
 
 ## 环境与常用命令
 
@@ -102,18 +102,24 @@ $adb='C:\Users\28351\Android\Sdk\platform-tools\adb.exe'
 - 模拟器：`C:\Users\28351\Android\Sdk\emulator\emulator.exe -avd litetavern_test -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -port 5556`
 - 本地假接口：`python build/mock_llm.py`（端口 8765，模拟端 `http://10.0.2.2:8765/v1`）
 - 中文输入：`adb shell am broadcast -a ADB_INPUT_TEXT --es msg '文字'`（需先安装 ADBKeyboard 并设为输入法）
+- 推测试文件：`adb push build\xxx.json /sdcard/Download/xxx.json`
 - 发 Release：用 `git credential fill` 取 token，单引号 here-string 拼 body，APK 上传地址直接拼
   `https://uploads.github.com/repos/Alorith-H/LiteTavern/releases/<id>/assets?name=app-release.apk`
 
 ## 下一轮建议
 
-- 按 `docs/FEATURE_AUDIT.md` R8：变量与状态只读展示（不做回退语义）+ 卡内脚本安全提示（不执行）。
-- 或者继续收尾：把体检报告扩展到世界书 / 预设导入。
+`docs/FEATURE_AUDIT.md` 里 A–D 组已完成 R1–R8，剩余项按「本地可做、风险低」排序：
+
+1. **每聊天预设覆盖（6 个采样键）**：给每段聊天单独的 temperature / top_p / max_tokens 等覆盖，
+   优先级「聊天 > 全局预设」，界面放在聊天菜单或设置里。
+2. **群聊主持**：发言名单 / 顺序 / 「让大家接着说」，在下一条消息前可调整谁先说。
+3. **缓存命中 / 费用估算统计**：在聊天统计里补缓存命中率与按模型单价估算花费（单价可让用户填）。
+4. E 组（TTS / 图像生成 / 向量记忆 / Web 搜索 / Live2D / 卡内脚本执行）仍按原计划暂不做。
 
 ## 本次运行记录（2026-11-27）
 
-- analyze：No issues found!
-- test：+463 All tests passed!
-- build：60.8MB（63,727,863 字节），versionCode 33 / versionName 0.32.0
-- 装机：`adb -s emulator-5556 install -r` → Success（versionCode 33 / 0.32.0）
-- 真机不在手边，用 Android 14 模拟器点验 CHARX 与 .jsonl 两条导入链路
+- analyze：No issues found!（9.0s）
+- test：+479 All tests passed!（17s）
+- build：60.9MB，versionCode 34 / versionName 0.33.0
+- 装机：`adb -s emulator-5556 install -r` → Success（versionCode 34 / 0.33.0）
+- 真机不在手边，用 Android 14 模拟器点验「变量与状态」页两段状态与脚本提示

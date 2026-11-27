@@ -2,6 +2,12 @@
 
 本项目遵循语义化版本：`MAJOR.MINOR.PATCH`，Android `versionCode` 随每次发版递增。
 
+## v0.33.0
+- 新增 **变量与状态（只读）**：聊天页 ⋮ → 变量与状态。读卡扩展里的初始变量（`extensions.mvu` / `extensions.variables` / 正文里的 `[InitVar]{...}`）和对话里的状态更新块（`<UpdateVariable>` / `<JSONPatch>`），拍平成 `分组.变量 = 值` 展示。
+- 新增 **卡内脚本安全提示**：识别 `regex_scripts`、`tavern_helper`、`mvu` 等脚本类扩展，以及正文里的 `<script>` / `<iframe>` / `onerror=` 等片段，明确告诉你「只读展示、不会执行」。
+- 角色卡现在会保留 `extensions` 字段（导入/编辑/导出不再丢扩展信息，旧卡不受影响）。
+- 边界：变量只读、不参与提示词、不写回对话；不支持变量编辑与 MVU 回退语义；卡内脚本永不执行。
+
 ## v0.32.0
 - 角色卡导入支持 **CHARX**（SillyTavern v3 压缩卡）：自动从 zip 里找 `card.json`，取包内最大的图片当头像。
 - 聊天记录支持 **SillyTavern `.jsonl` 导入**（聊天页 ⋮ → 导入聊天记录）：按 `is_user`/`name` 分角色，读 `send_date`（ISO 或秒级时间戳），接在当前对话后面。
