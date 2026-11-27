@@ -53,6 +53,7 @@
 | 导出 | 剪贴板纯文本、`.txt` / `.json` 文件分享 | ✅ | `chat_export.dart`、`chat_export_files.dart` |
 | 导出 | **长图 / EPUB / 故事书排版** | ✅ | v0.25.0：`chat_image_export.dart`（Canvas 长图）、`chat_epub_export.dart`（EPUB3） |
 | 数据 | **整库备份与恢复（zip：卡/聊天/世界书/预设）** | ✅ | `lib/services/backup_service.dart` + `lib/widgets/backup_sheet.dart`；路径越界校验、恢复前确认（v0.26.0） |
+| 数据 | **恢复时可选内容（角色卡 / 聊天 / 世界书 / 群聊 / 设置）** | ✅ v0.38.0 | `backup_service.dart` `BackupRestoreOptions` + `backup_sheet.dart` `RestoreScopeDialog` |
 | 数据 | 删除角色/群聊时的级联清理 | ✅ | `home_screen.dart` |
 | 设置 | 两级菜单、6 分组、状态摘要 | ✅ | `settings_screen.dart`、`test/v21` |
 | 设置 | 主题色/亮度/字号/时间戳/快捷回复 | ✅ | `settings_screen.dart` |

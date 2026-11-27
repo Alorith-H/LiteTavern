@@ -72,6 +72,76 @@ class BackupArchive {
   final BackupManifest manifest;
   final Map<String, List<int>> files;
   final Map<String, Object?> prefs;
+
+  /// 备份里某个数据目录（characters / conversations / worldbooks / groups）的文件数。
+  int fileCountIn(String dir) =>
+      files.keys.where((k) => k.split('/').first == dir).length;
+}
+
+/// 恢复时只挑想恢复的部分（v0.38.0）。默认全选，等于旧行为。
+class BackupRestoreOptions {
+  const BackupRestoreOptions({
+    this.characters = true,
+    this.conversations = true,
+    this.worldBooks = true,
+    this.groups = true,
+    this.settings = true,
+  });
+
+  /// 全选（恢复整包）。
+  static const BackupRestoreOptions all = BackupRestoreOptions();
+
+  final bool characters;
+  final bool conversations;
+  final bool worldBooks;
+  final bool groups;
+  final bool settings;
+
+  /// 是否至少选了一项。
+  bool get any =>
+      characters || conversations || worldBooks || groups || settings;
+
+  /// 某个数据目录是否要恢复。
+  bool allowsDir(String dir) => switch (dir) {
+        'characters' => characters,
+        'conversations' => conversations,
+        'worldbooks' => worldBooks,
+        'groups' => groups,
+        _ => false,
+      };
+
+  /// 复制一份并改其中一项（弹窗里勾选时用）。
+  BackupRestoreOptions copyWith({
+    bool? characters,
+    bool? conversations,
+    bool? worldBooks,
+    bool? groups,
+    bool? settings,
+  }) =>
+      BackupRestoreOptions(
+        characters: characters ?? this.characters,
+        conversations: conversations ?? this.conversations,
+        worldBooks: worldBooks ?? this.worldBooks,
+        groups: groups ?? this.groups,
+        settings: settings ?? this.settings,
+      );
+
+  /// 按当前勾选，这份备份实际会恢复多少文件。
+  int selectedFileCount(BackupArchive archive) => archive.files.keys
+      .where((k) => allowsDir(k.split('/').first))
+      .length;
+
+  /// 勾选内容的简短说明（「角色卡 3 + 聊天 2」）。
+  String summary(BackupArchive archive) {
+    final parts = <String>[
+      if (characters) '角色卡 ${archive.fileCountIn('characters')}',
+      if (conversations) '聊天 ${archive.fileCountIn('conversations')}',
+      if (worldBooks) '世界书 ${archive.fileCountIn('worldbooks')}',
+      if (groups) '群聊 ${archive.fileCountIn('groups')}',
+      if (settings) '设置 ${archive.prefs.length} 项',
+    ];
+    return parts.isEmpty ? '什么都没选' : parts.join(' · ');
+  }
 }
 
 /// 备份 / 恢复。文件层只碰 [Storage.docsDir] 下的四个子目录。
@@ -212,11 +282,18 @@ class BackupService {
   }
 
   /// 把备份写回文档目录与设置。返回写入的文件数。
+  ///
+  /// [options] 用来只恢复一部分（v0.38.0）：没勾选的数据目录会跳过，
+  /// 设置项只在勾了 [BackupRestoreOptions.settings] 时才写回。
   static Future<int> restoreBackup(
     BackupArchive archive, {
     Directory? docs,
     bool replacePrefs = true,
+    BackupRestoreOptions options = BackupRestoreOptions.all,
   }) async {
+    if (!options.any) {
+      throw const BackupException('没有选择要恢复的内容');
+    }
     final root = docs ?? Storage.docsDir;
     var written = 0;
     for (final entry in archive.files.entries) {
@@ -224,6 +301,7 @@ class BackupService {
       if (error != null) {
         throw BackupException('备份包里的路径不安全：${entry.key}（$error）');
       }
+      if (!options.allowsDir(entry.key.split('/').first)) continue;
       final target = File(
         '${root.path}${Platform.pathSeparator}'
         '${entry.key.replaceAll('/', Platform.pathSeparator)}',
@@ -236,7 +314,7 @@ class BackupService {
         throw BackupException('写入 ${entry.key} 失败：$e');
       }
     }
-    if (replacePrefs && archive.prefs.isNotEmpty) {
+    if (replacePrefs && options.settings && archive.prefs.isNotEmpty) {
       await AppSettings.importPrefs(archive.prefs);
     }
     return written;

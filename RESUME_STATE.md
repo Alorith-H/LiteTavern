@@ -1,4 +1,4 @@
-# 交接状态：v0.37.0 对话排版（气泡 / 小说）（2026-11-27 更新）
+# 交接状态：v0.38.0 备份恢复可选内容（2026-11-28 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
 > v0.11.0（角色卡市场）、v0.12.x（市场筛选、用户侧建议回复）、
@@ -26,57 +26,58 @@
 > v0.34.0（每聊天生成参数覆盖：6 个采样键）、
 > v0.35.0（聊天统计里的缓存命中与费用估算）、
 > v0.36.0（群聊主持：发言名单与顺序、让大家接着说）、
-> v0.37.0（对话排版：气泡 / 小说）。
+> v0.37.0（对话排版：气泡 / 小说）、
+> v0.38.0（备份恢复可选内容）。
 >
-> **本轮 v0.37.0 —— 评估清单之外的体验项「对话排版」**：
-> 1. **两种排版**：设置 → 聊天与上下文 → 显示 →「对话排版」，可选 **气泡**（默认，
->    左右分栏）或 **小说**（不分栏、无气泡底色，像读一段小说；你的话左侧一条细线 + 「你」）。
-> 2. **只改显示**：聊天记录、发给模型的提示词、导出内容都不变；随时切回来。
-> 3. **交互照旧**：长按菜单、变体横滑、书签、对模型隐藏、显示正则、字号、时间戳都正常。
-> 4. **边界**：小说模式每段都会标发言者（单聊用角色名、群聊用发言者名字；你的话标「你」），
->    因此同一角色连续两条会各带一次名字——这是有意的分段感，不做首条省略。
+> **本轮 v0.38.0 —— 评估清单「备份恢复可选内容」**：
+> 1. **恢复前挑内容**：选完 .zip 后弹出「恢复哪些内容？」——角色卡（含头像）/ 聊天记录 /
+>    世界书 / 群聊 / 设置（含 API Key、预设）五类，**勾哪几类就只恢复哪几类**，没勾的完全不动。
+> 2. **看得见数量**：每类右侧显示备份里的文件数，底部实时显示
+>    「将恢复：角色卡 2 · 聊天 1 · 世界书 0 · 群聊 1 · 设置 1 项」；可「全选 / 全不选」，
+>    一项都没选时「恢复」按钮变灰并提示「至少选一项」。
+> 3. **导出没变**：导出仍是整包；旧备份也能选着恢复。
+> 4. **实现**：`BackupService.restoreBackup(..., options:)` 按目录过滤，
+>    设置项只在勾了「设置」时才写回；`BackupRestoreOptions` 值对象 + 弹窗
+>    `RestoreScopeDialog`（`lib/widgets/backup_sheet.dart`）。
 
 ## 仓库状态
 
-- 分支 `dev`，版本 `pubspec.yaml` = **0.37.0+38**，`lib/app_info.dart` `kAppVersion = '0.37.0'`。
-- 本轮新增文件：
-  - `lib/services/chat_layout.dart`：`enum ChatLayout { bubble, novel }` +
-    `extension ChatLayoutLabel`（`label` / `description` / `id`）+ `chatLayoutFromId` +
-    `MessageLayoutStyle`（`bubble` / `alignRight` / `maxWidthFactor` / 内边距 / 行距 /
-    `showSenderLabel` / `userAccentBar`）与 `MessageLayoutStyle.of(layout, isUser:)`。
-  - `test/v37_test.dart`：9 例（解析与文案、两种模式 × 用户/角色的样式数值、
-    `AppSettings.chatLayout` 默认值 / 落键 `chat_layout` / 无键回落、设置页切换后落盘）。
-- 本轮修改：
-  - `lib/services/storage.dart`：新增 `chatLayout` getter/setter（`_kChatLayout = 'chat_layout'`，
-    存 `bubble` / `novel`；未知值回落气泡）。
-  - `lib/screens/chat_screen.dart`：`_buildMessage` 按 `MessageLayoutStyle` 渲染——
-    气泡模式保持原样；小说模式去掉气泡底色/描边，整行宽度、小内边距、段落间距更大，
-    你的那段加左侧 3px 细线；名字标签改为 `_senderLabelOf(m)`
-    （群聊取 `senderName`、单聊取角色名），小说模式给每段都标、气泡模式仍只在群聊标。
-  - `lib/screens/settings_screen.dart`：「显示」分节新增「对话排版」行（副标题显示当前模式），
-    点开底部弹层二选一（气泡 / 小说），选择即落盘并刷新；新增 `_openChatLayout()`。
-  - `CHANGELOG.md`（v0.37.0 段）、`docs/FEATURE_AUDIT.md`（对话组新增「对话排版」行 ✅）、本文件。
+- 分支 `dev`，版本 `pubspec.yaml` = **0.38.0+39**，`lib/app_info.dart` `kAppVersion = '0.38.0'`。
+- 本轮新增 / 修改：
+  - `lib/services/backup_service.dart`：`BackupArchive.fileCountIn(dir)`；
+    新增 `class BackupRestoreOptions`（五类开关、`all`、`any`、`allowsDir`、`copyWith`、
+    `selectedFileCount`、`summary`）；`restoreBackup` 增 `options` 参数（默认全选 = 旧行为），
+    按目录过滤写盘、设置项受 `options.settings` 控制，全不选抛 `BackupException('没有选择要恢复的内容')`。
+  - `lib/widgets/backup_sheet.dart`：恢复流程由「确认框」改为 `RestoreScopeDialog`
+    （公开 class，`_RestoreScopeDialogState` 持有勾选状态），五条 `CheckboxListTile`
+    + 数量 + 实时汇总 + 全选/全不选/取消/恢复；恢复完成的 SnackBar 区分
+    「只恢复设置」（0 文件）与「恢复 N 个文件」。
+  - `test/v38_test.dart`：9 例（`BackupRestoreOptions` 默认/`copyWith`/`any`/统计与 summary；
+    只恢复聊天 → 角色卡不写、设置不动；只恢复设置 → 0 文件但设置被覆盖；
+    全选等于旧行为；全不选抛错且不写盘；弹窗列出五类、全不选时「恢复」禁用）。
+  - `CHANGELOG.md`（v0.38.0 段）、`docs/FEATURE_AUDIT.md`（数据组新增「恢复时可选内容」✅）、本文件。
 
 ## 验证表（本轮）
 
 | 项目 | 结果 |
 | --- | --- |
-| `flutter analyze` | No issues found!（13.1s） |
-| `flutter test` | **+538 All tests passed!**（26s，含新增 9 例） |
-| `flutter build apk --release` | **61.1MB**，versionCode **38** / versionName **0.37.0** |
-| 模拟器装机 | `adb -s emulator-5556 install -r` → Success（code 38 / 0.37.0） |
-| 气泡模式点验 | 打开「变量测试角色」→ 左右分栏气泡（截图 `build/v370_bubble.png`） |
-| 小说模式点验 | 设置切到「小说」→ 回到聊天：无气泡、整行段落、每段带角色名（`build/v370_novel.png`）；发一句 `hi` → 你的话带「你」+ 左侧细线，角色回复照常带 token/模型行（`build/v370_novel_user2.png`） |
-| 回归 | 单人/群聊、建议回复、摘要、导出、世界书等原有测试全绿 |
+| `flutter analyze` | No issues found!（10.4s） |
+| `flutter test` | **+547 All tests passed!**（19s，含新增 9 例） |
+| `flutter build apk --release` | **61.1MB**，versionCode **39** / versionName **0.38.0** |
+| 模拟器装机 | `adb -s emulator-5556 install -r` → Success（code 39 / 0.38.0） |
+| 弹窗点验 | 推入自造备份 `build/v38_backup.zip`（2 角色文件 + 1 聊天 + 1 群聊 + 1 设置）→ 设置 → 帮助与关于 → 备份与恢复 → 从备份恢复 → 弹窗显示五类与数量、汇总正确（截图 `build/v380_scope2.png`） |
+| 选择性恢复点验 | 只勾「聊天记录 + 世界书」→「将恢复：聊天 1 · 世界书 0」→ 恢复完成（`build/v380_scope4.png`） |
+| 结果核对（adb root 直接看应用目录） | `/data/data/com.alorith.litetavern/app_flutter/conversations/bk1.json` 出现（聊天的确写回）；`characters/` 下**没有** `bk1`（角色卡被跳过）；`groups/`、`worldbooks/` 未被改动 → 选择性恢复按预期生效；测试产生的 `bk1.json` 已删除 |
+| 回归 | 单人/群聊、排版、导出、世界书、ST 兼容等原有测试全绿 |
 
 ## 已知边界
 
-- 小说模式下，同一角色连续两条会各标一次名字（有意的分段感）。
-- 排版按**全局**设置，不支持「这段聊天用气泡、那段用小说」。
-- 只影响显示：不改提示词、不改导出、不改备份内容。
-- 其它沿用 v0.36.0 的边界（发言名单按群保存；接着说不计命中率；费用只是估算；
-  每聊天覆盖只 6 键；ST 兼容模式是叠加不是替换；变量只读不写回；卡内脚本永不执行；
-  必应网页接口受 IP 风控会自动换源）。
+- 「设置」是一整类，不能只恢复其中几项（例如只恢复主题色）。
+- 恢复仍是**覆盖**同名文件，不删除备份里没有的数据；没有「先备份当前数据再恢复」的自动保护。
+- 恢复后需要重启 App 才能让全部数据生效（与之前一致）。
+- 备份里的 API Key 是明文，导出时已提示只存到信任的地方。
+- 其它沿用 v0.37.0 的边界（排版只管显示；发言名单按群保存；接着说不计命中率；
+  费用是估算；每聊天覆盖只 6 键；ST 兼容模式是叠加不是替换；变量只读；卡内脚本不执行）。
 
 ## 环境与常用命令
 
@@ -92,6 +93,10 @@ C:\Users\28351\Android\Sdk\emulator\emulator.exe -avd litetavern_test -no-window
   -no-boot-anim -gpu swiftshader_indirect -no-snapshot -port 5556
 adb -s emulator-5556 install -r build\app\outputs\flutter-apk\app-release.apk
 
+# 模拟器是 google_apis（可 root）：核对应用私有目录
+adb -s emulator-5556 root
+adb -s emulator-5556 shell "ls -R /data/data/com.alorith.litetavern/app_flutter"
+
 # mock 模型服务（写 build\mock_last.json 便于核对请求体）
 python build\mock_llm.py    # 监听 127.0.0.1:8765，模拟器用 http://10.0.2.2:8765/v1
 
@@ -103,17 +108,18 @@ python build\mock_llm.py    # 监听 127.0.0.1:8765，模拟器用 http://10.0.2
 
 `docs/FEATURE_AUDIT.md` 里 ✅ 已覆盖绝大部分本地功能，剩下的 ❌ 都是「明确不做 / 依赖外部服务」
 （卡内脚本执行沙箱、HTML 整页画布、TTS / 语音输入、图像生成、向量记忆、Web 搜索、Live2D、STscript）。
-下一轮可以继续做小而实用的体验项：
+下一轮候选：
 
-- **备份恢复可选内容**：现在整包恢复会覆盖所有数据，可加「只恢复聊天 / 只恢复设置 / 只恢复角色卡」。
 - **聊天统计按模型拆分**：多套配置混用时，能看清各模型的 token 与花费。
-- **自动更新增强**：支持「忽略这个版本」（现在只有「稍后」）、下载中断后的续传提示。
+- **自动更新增强**：支持「忽略这个版本」（现在只有「稍后」）、下载中断后续传提示。
+- **恢复前自动快照**：恢复前先自动导出一份当前数据到缓存，误操作可退回。
 - **排版继续打磨**：小说模式可选首行缩进 / 段落分隔线，或加第三种「视觉小说」样式。
 
-## 本次运行记录（2026-11-27）
+## 本次运行记录（2026-11-28）
 
-- analyze：No issues（13.1s）
-- test：+538 全过（26s）
-- build：61.1MB，versionCode 38 / 0.37.0
-- 模拟器：`emulator-5556` 装机 Success（code 38），点验气泡 / 小说两种排版与发表消息
+- analyze：No issues（10.4s）
+- test：+547 全过（19s）
+- build：61.1MB，versionCode 39 / 0.38.0
+- 模拟器：`emulator-5556` 装机 Success（code 39）；导入自造备份 → 弹窗逐类勾选 → 只恢复聊天 →
+  用 `adb root` 核对 `conversations/bk1.json` 已写回、`characters/bk1` 未写
 - 未真机：真机不在手边，按计划走模拟器 + mock 服务
