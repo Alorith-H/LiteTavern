@@ -23,6 +23,7 @@ import '../services/context_usage.dart';
 import '../services/hit_stats.dart';
 import '../services/impersonate.dart';
 import '../services/macros.dart';
+import '../services/prompt_audit.dart';
 import '../services/prompt_builder.dart';
 import '../services/reply_suggestions.dart';
 import '../services/sampling_params.dart';
@@ -33,6 +34,7 @@ import '../services/storage.dart';
 import '../services/stream_throttle.dart';
 import '../services/summarize.dart';
 import '../services/token_estimate.dart';
+import '../services/usage_cost.dart';
 import '../services/user_personas.dart';
 import '../services/world_info_engine.dart';
 import '../widgets/chat_search_sheet.dart';
@@ -118,6 +120,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// 最近一次 API 返回的真实输入 token（上下文占用页「上次实际」）
   int? _lastExactPrompt;
+
+  /// v0.35.0：这次发送按前缀估算能命中缓存多少输入 token（统计页用）
+  int _lastCachedEstimate = 0;
 
   /// 顶部上下文占用条的估算缓存（消息数/末条长度/摘要/历史条数变化时重算）
   int? _ctxBarTotal;
@@ -1266,6 +1271,13 @@ class _ChatScreenState extends State<ChatScreen> {
     _prevPrompt = _lastPrompt;
     _lastPrompt = toSend;
 
+    // v0.35.0：按「与上次发送的公共前缀」估算这次缓存能命中多少 token，
+    // 只用于统计估算（真实命中数取决于服务商，不会影响请求内容）。
+    _lastCachedEstimate = _prevPrompt == null
+        ? 0
+        : PromptAudit.analyze(current: toSend, previous: _prevPrompt)
+            .cacheableTokens;
+
     // v0.34.0：这一段聊天可以有自己的采样参数；留空继续跟全局预设
     final gen = ChatGenSettings.resolve(_convId);
     final sampling = gen.sampling;
@@ -1518,6 +1530,11 @@ class _ChatScreenState extends State<ChatScreen> {
       model: AppSettings.model.trim().isEmpty
           ? null
           : AppSettings.model.trim(),
+      // v0.35.0：按前缀估算这次有多少输入命中提示词缓存（统计页用）
+      cachedPromptTokens: _lastCachedEstimate <= 0
+          ? m.cachedPromptTokens
+          : ((m.cachedPromptTokens ?? 0) + _lastCachedEstimate)
+              .clamp(0, (m.promptTokens ?? 0) + p),
     );
   }
 
@@ -2305,6 +2322,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final total = _messages.length;
     var inSum = 0;
     var outSum = 0;
+    var cachedSum = 0;
     var hasUsage = false;
     var approx = false;
     for (final m in _messages) {
@@ -2314,6 +2332,7 @@ class _ChatScreenState extends State<ChatScreen> {
       hasUsage = true;
       inSum += p;
       outSum += c;
+      cachedSum += (m.cachedPromptTokens ?? 0).clamp(0, p);
       if (m.tokensEstimated) approx = true;
     }
 
@@ -2324,22 +2343,74 @@ class _ChatScreenState extends State<ChatScreen> {
           estimateTokens(built.messages.map((m) => m.content).join('\n'));
     }
 
+    // v0.35.0：费用与缓存命中（价格取设置里的单价，没填就只显示 token）
+    final price = TokenPrice(
+      inputPerMillion: AppSettings.priceInputPerMillion,
+      outputPerMillion: AppSettings.priceOutputPerMillion,
+      cachedInputPerMillion: AppSettings.priceCachedPerMillion,
+    );
+    final usage = UsageCost(
+      inputTokens: inSum,
+      outputTokens: outSum,
+      cachedInputTokens: cachedSum,
+      price: price,
+    );
+
     final mark = approx ? '（估算）' : '';
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('聊天统计'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _statLine('消息条数', '$total'),
-            _statLine(
-                '输入消耗', hasUsage ? '${formatTokenCount(inSum)}$mark' : '0'),
-            _statLine(
-                '输出消耗', hasUsage ? '${formatTokenCount(outSum)}$mark' : '0'),
-            _statLine('发送前上下文', '${formatTokenCount(contextTokens)}（估算）'),
-          ],
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _statLine('消息条数', '$total'),
+              _statLine(
+                  '输入消耗', hasUsage ? '${formatTokenCount(inSum)}$mark' : '0'),
+              _statLine(
+                  '输出消耗', hasUsage ? '${formatTokenCount(outSum)}$mark' : '0'),
+              _statLine(
+                '缓存命中',
+                hasUsage
+                    ? '${formatTokenCount(cachedSum)}（${(usage.cacheHitRatio * 100).toStringAsFixed(0)}%）'
+                    : '0',
+              ),
+              _statLine(
+                  '发送前上下文', '${formatTokenCount(contextTokens)}（估算）'),
+              if (price.configured && hasUsage) ...[
+                const Divider(height: 18),
+                _statLine('预计花费', '${formatMoney(usage.total)} 元'),
+                if (usage.cacheSavings > 0)
+                  _statLine('缓存省下', '${formatMoney(usage.cacheSavings)} 元'),
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    '按你填的单价估算：输入 ${price.inputPerMillion}/M、'
+                    '输出 ${price.outputPerMillion}/M、'
+                    '缓存命中 ${price.effectiveCachedPrice}/M。',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ] else if (hasUsage)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    '想估算费用？去 设置 → 聊天与上下文 → 用量与费用 填单价。',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
         actions: [
           FilledButton(

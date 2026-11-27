@@ -54,6 +54,9 @@ class ChatMessage {
   /// true = 累计值里含本地估算（provider 未返回 usage）
   final bool tokensEstimated;
 
+  /// 其中被提示词缓存命中的输入 tokens（v0.35.0，按前缀估算；旧数据 null）
+  final int? cachedPromptTokens;
+
   /// 全部变体文本（含当前显示的那个）；旧数据无此字段 → 空列表
   final List<String> variants;
 
@@ -85,6 +88,7 @@ class ChatMessage {
     this.promptTokens,
     this.completionTokens,
     this.tokensEstimated = false,
+    this.cachedPromptTokens,
     this.variants = const [],
     this.variantIndex = 0,
     this.variantUsage = const [],
@@ -147,6 +151,7 @@ class ChatMessage {
       promptTokens: (json['promptTokens'] as num?)?.toInt(),
       completionTokens: (json['completionTokens'] as num?)?.toInt(),
       tokensEstimated: json['tokensEstimated'] == true,
+      cachedPromptTokens: (json['cachedPromptTokens'] as num?)?.toInt(),
       variants: variants,
       variantIndex: index,
       variantUsage: usage,
@@ -169,6 +174,7 @@ class ChatMessage {
       if (promptTokens != null) 'promptTokens': promptTokens,
       if (completionTokens != null) 'completionTokens': completionTokens,
       if (tokensEstimated) 'tokensEstimated': true,
+      if (cachedPromptTokens != null) 'cachedPromptTokens': cachedPromptTokens,
       if (variants.isNotEmpty) 'variants': variants,
       if (variantIndex != 0) 'variantIndex': variantIndex,
       if (variantUsage.isNotEmpty)
@@ -186,6 +192,7 @@ class ChatMessage {
     int? promptTokens,
     int? completionTokens,
     bool? tokensEstimated,
+    int? cachedPromptTokens,
     String? model,
     bool? hidden,
   }) {
@@ -225,6 +232,7 @@ class ChatMessage {
       promptTokens: promptTokens ?? this.promptTokens,
       completionTokens: completionTokens ?? this.completionTokens,
       tokensEstimated: tokensEstimated ?? this.tokensEstimated,
+      cachedPromptTokens: cachedPromptTokens ?? this.cachedPromptTokens,
       variants: v,
       variantIndex: idx,
       variantUsage: u,

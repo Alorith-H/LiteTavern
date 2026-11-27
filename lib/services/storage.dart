@@ -1180,6 +1180,31 @@ class AppSettings {
 
   static const _kChatPresetOverrides = 'chat_preset_overrides';
 
+  /// 费用估算单价（v0.35.0）：每 100 万 token 的价格；0 = 没填。
+  static double get priceInputPerMillion =>
+      _sp.getDouble(_kPriceInput) ?? 0;
+
+  static set priceInputPerMillion(double v) => _sp.setDouble(_kPriceInput, v);
+
+  static const _kPriceInput = 'price_input_per_million';
+
+  static double get priceOutputPerMillion =>
+      _sp.getDouble(_kPriceOutput) ?? 0;
+
+  static set priceOutputPerMillion(double v) =>
+      _sp.setDouble(_kPriceOutput, v);
+
+  static const _kPriceOutput = 'price_output_per_million';
+
+  /// 缓存命中的输入单价；0 = 跟输入价一样。
+  static double get priceCachedPerMillion =>
+      _sp.getDouble(_kPriceCached) ?? 0;
+
+  static set priceCachedPerMillion(double v) =>
+      _sp.setDouble(_kPriceCached, v);
+
+  static const _kPriceCached = 'price_cached_per_million';
+
   /// 显示正则库（JSON 数组，v0.29.0）；null = 空库。
   static String? get displayRegexesJson => _sp.getString(_kDisplayRegexes);
   static Future<void> setDisplayRegexesJson(String? v) async {

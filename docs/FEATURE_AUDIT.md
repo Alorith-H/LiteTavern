@@ -27,7 +27,7 @@
 | 对话 | 自动摘要（静默后台）+ 手动总结 | ✅ | `lib/services/summarize.dart`、`test/v15_test.dart` |
 | 对话 | 上下文占用条 + 明细 + 阈值压缩 | ✅ | `chat_screen.dart` `_showContextUsage/_compressIfNeeded` |
 | 对话 | 聊天统计（消息数、token、命中率） | ✅ | `chat_screen.dart` `_showChatStats` |
-| 对话 | **缓存命中 / 费用估算统计** | ❌ | 统计里没有缓存命中与价格估算 |
+| 对话 | **缓存命中 / 费用估算统计** | ✅ v0.35.0 | `lib/services/usage_cost.dart`、`chat_screen.dart` `_showChatStats`、`settings_screen.dart` 用量与费用 |
 | 对话 | 消息时间戳开关、字号 | ✅ | `settings_screen.dart` |
 | 对话 | 群聊（多角色轮转、@指定、开场） | ✅ | `chat_screen.dart` `_runGroupRound` |
 | 对话 | 群聊主持（发言名单/顺序/让大家接着说） | ❌ | 未实现 |
@@ -136,3 +136,4 @@
   - 组 prompt 前统一过滤隐藏消息（`_buildWith`）；
   - 聊天菜单新增「搜索对话」，选中结果后按时间戳跳转。
 - 测试：`test/v24_test.dart` 18 例；全量 **353 全过**，`analyze` 干净。
+

@@ -1,4 +1,4 @@
-# 交接状态：v0.34.0 每聊天生成参数覆盖（2026-11-27 更新）
+# 交接状态：v0.35.0 缓存命中与费用估算（2026-11-27 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
 > v0.11.0（角色卡市场）、v0.12.x（市场筛选、用户侧建议回复）、
@@ -21,115 +21,103 @@
 > v0.29.0（显示正则库：导入 ST 正则 / 作用域 / 试一下 / 只改显示）、
 > v0.30.0（SillyTavern 预设只读解析）、
 > v0.31.0（SillyTavern 兼容模式：预设提示词真实注入）、
-> v0.32.0（CHARX 导入、`.jsonl` 聊天导入、导入体检报告）、v0.33.0（变量与状态只读、卡内脚本安全提示）。
+> v0.32.0（CHARX 导入、`.jsonl` 聊天导入、导入体检报告）、
+> v0.33.0（变量与状态只读、卡内脚本安全提示）、
+> v0.34.0（每聊天生成参数覆盖：6 个采样键）。
 >
-> **本轮 v0.33.0 —— 评估清单 R8（变量与状态只读 + 卡内脚本安全提示）**：
-> 1. **角色卡保留 `extensions` 字段**：导入 / 编辑 / 导出不再丢扩展信息（旧卡不受影响，
->    没有扩展时也不会往 JSON 里写空对象）。
-> 2. **变量与状态（只读）**：聊天页 ⋮ →「变量与状态」。读卡扩展里的初始变量
->    （`extensions.mvu.initialVariables` / `extensions.variables` / 正文里的 `[InitVar]{...}`），
->    再合并对话里的状态更新块（`<UpdateVariable>` / `<UpdateVariableBlock>` / `<JSONPatch>`），
->    拍平成 `分组.变量 = 值` 展示。支持 JSON Patch 的 add / replace / remove 子集。
-> 3. **卡内脚本安全提示**：识别 `regex_scripts` / `tavern_helper` / `mvu` / `st-script` 等
->    脚本类扩展，以及正文里的 `<script>` / `<iframe>` / `onerror=` / `javascript:` 片段，
->    明确写「只读展示、不会执行、不会渲染」。
-> 4. **边界**：变量只读、不参与提示词、不写回对话；不支持变量编辑与 MVU 回退语义；
->    卡内脚本永不执行（这是产品选择，不是没做完）。
->
-> **本轮 v0.34.0 —— 评估清单「每聊天预设覆盖」（6 个采样键）**：
-> 1. 聊天页 ⋮ →「这段聊天的生成参数」：给这一段聊天单独设 temperature / top_p / top_k /
->    max_tokens / frequency_penalty / presence_penalty；留空 = 跟随全局生成预设。
-> 2. 覆盖只作用于这一段聊天的生成（含「重新生成」「继续生成」「替我说一句」）；
->    菜单副标题显示当前覆盖（如「覆盖 t1.3 · k40」），随时点「全部恢复」回到跟随全局。
-> 3. 存储：`AppSettings.chatPresetOverridesJson`（prefs 键 `chat_preset_overrides`，
->    `{convId: {temperature, top_p, top_k, max_tokens, frequency_penalty, presence_penalty}}`），
->    空覆盖会删键，坏 JSON 回退空。解析逻辑在 `lib/services/chat_gen_settings.dart`。
-> 4. 边界：只覆盖这 6 个键，重复惩罚 / min_p / seed / stop 仍跟全局预设；群聊每段聊天各自独立。
+> **本轮 v0.35.0 —— 评估清单「用量统计里的缓存命中与价格估算」**：
+> 1. **缓存命中估算**：每次发送前，用「上一次实际发出去的提示词」与这一次逐段比，
+>    算出从头连续未变的段有多少 token 可以命中供应商的前缀缓存，记到这条回复上
+>    （`ChatMessage.cachedPromptTokens`）；旧数据没有这个字段时按 0 处理。
+> 2. **统计页展示**：聊天页 ⋮ →「聊天统计」新增「缓存命中 N（x%）」行；
+>    在 设置 → 聊天与上下文 → 用量与费用 填过单价后，还会显示「预计花费」「缓存省下」
+>    和单价说明小字；没填单价时给一句「想估算费用？去 设置 → 聊天与上下文 → 用量与费用 填单价。」
+> 3. **费用估算**：单价按「每 100 万 token」填输入 / 输出 /（可选）缓存命中价，缓存价留空
+>    就用输入价；金额用 `formatMoney`（0 → `0`，< 0.0001 → `<0.0001`，< 0.01 → 4 位，其余 2 位）。
+> 4. **边界**：这是**估算**，缓存命中按前缀长度推，不等同于供应商最终账单；不改动请求内容；
+>    只有记录了 usage 的回复才参与统计。
 >
 ## 仓库状态
 
-- 分支 `dev`，版本 `pubspec.yaml` = **0.34.0+35**，`lib/app_info.dart` `kAppVersion = '0.34.0'`。
+- 分支 `dev`，版本 `pubspec.yaml` = **0.35.0+36**，`lib/app_info.dart` `kAppVersion = '0.35.0'`。
 - 本轮新增文件：
-  - `lib/services/mvu_state.dart`：
-    - `MvuValue{name, value}`、`MvuSnapshot{values, updateCount, initCount}`（`isEmpty` / `entries` / `groupOf`）；
-    - `MvuStateReader.fromCard(card)`：读 `extensions.mvu` 的
-      `initialVariables` / `initial_variables` / `variables` / `initvar` / `state` / `stats`，
-      读 `extensions.variables`，再读开场白 / 系统提示里的 `[InitVar]{...}`；
-    - `MvuStateReader.fromMessages(messages, {base})`：找
-      `<UpdateVariable>` / `<UpdateVariableBlock>` / `<JSONPatch>` 三种块，Map 直接合并，
-      List 当作 JSON Patch（add / replace / remove），坏 JSON 跳过不抛；
-    - 补丁路径优先匹配「扁平点号键」（如已有 `stats.好感度` 时，`/stats/好感度` 直接改它，
-      不会再建一层 `stats` 造成两行同名变量）。
-  - `lib/services/card_scripts.dart`：`ScriptFinding`、`CardScriptScan`（`hasScript` / `summary` / `findings`）、
-    `CardScriptScanner.scan(card)` 与 `scanAll(cards)`（群聊合并，正文片段带角色名前缀）。
-  - `lib/screens/card_state_screen.dart`：`CardStateScreen({cards, messages})` —— 只读说明卡、
-    「卡内初始变量」表、「对话里读到的状态」表（无更新块时只提示，不重复列表）、
-    「卡内脚本与动态内容」提示区；值用 `SelectableText` 方便复制。
-  - `test/v33_test.dart`：16 例（扩展字段往返 / 拷贝 / withId；卡内变量解析三种来源；
-    会话更新 Map / JSON Patch / 坏 JSON / 多条累积；脚本扩展与正文 HTML 识别、干净卡、群聊合并；
-    页面正常渲染与空态）。
+  - `lib/services/usage_cost.dart`（纯 Dart，无 Flutter 依赖）：
+    - `TokenPrice{inputPerMillion, outputPerMillion, cachedInputPerMillion}`：
+      `free`、`configured`（输入或输出 > 0）、`effectiveCachedPrice`（缓存价 > 0 用它，否则用输入价）；
+    - `UsageCost{inputTokens, outputTokens, cachedInputTokens, price}`：
+      `uncachedInputTokens`、`cacheHitRatio`（0–1，clamp）、`total`、`cacheSavings`（≥0）、`merge`；
+    - 顶层 `formatMoney(double)`。
+  - `test/v35_test.dart`：14 例（TokenPrice 3、UsageCost 5、formatMoney 1、设置与消息 3、
+    设置页 widget 2）。
 - 本轮修改：
-  - `lib/models/character_card.dart`：新增 `final Map<String, dynamic> extensions`（构造默认 `const {}`），
-    `fromJson` 读 `data['extensions']` 或顶层，`toJson` 非空才写，`copyWith` / `withId` 透传，
-    新增 `_parseExtensions`。
-  - `lib/screens/chat_screen.dart`：菜单「世界书绑定」之后新增「变量与状态」入口；
-    新增 `_openCardState()`（单聊用 `_card`，群聊用 `_members`）。
-  - `CHANGELOG.md`（v0.33.0 段）、`docs/FEATURE_AUDIT.md`（MVU 行 ✅、R8 ✅、卡内脚本行补安全提示说明）、本文件。
+  - `lib/services/storage.dart`：新增 `priceInputPerMillion` / `priceOutputPerMillion` /
+    `priceCachedPerMillion`（prefs 键 `price_input_per_million` / `price_output_per_million` /
+    `price_cached_per_million`，double，默认 0）。
+  - `lib/models/chat_message.dart`：新增 `cachedPromptTokens`（int?，v0.35.0），
+    `fromJson` / `toJson`（非空才写）/ `copyWith` 都处理；旧数据为 null。
+  - `lib/screens/chat_screen.dart`：新增 `_lastCachedEstimate`，在 `_runOnce` 里用
+    `PromptAudit.analyze(current: toSend, previous: _prevPrompt).cacheableTokens` 估算；
+    `_applyTokens` 把估算值累加到 `cachedPromptTokens`（clamp 到 promptTokens）；
+    `_showChatStats` 重写为可滚动弹窗，新增缓存命中、预计花费、缓存省下与单价说明。
+  - `lib/screens/settings_screen.dart`：「自动摘要怎么工作」之后新增「用量与费用」行
+    （副标题 `_priceSummary()`），弹窗改成自持控制器的 `_PriceDialog`（避免关闭动画期间
+    `TextEditingController used after dispose`），保存后写三个 AppSettings 并刷新副标题。
+  - `CHANGELOG.md`（v0.35.0 段）、`docs/FEATURE_AUDIT.md`（缓存命中/费用估算行 ✅）、本文件。
 
 ## 验证表（本轮）
 
 | 项目 | 结果 |
 | --- | --- |
-| `flutter analyze` | No issues found! |
-| `flutter test` | +479 All tests passed! |
-| `flutter build apk --release` | 61.0MB，versionCode **35** / versionName **0.34.0** |
-| 模拟器（Android 14，emulator-5556） | `install -r` Success，versionCode 35 / 0.34.0；mock 接口 body 确认 `temperature 1.3 / top_k 40` 生效 |
-| 变量与状态页（卡内变量） | ✅ 导入含 `extensions.mvu.initialVariables` 与 `[InitVar]` 的测试卡，页面显示 `stats.好感度 0 / stats.体力 100 / 金币 10 / 天气 晴` |
-| 变量与状态页（会话更新） | ✅ 用 `.jsonl` 导入一条带 `<UpdateVariable>{"stats":{"好感度":7,"体力":90}}</UpdateVariable>` 的消息后，页面显示「找到 1 个状态更新块」，数值变为 `7 / 90`，未涉及的 `金币 / 天气` 保持原值 |
-| 卡内脚本提示 | ✅ 同一张卡显示「卡内脚本扩展：mvu、regex_scripts」+「轻酒馆只读取、不运行它们」说明 |
-| 导入体检（回归） | ✅ 导入该卡时弹「可用 / 有 1 处小提醒」+「不支持的扩展 mvu、regex_scripts」 |
+| `flutter analyze` | No issues found!（8.5s，含 pub get） |
+| `flutter test` | **+511 All tests passed!**（14s） |
+| `flutter build apk --release` | **61.0MB**，versionCode **36** / versionName **0.35.0** |
+| 模拟器装机 | `adb -s emulator-5556 install -r` → Success（code 36） |
+| 模拟器点验 | 设置 → 聊天与上下文 → 用量与费用填 0.28 / 0.42 / 0.028，副标题变「输入 0.28/M · 输出 0.42/M」；聊天 ⋮ → 聊天统计显示「缓存命中 193（9%）」「预计花费 0.0006 元」「缓存省下 <0.0001 元」+ 单价说明；截图 `build/v350_price_dialog.png`、`v350_stats3.png` |
+| 顺手验证 | 显示正则（v0.29.0）在真机聊天气泡上生效：`酒馆` → `酒馆🏮`，原文未改（`build/v350_chat1.png`） |
 
 ## 已知边界
 
-- 变量只读：不参与提示词、不写回对话、不能编辑，也没有 MVU 的「回退 / 重算」语义。
-- 卡内脚本永不执行（包括 regex_scripts / tavern_helper / st-script 等），只看提示。
-- `<UpdateVariable>` / `<JSONPatch>` 只认 JSON；不是 JSON 的块会被静默跳过（`updateCount` 只统计解析成功的块）。
-- 变量名用「点号拼接」的扁平形式展示（`stats.好感度`），嵌套层级原样保留但只做只读展示。
-- 群聊时合并所有成员的卡内变量与所有成员的脚本提示；同名变量按出现顺序后者覆盖前者。
+- 缓存命中是**估算**：按「上一份提示词的前缀」推算，供应商实际计费口径可能不同；
+  只统计记录了 usage 的回复；旧消息没有 `cachedPromptTokens` 时不参与。
+- 费用估算需要用户自己填单价（每 100 万 token），默认 0 → 只显示 token；
+  没有按模型自动带价格（各家价格变动频繁，不做内置表）。
+- 缓存价留空时按输入价算，此时「缓存省下」为 0，这是预期行为。
+- 其它沿用 v0.34.0 的边界（每聊天覆盖只 6 键；群聊各自独立；ST 兼容模式是叠加不是替换；
+  变量只读不写回；卡内脚本永不执行）。
 
 ## 环境与常用命令
 
 ```powershell
+# Flutter（不在 PATH）
 $env:FLUTTER_STORAGE_BASE_URL="https://storage.flutter-io.cn"
 & C:\flutter\bin\flutter.bat analyze
 & C:\flutter\bin\flutter.bat test
 & C:\flutter\bin\flutter.bat build apk --release
-$adb='C:\Users\28351\Android\Sdk\platform-tools\adb.exe'
-& $adb devices -l
-& $adb -s emulator-5556 install -r build\app\outputs\flutter-apk\app-release.apk
-```
 
-- 模拟器：`C:\Users\28351\Android\Sdk\emulator\emulator.exe -avd litetavern_test -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -port 5556`
-- 本地假接口：`python build/mock_llm.py`（端口 8765，模拟端 `http://10.0.2.2:8765/v1`）
-- 中文输入：`adb shell am broadcast -a ADB_INPUT_TEXT --es msg '文字'`（需先安装 ADBKeyboard 并设为输入法）
-- 推测试文件：`adb push build\xxx.json /sdcard/Download/xxx.json`
-- 发 Release：用 `git credential fill` 取 token，单引号 here-string 拼 body，APK 上传地址直接拼
-  `https://uploads.github.com/repos/Alorith-H/LiteTavern/releases/<id>/assets?name=app-release.apk`
+# 模拟器（真机不在手边时）
+C:\Users\28351\Android\Sdk\emulator\emulator.exe -avd litetavern_test -no-window -no-audio `
+  -no-boot-anim -gpu swiftshader_indirect -no-snapshot -port 5556
+adb -s emulator-5556 install -r build\app\outputs\flutter-apk\app-release.apk
+
+# mock 模型服务（写 build\mock_last.json 便于核对请求体）
+python build\mock_llm.py    # 监听 127.0.0.1:8765，模拟器用 http://10.0.2.2:8765/v1
+
+# 发布（GitHub Release 需要 token；上传地址直接拼 assets?name=）
+# https://uploads.github.com/repos/Alorith-H/LiteTavern/releases/<id>/assets?name=app-release.apk
+```
 
 ## 下一轮建议
 
-`docs/FEATURE_AUDIT.md` 里 A–D 组已完成 R1–R8，剩余项按「本地可做、风险低」排序：
+评估清单里剩下的都是「明确暂缓」或依赖外部服务的项（`docs/FEATURE_AUDIT.md`）：
 
-1. **每聊天预设覆盖（6 个采样键）**：给每段聊天单独的 temperature / top_p / max_tokens 等覆盖，
-   优先级「聊天 > 全局预设」，界面放在聊天菜单或设置里。
-2. **群聊主持**：发言名单 / 顺序 / 「让大家接着说」，在下一条消息前可调整谁先说。
-3. **缓存命中 / 费用估算统计**：在聊天统计里补缓存命中率与按模型单价估算花费（单价可让用户填）。
-4. E 组（TTS / 图像生成 / 向量记忆 / Web 搜索 / Live2D / 卡内脚本执行）仍按原计划暂不做。
+- **群聊主持**（发言名单 / 顺序 / 让大家接着说）——纯本地，可做。
+- 卡内脚本执行沙箱、HTML 组件 / 整页画布、Live2D / 立绘 / 舞台背景——明确不做或依赖重。
+- TTS 朗读 / 语音输入、图像生成、向量长期记忆、Web 搜索、斜杠命令 / STscript——依赖外部服务，暂缓。
 
 ## 本次运行记录（2026-11-27）
 
-- analyze：No issues found!（9.0s）
-- test：+479 All tests passed!（17s）
-- build：61.0MB，versionCode 35 / versionName 0.34.0
-- 装机：`adb -s emulator-5556 install -r` → Success（versionCode 35 / 0.34.0）
-- 真机不在手边，用 Android 14 模拟器点验「变量与状态」页两段状态与脚本提示
+- analyze：No issues（8.5s）
+- test：+511 全过
+- build：61.0MB，versionCode 36 / 0.35.0
+- 模拟器：`emulator-5556` 装机 Success，点验费用弹窗与统计页
+- 未真机：真机不在手边，按计划走模拟器 + mock 服务

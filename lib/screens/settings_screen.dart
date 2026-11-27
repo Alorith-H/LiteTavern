@@ -268,6 +268,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  // -------------------------------------- 用量与费用（v0.35.0）--
+
+  String _priceSummary() {
+    final i = AppSettings.priceInputPerMillion;
+    final o = AppSettings.priceOutputPerMillion;
+    if (i <= 0 && o <= 0) return '未填写单价：统计页只显示 token';
+    return '输入 $i/M · 输出 $o/M · 用于统计页估算';
+  }
+
+  Future<void> _showPriceDialog() async {
+    final result = await showDialog<({double input, double output, double cached})>(
+      context: context,
+      builder: (ctx) => const _PriceDialog(),
+    );
+    if (result == null) return;
+    AppSettings.priceInputPerMillion = result.input;
+    AppSettings.priceOutputPerMillion = result.output;
+    AppSettings.priceCachedPerMillion = result.cached;
+    if (mounted) setState(() {});
+  }
   Future<void> _importWorldBook() async {
     try {
       final result = await FilePicker.platform.pickFiles(
@@ -776,6 +796,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
         subtitle: '什么时候触发、会不会多花 token、怎么关掉',
         trailing: _chevron(scheme),
         onTap: _showSummaryExplain,
+      ),
+      const Divider(height: 1),
+      _actionRow(
+        title: '用量与费用',
+        subtitle: _priceSummary(),
+        trailing: _chevron(scheme),
+        onTap: _showPriceDialog,
       ),
 
       // -------------------------------------------------- 显示 --
@@ -1667,6 +1694,112 @@ class _QuickRepliesScreenState extends State<QuickRepliesScreen> {
         icon: const Icon(Icons.add_outlined, size: 20),
         label: const Text('新增'),
       ),
+    );
+  }
+}
+
+/// 用量与费用弹窗：自己持有控制器，随路由一起销毁，避免「controller used after dispose」。
+class _PriceDialog extends StatefulWidget {
+  const _PriceDialog();
+
+  @override
+  State<_PriceDialog> createState() => _PriceDialogState();
+}
+
+class _PriceDialogState extends State<_PriceDialog> {
+  late final TextEditingController _iCtrl;
+  late final TextEditingController _oCtrl;
+  late final TextEditingController _cCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    String fmt(double v) => v > 0 ? '$v' : '';
+    _iCtrl = TextEditingController(text: fmt(AppSettings.priceInputPerMillion));
+    _oCtrl = TextEditingController(text: fmt(AppSettings.priceOutputPerMillion));
+    _cCtrl = TextEditingController(text: fmt(AppSettings.priceCachedPerMillion));
+  }
+
+  @override
+  void dispose() {
+    _iCtrl.dispose();
+    _oCtrl.dispose();
+    _cCtrl.dispose();
+    super.dispose();
+  }
+
+  double _parse(TextEditingController c) {
+    final v = double.tryParse(c.text.trim());
+    return v == null || v < 0 ? 0 : v;
+  }
+
+  void _save() {
+    Navigator.pop<({double input, double output, double cached})>(
+      context,
+      (input: _parse(_iCtrl), output: _parse(_oCtrl), cached: _parse(_cCtrl)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('用量与费用'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '填入服务商的单价（每 100 万 token 的价格），'
+              '聊天统计里就会顺带算出估算花费。留空则只显示 token。',
+              style: TextStyle(fontSize: 12, height: 1.45),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _iCtrl,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: '输入价格 / 百万 token',
+                hintText: '例如 0.28',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _oCtrl,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: '输出价格 / 百万 token',
+                hintText: '例如 0.42',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _cCtrl,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: '缓存命中输入价（可选）',
+                hintText: '留空 = 跟输入价一样',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(onPressed: _save, child: const Text('保存')),
+      ],
     );
   }
 }
