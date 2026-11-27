@@ -21,6 +21,7 @@ import 'display_regex_screen.dart';
 import 'gen_presets_screen.dart';
 import 'onboarding_screen.dart';
 import 'personas_screen.dart';
+import 'st_preset_screen.dart';
 import 'world_book_bindings_screen.dart';
 import 'world_book_entries_screen.dart';
 
@@ -620,7 +621,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
         onTap: _openAdvanced,
       ),
       const Divider(height: 1),
+      // SillyTavern 预设兼容（v0.30.0）：导入并查看采样参数与提示词顺序
+      _actionRow(
+        title: 'SillyTavern 预设',
+        subtitle: '导入 ST 预设 JSON：看采样参数与提示词顺序，采样可一键套用（v0.30.0）',
+        trailing: _chevron(scheme),
+        onTap: _openStPreset,
+      ),
+      const Divider(height: 1),
     ];
+  }
+
+  Future<void> _openStPreset() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const StPresetScreen()),
+    );
+    // 预设页里可能「套用采样参数」，回来后要把滑条与文本同步成新值
+    _syncFromSettings();
   }
 
   // -------------------------------------------- 聊天与上下文（二级） --

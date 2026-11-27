@@ -39,7 +39,7 @@
 | 提示词 | 作者注释（位置/深度/角色/默认继承） | ✅ | `lib/services/authors_note.dart`、`test/v17_test.dart` |
 | 提示词 | 宏（{{char}}/{{user}}/{{persona}}/时间/随机/字段） | ✅ | `lib/services/macros.dart`、`test/v17_test.dart` |
 | 提示词 | 生成预设（多套）+ 高级采样参数 | ✅ | `lib/screens/gen_presets_screen.dart`、`test/v9_test.dart` |
-| 提示词 | **SillyTavern 预设 JSON 导入/执行（prompts/prompt_order/注入位置深度）** | ❌ | 自研预设与 ST 结构不兼容 |
+| 提示词 | SillyTavern 预设 JSON 导入（prompts/prompt_order/注入位置深度） | 🟡 | v0.30.0 已支持导入 + 只读解析 + 采样参数套用 + 顺序/开关可视化（`lib/services/st_preset.dart`、`lib/screens/st_preset_screen.dart`）；尚未把这些提示词注入实际对话（下一步「兼容模式」） |
 | 提示词 | **每聊天预设覆盖（temperature 等 6 键）** | ❌ | 只有全局预设 |
 | 提示词 | 显示正则库（导入 ST 正则、作用域/深度、替换对比） | ✅ | `lib/services/display_regex.dart`、`lib/screens/display_regex_screen.dart`（v0.29.0；目前只作用于显示，不改提示词与原文） |
 | 提示词 | 发送内容检视（全文 + 分段 + 缓存断点 + 省钱排序） | ✅ | `lib/services/prompt_audit.dart`、`lib/screens/prompt_audit_screen.dart`（v0.28.0） |
@@ -114,7 +114,7 @@
 | R3 | 整库备份与恢复 | ✅ v0.26.0：导出 zip → 清数据 → 恢复后角色/聊天/世界书一致（单测覆盖打包/解析/越界/写回） |
 | R4 | 世界书导入导出 + 命中测试 + 四范围绑定 | ✅ v0.27.0：整本导出 .json 往返、命中测试逐条给原因、四范围合并去重（单测 + 模拟器点验） |
 | R5 | 显示正则库 + 检视升级 | 检视已 ✅（v0.28.0：缓存断点 + 省钱排序）；正则库待 R6 |
-| R6 | ST 预设兼容（分两步：只读解析 → 执行） | 待做；正则库已在 v0.29.0 完成 |
+| R6 | ST 预设兼容（分两步：只读解析 → 执行） | 只读解析已 ✅（v0.30.0：导入/展示/采样参数套用/顺序编辑）；执行（兼容模式注入）待下一步 |
 | R7 | CHARX / jsonl 导入 + 体检报告 | 坏卡给出逐条原因，不崩 |
 | R8 | 变量与状态只读 + 卡脚本安全提示 | 只读展示不改变生成 |
 

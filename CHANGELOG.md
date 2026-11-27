@@ -2,6 +2,14 @@
 
 本项目遵循语义化版本：`MAJOR.MINOR.PATCH`，Android `versionCode` 随每次发版递增。
 
+## v0.30.0
+
+- **SillyTavern 预设导入**（设置 → 生成参数 → SillyTavern 预设）：从文件或直接粘贴 ST 导出的预设 `.json`。
+- 解析并展示采样参数（temperature / top_p / top_k / 各种 penalty / min_p / max_tokens / seed / stop），
+  可**一键套用到当前生成预设**（超出本 App 范围会自动收敛）。
+- 按 `prompt_order` 展示提示词顺序：条目名称、角色、占位标记、注入深度，可逐条开关、上移下移，退出后保留。
+- 解析不认识的字段不会失败，会在「导入说明」里列出哪些字段本轮不参与。
+
 ## v0.29.0
 
 - **显示正则库**（设置 → 聊天与上下文 → 显示正则）：导入 SillyTavern 正则 `.json`，一条条开关。

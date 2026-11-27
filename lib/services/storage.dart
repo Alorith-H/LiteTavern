@@ -1178,6 +1178,18 @@ class AppSettings {
 
   static const _kDisplayRegexes = 'display_regexes';
 
+  /// 导入的 SillyTavern 预设（JSON 字符串，v0.30.0）；null = 没导入过。
+  static String? get stPresetJson => _sp.getString(_kStPreset);
+  static Future<void> setStPresetJson(String? v) async {
+    if (v == null || v.isEmpty) {
+      await _sp.remove(_kStPreset);
+    } else {
+      await _sp.setString(_kStPreset, v);
+    }
+  }
+
+  static const _kStPreset = 'st_preset';
+
   /// 设置是否已加载（未初始化时读取默认值，供纯逻辑模块兜底）
   static bool get initialized => _ready;
 

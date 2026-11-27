@@ -1,4 +1,4 @@
-# 交接状态：v0.29.0 显示正则库（2026-11-27 更新）
+# 交接状态：v0.30.0 SillyTavern 预设导入（只读解析 + 采样套用）（2026-11-27 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
 > v0.11.0（角色卡市场）、v0.12.x（市场筛选、用户侧建议回复）、
@@ -17,53 +17,57 @@
 > v0.25.0（分支树页、导出长图 / EPUB）、
 > v0.26.0（整库备份与恢复 zip）、
 > v0.27.0（世界书导出 / 命中测试 / 四范围绑定）、
-> v0.28.0（提示词检视升级：缓存断点 + 省钱排序）。
+> v0.28.0（提示词检视升级：缓存断点 + 省钱排序）、
+> v0.29.0（显示正则库：导入 ST 正则 / 作用域 / 试一下 / 只改显示）。
 >
-> **本轮 v0.29.0 —— 显示正则库（评估清单 R6）**：
-> 设置 → 聊天与上下文 → 显示正则：导入 SillyTavern 正则 `.json`、逐条开关、
-> 作用范围（全部 / 只对你 / 只对角色）、`i m s u` 标志与 `$1` `${1}` `$&` 分组引用、
-> 「试一下」实时看替换前后对比、复制 JSON 到剪贴板。
-> **只改「看到的内容」**：本地原文、导出、发给模型的提示词都不变（气泡渲染时套用）。
+> **本轮 v0.30.0 —— SillyTavern 预设兼容第一步（评估清单 R6 的「只读解析」）**：
+> 设置 → 生成参数 → SillyTavern 预设：从文件或粘贴导入 ST 预设 JSON，
+> 解析采样参数（可一键套用到当前生成预设，超范围自动收敛）与提示词顺序
+> （按 `prompt_order` 展示、逐条开关、上移下移、退出后保留）；
+> 不认识的字段不报错，在「导入说明」里列出哪些本轮不参与。
+> **本轮不注入**这些提示词——执行阶段（兼容模式）留给下一步。
 
 ## 仓库状态
 
-- 分支 `dev`，版本 `pubspec.yaml` = **0.29.0+30**，`lib/app_info.dart` `kAppVersion = '0.29.0'`。
+- 分支 `dev`，版本 `pubspec.yaml` = **0.30.0+31**，`lib/app_info.dart` `kAppVersion = '0.30.0'`。
 - 本轮新增文件：
-  - `lib/services/display_regex.dart`：
-    - `RegexScope { all, user, assistant }` + `RegexScopeLabel`（`label` / `id` / `fromId`）；
-    - `DisplayRegex`（id / name / pattern / flags / replacement / enabled / scope）：
-      `compile()`（支持 i/m/s/u，非法返回 null）、`hasError`、`matchesScope({isUser})`、
-      `apply(text)`（`replaceAllMapped` + `_expandReplacement`：`$1`、`${1}`、`$&`、`$$`）、
-      `toJson()`（写 SillyTavern 兼容的 `scriptName` / `findRegex: "/pattern/flags"` /
-      `replaceString` / `disabled` / `scope`）、`fromSillyTavern(raw, {fallbackId})`、
-      `splitFindRegex(raw)`（解析 `/pattern/flags`，只认 `imsu`）；
-    - `DisplayRegexLibrary`：`all`（解析 `AppSettings.displayRegexesJson` + 内存缓存）、
-      `invalidate()` / `resetForTest()`、`save` / `upsert` / `remove`、`sorted()`、
-      `apply(text, {isUser})`（按顺序，跳过禁用与作用域不匹配）、
-      `importFromJson(raw)`（数组 / `{entries:[...]}` / 单对象；同 id 覆盖，返回新增条数）。
-  - `lib/screens/display_regex_screen.dart`：`DisplayRegexScreen`
-    （AppBar：导入 .json / 复制 JSON / 试一下；列表卡片含开关、编辑删除菜单、作用范围与
-    flags 徽章、正则写错红标、pattern 与替换预览；空态引导；FAB 新建；
-    `_RegexEditDialog` 带实时校验；`_RegexTestSheet` 选「你的话 / 角色的回复」并实时显示替换后）。
-  - `test/v29_test.dart`（16 例：解析与 ST 映射、分组引用与标志、禁用/非法/作用域、
-    链式应用、导入与同 id 覆盖、坏 JSON、页面展示/开关落盘/试一下）。
+  - `lib/services/st_preset.dart`：
+    - `StPromptItem`（identifier / name / role（system|user|assistant）/ content /
+      isMarker / isSystemPrompt / injectionPosition / injectionDepth / enabled；
+      `hasContent`、`injectsInChat`、`roleLabel`、`orderNote`、`preview`、`copyWith(enabled)`）；
+    - `StPresetSnapshot`（name + 采样字段 + prompts + warnings；
+      `hasSampling`、`samplingCount`、`enabledCount`（只算非占位且启用）、`markerCount`、
+      `samplingRows`（界面逐行）、`copyWith(prompts)`、`toJson` / `toJsonString` / `fromJson`、
+      `tryParseStored`）；
+    - `StPresetParser.parse(raw, {fallbackName})`：支持整份预设与 `{preset:{...}}` 包裹；
+      读 `temperature/top_p/top_k/frequency_penalty/presence_penalty/repetition_penalty/
+      min_p/max_tokens（或 openai_max_tokens）/seed/stop（或 stopstrings/stop_strings）`；
+      `prompts` 数组映射 + 未知 role 落 system 并记 warning；
+      `_applyOrder` 按第一份 `prompt_order`（character_id 100000 那种）重排并带 enabled，
+      顺序表里缺失的条目保持原相对顺序追加；顺序表引用不存在的 identifier 记 warning。
+  - `lib/screens/st_preset_screen.dart`：`StPresetScreen`
+    （AppBar：文件导入 / 粘贴 JSON / 清除；空态引导；摘要卡「采样参数 N 项 · 提示词 M 条」；
+    采样参数表 + 「套用到当前生成预设」；导入说明（warnings）；提示词顺序列表
+    `ExpansionTile` + 序号 + 角色/占位/深度徽章 + 开关 + 上移下移 + 展开看正文）。
+  - `test/v30_test.dart`（11 例：解析采样与顺序、越界/未知 role/忽略字段进 warnings、
+    无 prompt_order 保序、`{preset:{}}` 与 stopstrings、坏 JSON / 空 prompts 抛错、
+    快照 JSON 往返、坏存储回 null、套用采样写入 AppSettings（含越界收敛）、
+    开关与上移落盘、清除删除存储）。
 - 本轮修改文件：
-  - `lib/services/storage.dart`：`displayRegexesJson` / `setDisplayRegexesJson(String?)`，
-    键 `display_regexes`（空值删键）。
-  - `lib/screens/settings_screen.dart`：聊天与上下文 → 「快捷回复管理」之后新增
-    「显示正则 · 只改看到的内容：导入 ST 正则、开关、替换前后对比（v0.29.0）」入口。
-  - `lib/screens/chat_screen.dart`：气泡正文改为
-    `DisplayRegexLibrary.apply(m.content, isUser: isUser)`（只影响显示）。
-  - `CHANGELOG.md` 新增 v0.29.0 段；`docs/FEATURE_AUDIT.md` 第 44 行显示正则库 → ✅、
-    R5 行注明正则库已在 v0.29.0 完成。
+  - `lib/services/storage.dart`：`stPresetJson` / `setStPresetJson(String?)`，键 `st_preset`。
+  - `lib/screens/settings_screen.dart`：生成参数子页「高级设置」之后新增
+    「SillyTavern 预设」入口 → `_openStPreset()`；返回后 `_syncFromSettings()`
+    （修掉「套用采样后滑条仍显示旧值」的问题）。
+  - `CHANGELOG.md` 新增 v0.30.0 段；`docs/FEATURE_AUDIT.md` 第 42 行 → 🟡（已导入/展示/套用采样，
+    执行待下一步）、R6 行注明只读解析已 ✅。
   - `RESUME_STATE.md` 即本文件。
 
 ## 工作方式
 
-1. 每轮开始先读 `docs/FEATURE_AUDIT.md`，取下一个 R 批次，完成一项就把状态改 ✅ 并补证据文件。
+1. 每轮开始先读 `docs/FEATURE_AUDIT.md`，取下一个 R 批次，完成一项就把状态改 ✅/🟡 并补证据文件。
 2. 每个功能：先写服务层（纯逻辑、可单测）→ 再接 UI → 补 `test/vNN_test.dart`。
 3. 收尾固定流程：`flutter analyze` → `flutter test` → `flutter build apk --release` →
-   装机（真机 USB `19faf100`，或模拟器 `emulator-5556`）→ 点验截图 →
+   装机（模拟器 `emulator-5556`，真机 USB `19faf100`）→ 点验截图 →
    改 CHANGELOG / RESUME → commit（**不要用 -c 覆盖提交身份**）→ push →
    `git tag -f vX.Y.Z` + push tag → GitHub Release 上传 APK。
 
@@ -71,30 +75,30 @@
 
 | 项目 | 结果 |
 | --- | --- |
-| `flutter analyze` | No issues found!（7.7s） |
-| `flutter test` | **+424 All tests passed!**（18s；新增 16 例） |
-| `flutter build apk --release` | 60.5MB，versionCode 30 / versionName 0.29.0 |
+| `flutter analyze` | No issues found!（8.7s） |
+| `flutter test` | **+435 All tests passed!**（12s；新增 11 例） |
+| `flutter build apk --release` | 60.7MB，versionCode 31 / versionName 0.30.0 |
 | 模拟器安装 | `adb -s emulator-5556 install -r` → Success |
-| 正则导入 | 从 Downloads 选 `rx.json` → 列表两条 + toast「已导入 2 条正则」 |
-| 试一下 | 输入「我们去酒馆坐坐吧」→ 替换后「我们去酒馆🏮坐坐吧」 |
-| 聊天显示 | 历史气泡显示「你好呀，今天一起去酒馆🏮吧」；mock 回复仍回显原文（证明提示词未变） |
+| 导入 | Downloads 里的 `st_preset.json` → 「已解析「ST 测试预设」：4 条提示词」 |
+| 摘要 | 「采样参数 6 项 · 提示词 4 条（启用 2 条）」；顺序与占位/深度徽章正确 |
+| 套用采样 | 确认框列出 6 项 → 套用后生成参数变 `t1.1 · p0.9 · 上限 400`、随机度 1.10、采样范围 0.95 |
+| 顺序编辑 | 打开 NSFW 开关 → 返回再进仍显示「启用 3 条」（落盘生效） |
 
 ## 已知边界
 
-- 显示正则**只改显示**：不改本地原文、不改导出、不改发给模型的提示词（v0.29.0 有意如此）。
-- JS 专属标志（如 `g`）会被忽略；不支持 ST 的「深度 / 只对前 N 条」等高级作用域，也不支持
-  「发送前替换」——这些属于后续可选项。
-- 非法正则不会生效，列表里标红提示，不影响聊天。
-- 正则按列表顺序链式应用；同一段文本可能被多条规则依次改写，建议少而精。
-- 备份 zip 含正则（`display_regexes` 在 prefs 里）。
-- 其它沿用：API Key 存在本机、备份不加密、自动更新走 GitHub Releases、必应网页翻译按 IP 风控。
+- 本轮**不注入** ST 提示词：不改变实际发给模型的内容（下一步「兼容模式」才接）。
+- 只取 `prompt_order` 的第一份顺序（通常 character_id 100000）；多角色各自的顺序表不支持。
+- `marker` 条目只展示不可开关；`injection_trigger`、`forbid_overrides`、
+  `squash_system_messages`、`continue_prefill` 等字段本轮不参与，会写进「导入说明」。
+- 套用采样时按本 App 取值范围收敛（温度 0–2、topP 0–1、topK 0–200、penalty 0–2、
+  repetition 1–2、minP 0–0.5、stop ≤4 条）。
+- 显示正则 / 备份 / 自动更新等既有边界不变（备份含导入的 ST 预设；API Key 明文存本机）。
 
 ## 下一轮建议（评估清单）
 
-- **R7 ST 预设兼容**（高风险）：导入 ST 预设 JSON，先做只读解析 + 展示
-  （`prompts` / `prompt_order` / 注入位置与深度 / `system_prompt` 覆盖 / `continue_prefill` 子集），
-  再逐步接到提示词组装，保留「兼容模式」开关可退回。
-- 之后 R8：CHARX 导入、SillyTavern `.jsonl` 聊天导入、导入体检报告；变量与状态只读展示。
+- **R6 第二步：兼容模式执行**——把启用的 ST 提示词按顺序拼进 system（或按注入深度插进历史），
+  加开关可退回自研提示词；注意 `{{char}}/{{user}}` 宏与 `system_prompt` 覆盖。
+- 之后 R7：CHARX 导入、SillyTavern `.jsonl` 聊天导入、导入体检报告（坏卡逐条原因）。
 
 ## 环境命令
 
@@ -115,8 +119,8 @@ $adb = 'C:\Users\28351\Android\Sdk\platform-tools\adb.exe'
 
 ## 本次运行记录
 
-- `flutter analyze`：No issues found!（7.7s）
-- `flutter test`：+424 All tests passed!（18s）
-- `flutter build apk --release`：60.5MB，versionCode 30 / versionName 0.29.0
-- 装机：`adb -s emulator-5556 install -r` → Success；模拟器点验导入 / 试一下 / 聊天显示三处通过
-- 提交与发布：见本轮 git log 与 GitHub Releases（tag v0.29.0）
+- `flutter analyze`：No issues found!（8.7s）
+- `flutter test`：+435 All tests passed!（12s）
+- `flutter build apk --release`：60.7MB，versionCode 31 / versionName 0.30.0
+- 装机：`adb -s emulator-5556 install -r` → Success；导入 / 套用采样 / 顺序编辑三处点验通过
+- 提交与发布：见本轮 git log 与 GitHub Releases（tag v0.30.0）
