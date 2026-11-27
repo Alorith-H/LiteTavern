@@ -14,6 +14,7 @@ import '../services/chat_index.dart';
 import '../services/storage.dart';
 import '../widgets/common.dart';
 import '../widgets/segmented_toggle.dart';
+import '../widgets/update_flow.dart';
 import 'card_creator_screen.dart';
 import 'card_market_screen.dart';
 import 'chat_screen.dart';
@@ -43,6 +44,11 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _reload();
+    // 启动时静默检查更新（v0.23.0）：一天最多一次，有新版才弹窗。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      maybeAutoCheckUpdates(context);
+    });
   }
 
   Future<void> _reload() async {

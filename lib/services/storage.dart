@@ -936,6 +936,26 @@ class AppSettings {
   static set showNsfw(bool v) => _sp.setBool(_kShowNsfw, v);
   static const _kShowNsfw = 'show_nsfw';
 
+  // ------------------------------------------------------ 自动更新 --
+
+  /// 启动时自动检查更新（v0.23.0）：默认**开**，一天最多查一次。
+  static bool get autoCheckUpdates => _sp.getBool(_kAutoCheckUpdates) ?? true;
+  static set autoCheckUpdates(bool v) => _sp.setBool(_kAutoCheckUpdates, v);
+  static const _kAutoCheckUpdates = 'auto_check_updates';
+
+  /// 上次检查更新的时间（毫秒）；0 = 从未检查。
+  static int get lastUpdateCheckMs => _sp.getInt(_kLastUpdateCheck) ?? 0;
+  static set lastUpdateCheckMs(int v) => _sp.setInt(_kLastUpdateCheck, v);
+  static const _kLastUpdateCheck = 'last_update_check_ms';
+
+  /// 用户点了「稍后」的版本号：同版本不再自动弹出提醒。
+  static String get skippedUpdateVersion =>
+      _sp.getString(_kSkippedUpdateVersion) ?? '';
+  static set skippedUpdateVersion(String v) => v.trim().isEmpty
+      ? _sp.remove(_kSkippedUpdateVersion)
+      : _sp.setString(_kSkippedUpdateVersion, v.trim());
+  static const _kSkippedUpdateVersion = 'skipped_update_version';
+
   /// 必应（Azure 翻译）Key / 区域：填了就优先用它翻译，留空则用免费源。
   static String get azureTranslatorKey => _sp.getString(_kAzureKey) ?? '';
   static set azureTranslatorKey(String v) =>

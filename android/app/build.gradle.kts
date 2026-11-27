@@ -74,3 +74,8 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // 应用内更新用的 FileProvider（v0.23.0）；AndroidX core 通常已被 Flutter 引擎带入，显式声明更稳
+    implementation("androidx.core:core:1.13.1")
+}

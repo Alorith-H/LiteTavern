@@ -13,6 +13,7 @@ import '../services/external_links.dart';
 import '../services/storage.dart';
 import '../services/user_personas.dart';
 import '../widgets/common.dart';
+import '../widgets/update_flow.dart';
 import 'advanced_settings_screen.dart';
 import 'api_config_screen.dart';
 import 'gen_presets_screen.dart';
@@ -62,6 +63,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late bool _streaming;
   late AssistMode _assistMode;
   late bool _showNsfw;
+  late bool _autoCheckUpdates;
 
   /// 当前主题色 seed 与自定义 HEX 输入
   late int _seed;
@@ -109,6 +111,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _streaming = AppSettings.streaming;
     _assistMode = AppSettings.assistMode;
     _showNsfw = AppSettings.showNsfw;
+    _autoCheckUpdates = AppSettings.autoCheckUpdates;
     _seed = AppSettings.themeSeed;
     _hexCtrl = TextEditingController(text: _seedToHex(_seed));
     _loadWorldBooks();
@@ -1015,6 +1018,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
   List<Widget> _helpChildren(ColorScheme scheme) {
     return [
       const SectionHeader('帮助与关于'),
+      _actionRow(
+        title: '检查更新',
+        subtitle: '当前 v$kAppVersion · 有新版本时直接下载安装',
+        trailing: _chevron(scheme),
+        onTap: () => checkUpdatesManually(context),
+      ),
+      const Divider(height: 1),
+      _switchRow(
+        title: '启动时自动检查更新',
+        subtitle: '每天最多查一次；只在有新版本时提示，不会打断你',
+        value: _autoCheckUpdates,
+        onChanged: (v) {
+          setState(() => _autoCheckUpdates = v);
+          AppSettings.autoCheckUpdates = v;
+        },
+      ),
+      const Divider(height: 1),
       _actionRow(
         title: '重看新手引导',
         subtitle: '从零开始再过一遍：拿 Key、配模型、导入角色',

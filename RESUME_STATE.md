@@ -1,144 +1,105 @@
-# 交接状态：v0.22.0 服务商与翻译源调整（2026-11-22 更新）
+# 交接状态：v0.23.0 应用内自动更新（2026-11-27 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
 > v0.11.0（角色卡市场）、v0.12.0（市场筛选 + 设置开关）、v0.12.1（修正为「用户侧」建议回复）、
 > v0.13.x（建议条纵向、角色卡翻译、市场全量筛选、原文/译文、下载进度）、
 > v0.14.x（三风格建议、贴底、上下文占用、默认 1M 窗口、GitHub 页与首个 Release）、
-> v0.15.0（5 步新手引导、跳转 API 官网、导入弹窗改版、摘要提示说人话）、
-> v0.15.1（角色卡市场 NSFW 开关，默认关）、
-> v0.16.0（用户人设 Persona、作者注释、宏增强、替我说一句、导出对话文件）、
+> v0.15.x（6 步新手引导、跳转 API 官网、导入弹窗改版、摘要提示说人话、市场 NSFW 开关）、
+> v0.16.0（用户人设、作者注释、宏增强、替我说一句、导出对话文件）、
 > v0.17.0（多聊天文件、对话分支、消息书签）、
-> v0.18.x（输入栏辅助三选一、6 步新手引导、自动摘要后台静默 + token 说明、菜单可滚动、建议回复并行提速）、
+> v0.18.x（输入栏辅助三选一、自动摘要后台静默 + token 说明、菜单可滚动、建议回复并行提速）、
 > v0.19.0（翻译接入必应：Azure Key + 网页版兜底）、
-> v0.20.0（智谱 GLM-4-Flash 免费置顶、上下文长度跟模型配置、获取模型列表）。
+> v0.20.0（模型配置与上下文改造：按模型自动、获取模型列表）、
+> v0.21.x（设置页二级菜单、引导新建配置、气泡下模型名、上下文按接口自报）、
+> v0.22.0（服务商改回 DeepSeek 第一、智谱只留一家、本地 LibreTranslate）。
 >
-> **本轮 v0.21.0**：
-> ① **新手引导不再覆盖旧配置**：引导里填的模型信息会新建一套配置并设为当前使用，
->   之前填好的那套原样保留；只点跳过不会留下空配置。
-> ② **气泡下面显示模型名**：AI 消息信息行变成「模型名 · tokens · 时间」，旧消息为 null 不显示。
-> ③ **设置页二级菜单**：首页只留分组入口（生成参数 / 聊天与上下文 / 角色卡市场与翻译 /
->   世界书 / 外观 / 帮助与关于），点进去才是具体开关。
+> **本轮 v0.23.0 —— 应用内自动更新**：
+> 设置里「检查更新」+ 启动时每天静默检查一次；发现新版可下载 APK（带进度）并交给系统安装器覆盖升级，
+> 聊天记录与角色卡都保留。全程用 GitHub Releases，不用再手动去网页下载。
 
 ## 仓库状态
 
-- 分支 `dev`，版本 `pubspec.yaml` = **0.22.0+23**，`lib/app_info.dart` `kAppVersion = '0.22.0'`。
-- v0.21.1 改动文件：`lib/services/api_presets.dart`（`formatContextWindow` 十进制/1024 双规则、`contextWindowForModel` 补 o4/mixtral）、`lib/services/api_client.dart`（`RemoteModel` / `fetchModelInfos` / `extractModelInfos`）、`lib/screens/api_config_screen.dart`（`_reportedContext`、选模型按接口报告填上下文、列表副标题显示上下文）、`lib/screens/onboarding_screen.dart`（同上，写进草稿配置）、`lib/screens/chat_screen.dart`（信息行顺序 tokens → 模型名 → 时间）、`test/v20_test.dart`（新增 extractModelInfos 3 例、128000→128K）。
-- v0.21.0 改动文件：
-  - `lib/screens/onboarding_screen.dart`：控制器初始为空；`String? _draftConfigId`；
-    `_ensureDraftConfig()`；`_saveModelConfig()` 改为「新建/更新草稿配置」；第 3 步加说明面板「这里会新建一套配置」。
-  - `lib/models/chat_message.dart`：新增 `String? model`（构造 / fromJson / toJson / copyWith）。
-  - `lib/screens/chat_screen.dart`：`_applyTokens` 写入本次模型名；`_buildMessage` 信息行
-    `parts = [模型名, tokens, 时间].join(' · ')`。
-  - `lib/screens/settings_screen.dart`：新增 `enum SettingsSection` + `SettingsSectionTitle`；
-    `SettingsScreen({super.key, this.section})`；首页分组入口 + `_sectionChildren` 分节构建
-    （`_generationChildren` / `_chatChildren` / `_marketChildren` / `_worldBookChildren` /
-    `_appearanceChildren` / `_helpChildren`）。
-  - `test/v21_test.dart`（新增 6 例）。
+- 分支 `dev`，版本 `pubspec.yaml` = **0.23.0+24**，`lib/app_info.dart` `kAppVersion = '0.23.0'`。
+- 本轮新增文件：
+  - `lib/services/updater.dart`：`UpdateInfo`（version/tag/notes/apkUrl/apkSize/pageUrl/publishedAt、
+    `hasApk`、`apkSizeLabel`）、`UpdateCheckException`、`formatBytes`、`normalizeVersion`、
+    `compareVersions`（只比数字段，`0.23.0-beta` == `0.23.0`）、
+    `UpdateService`（`latestReleaseUri`、`checkForUpdate({currentVersion})`、
+    `static parseRelease(body, {currentVersion})`、`downloadApk(info, {dir, onProgress, isCancelled})`、
+    `dispose`；`maxApkBytes = 300MB`）。
+  - `lib/services/apk_installer.dart`：`ApkInstaller.install(File)` →
+    平台通道 `litetavern/installer` 的 `installApk`；`ApkInstallException`。
+  - `lib/widgets/update_flow.dart`：`checkUpdatesManually(context)`、
+    `maybeAutoCheckUpdates(context)`（24 小时节流、静默失败）、
+    `UpdateDialog`（检查中 / 已最新 / 失败可重试 / 发现新版 + 说明 + 体积 / 下载进度 / 打开安装界面；
+    「稍后」写入 `AppSettings.skippedUpdateVersion`，同版本不再自动弹）。
+  - `test/v23_test.dart`（20 例：版本比较、体积文案、Release 解析 6 例、检查网络 3 例、
+    下载 3 例（进度/取消/无附件）、设置项 2 例、对话框 4 例）。
+  - `android/app/src/main/res/xml/file_paths.xml`：FileProvider 暴露 `cache/updates/`。
+- 本轮修改文件：
+  - `lib/services/storage.dart`：`autoCheckUpdates`（`auto_check_updates`，默认 true）、
+    `lastUpdateCheckMs`（`last_update_check_ms`）、`skippedUpdateVersion`（`skipped_update_version`）。
+  - `lib/screens/settings_screen.dart`：帮助与关于页新增「检查更新」行 + 「启动时自动检查更新」开关；
+    字段 `_autoCheckUpdates`。
+  - `lib/screens/home_screen.dart`：`initState` 里 `addPostFrameCallback` →
+    `maybeAutoCheckUpdates(context)`。
+  - `android/app/src/main/kotlin/com/alorith/litetavern/MainActivity.kt`：`configureFlutterEngine`
+    注册 `litetavern/installer`，用 `FileProvider.getUriForFile` + `ACTION_VIEW` 调系统安装器。
+  - `android/app/src/main/AndroidManifest.xml`：`REQUEST_INSTALL_PACKAGES` 权限、
+    `androidx.core.content.FileProvider`（authorities `${applicationId}.fileprovider`）、
+    `queries` 增加 package-archive 的 VIEW intent。
+  - `android/app/build.gradle.kts`：`dependencies { implementation("androidx.core:core:1.13.1") }`。
 
-## 本轮变更（v0.22.0）详解
+## 自动更新怎么工作
 
-### 1. 服务商预设调整
-
-- `lib/services/api_presets.dart`：`kApiPresets` 顺序改为 **DeepSeek → 智谱 GLM → Kimi → 小米 MiMo → Ollama**；智谱只保留一家（label `智谱 GLM`、baseUrl `https://open.bigmodel.cn/api/paas/v4`、model `glm-4-flash`、`free: false`、contextWindow 128000），删掉原来的 GLM-4-Flash / GLM-4-Air 两条。
-- `lib/screens/onboarding_screen.dart`：第 2 步顶部新手提示改为「推荐先用 DeepSeek…」，不再推荐智谱；徽章逻辑不变（`free` 为 false → 「需 Key」）。
-
-### 2. 本地 LibreTranslate 免费翻译
-
-- `lib/services/translator.dart` 新增 `LibreTranslateProvider`（id `libre`）：`POST {base}/translate`，body `{q, source auto, target, format text[, api_key]}`；简体目标映射 `zh`、繁体 `zt`；1500 字分块；429 → `quotaExceeded`；返回 `error` 字段时带出原因；没填地址立刻失败换下一个源；`AppSettings` 未初始化时读设置返回 null（纯单测友好）。
-- 默认免费源顺序改为：**Azure → LibreTranslate → 必应网页版 → MyMemory → Google**。
-- `lib/services/storage.dart`：新增 `libreTranslateUrl`（key `libre_translate_url`）与 `libreTranslateKey`（`libre_translate_key`），空值删除键。
-- `lib/screens/settings_screen.dart`「翻译」分节新增两个输入框：本地 LibreTranslate 地址（提示 `http://192.168.0.10:5000`，说明手机与电脑需同一 WiFi）与 api_key（一般不用填）。
-- 文案同步：`card_translation_sheet.dart` 的说明、README 翻译段、设置页顺序说明都加上 LibreTranslate。
-
-### 3. 测试
-
-- `test/v20_test.dart`：预设断言改为「DeepSeek 第一」「智谱只有一家且 free=false」「没有预设再标免费」。
-- `test/onboarding_screen_test.dart`：第 2 步改为断言「DeepSeek 第一」「不再有『免费』徽章」「智谱 GLM 只出现一次」。
-- `test/translation_test.dart`：默认源顺序断言更新为含 `libre`；新增 `LibreTranslateProvider` 5 例（请求路径/请求体、api_key 与繁体目标、未配置立刻失败、429 quotaExceeded、error 字段带出）。全量 **315 测试全过**。
-
-## 本轮变更（v0.21.2）详解
-
-### 下载完成后翻译阶段显示「正在翻译…」
-
-- `lib/screens/card_market_screen.dart`：详情页新增 `_translating` 状态；`_import()` 在 `importCardBytes` 成功后先把 `_downloading` 置 false，随即进入翻译分支；`_askAndLocalize` 在用户选了「免费翻译 / 用模型翻译」后置 `_translating = true`（`finally` 复位），原来的翻译主体拆成 `_localizeWithFallback()`。
-- 按钮与进度条：`busy = _downloading || _translating`；翻译阶段进度条改为不确定进度（`value: null`），按钮禁用并显示「正在翻译…」；下载失败/解析失败/其它异常的三个 catch 分支同时复位两个状态。
-- 已知边界：翻译阶段的进度条无法给百分比（翻译接口不报进度），只表示「还在处理」。
-
-## 本轮变更（v0.21.1）详解
-
-1. **气泡下方信息顺序**：`模型名 · tokens · 时间` 改成 `tokens · 模型名 · 时间`
-   （`chat_screen.dart` 的 `parts` 顺序调整），模型名放到输入/输出后面。
-2. **上下文长度更准**：
-   - `ApiClient.fetchModelInfos` 拉 `GET /models` 时解析服务商自报字段
-     （`context_length` / `context_window` / `max_context_length` / `max_model_len` /
-     `max_input_tokens` / `context_size` / `n_ctx`），`extractModelInfos` 返回 `RemoteModel{id, contextWindow}`；
-   - 选模型弹层每行显示「上下文 128K」，选中后如果上下文还是「自动」，直接把接口报告值填进输入框；
-     helper 文案变成「按接口报告的窗口：128K」；
-   - 服务商没自报时退回 `contextWindowForModel` 猜（补充 o4 / mixtral）；
-   - `formatContextWindow` 修正：整千按 1000 折算（128000 → 128K），整 1024 倍按 1024 折算（131072 → 128K），
-     不再出现「125K」。
-
-## 本轮变更（v0.21.0）详解
-
-### 1. 引导页配置另存为新的一套
-
-- 三个输入框不再预填 `AppSettings.baseUrl/apiKey/model`，进来是空的。
-- 用户真正填了内容（三栏任一非空）后才 `AppSettings.newConfigId()` 新建一套
-  （名字取预设 label，或模型名，兜底「新手配置」），加入 `AppSettings.apiConfigs` 并设为激活；
-  后续输入只更新这套草稿，不再触碰旧配置。
-- 第 3 步顶部有说明面板，明确告知「不会覆盖你之前已经填好的那套；想切回去 设置 → 模型服务」。
-
-### 2. 气泡下方显示模型名
-
-- `ChatMessage.model` 记录生成该条回复时 `AppSettings.model`；空串存 null。
-- 气泡下方信息行顺序：模型名 → tokens → 时间（时间是否显示仍由「显示时间戳」开关控制）。
-- 兼容：旧消息没有该字段，反序列化为 null，不会崩溃也不会写入空值。
-
-### 3. 设置页二级菜单
-
-- 首页：`模型服务`（当前配置行）+ `设置`（五个分组行，副标题是各页当前状态摘要）+
-  `帮助与关于`（版本 / 重看新手引导 / 作者）。
-- 分组页：独立 `Scaffold` + AppBar 标题，内容即原来的分节；字号调节改为二级页内的滑条弹层。
-- 深链：`SettingsScreen(section: SettingsSection.chat)` 可直接打开某个分组（测试已覆盖）。
-
-## 历史变更（v0.20.0，已发布）
-
-- 智谱 GLM-4-Flash（免费）加入预设并排在引导第 2 步第一位（「免费」徽章）。
-- 上下文长度跟模型配置走：`ApiConfig.contextWindow`（0 = 按模型自动），
-  `contextWindowForModel` 按模型名推断，配置列表显示大小；设置页旧的全局输入框改为说明行。
-- `ApiClient.fetchModels` + `extractModelIds`：编辑配置 / 引导第 3 步可「获取模型列表」并点选填入。
+1. `GET https://api.github.com/repos/Alorith-H/LiteTavern/releases/latest`（20s 超时、UA LiteTavern）；
+   draft / prerelease 跳过，`tag_name` 归一化后与 `kAppVersion` 比数字段，不更新则返回 null。
+2. 有新版：取 `assets` 里名字以 `.apk` 结尾的附件（优先 `app-release.apk`），带上体积与下载地址。
+3. 下载：流式写入 `getTemporaryDirectory()/updates/LiteTavern-<version>.apk`，
+   每 2% / 256KB 回调一次进度，可中途取消（取消会删掉半成品），上限 300MB。
+4. 安装：`FileProvider` 把缓存文件变成 `content://`，`Intent.ACTION_VIEW` +
+   `application/vnd.android.package-archive` 交给系统安装器；用户在系统弹窗点「安装」即覆盖升级。
+5. 自动检查：启动后（首页第一帧）若距上次检查 ≥24h 且开关开着，就静默查一次；
+   失败不打扰，有新版且不等于「跳过的版本」才弹窗。
 
 ## 验证
 
 | 项目 | 结果 |
 | --- | --- |
-| `flutter analyze` | **No issues found!**（5.2s） |
-| `flutter test` | **+309 All tests passed!**（9s，其中 test/v21_test.dart 6 例、extractModelInfos 3 例） |
-| `flutter build apk --release` | 59.3MB（Gradle 44.0s），versionCode **23** / versionName **0.22.0** |
-| 装机 | `adb -s 19faf100 install -r`（USB）→ **Success** |
+| `flutter analyze` | **No issues found!**（3.8s） |
+| `flutter test` | **+335 All tests passed!**（7s，其中 test/v23_test.dart 20 例） |
+| `flutter build apk --release` | 59.3MB（Gradle 103.7s），versionCode **24** / versionName **0.23.0** |
+| 装机 | 待设备连接后安装（见「本次运行记录」） |
 
-## 真机自测清单（v0.21.0）
+## 真机自测清单（v0.23.0）
 
-1. 设置页首页：只有分组入口，六行（生成参数 / 聊天与上下文 / 角色卡市场与翻译 / 世界书 /
-   外观 / 帮助与关于），每行副标题显示当前状态摘要。
-2. 点「生成参数」→ 二级页有预设行、随机度、采样范围、单次回复长度上限、高级设置。
-3. 点「聊天与上下文」→ 用户人设、称呼、记忆与上下文、自动继续、流式传输、输入栏辅助三选一、
-   自动摘要、显示（字号/时间戳/快捷回复）。
-4. 聊天页：发一条消息，AI 气泡下方显示「模型名 · tokens · 时间」。
-5. 重看新手引导（设置 → 帮助与关于）：第 3 步输入框是空的，填完后设置 → 模型服务里多出一套新配置，
-   旧配置仍在且数值未变。
+1. 覆盖安装新 APK 后打开应用 → 首页正常、角色与聊天记录都在。
+2. 设置 → 帮助与关于 → 看到「检查更新（当前 v0.23.0）」与「启动时自动检查更新」开关（默认开）。
+3. 点「检查更新」：若线上还没有更高版本 → 弹「已是最新版本」。
+4. 下一个版本发布后（提高 versionCode/versionName 并发 Release）：
+   启动应用会自动弹「发现新版本」；点「下载并安装」→ 进度条走完 → 系统安装界面点「安装」→ 覆盖升级成功。
+5. 点「稍后」后同一版本不再自动提醒；手动「检查更新」仍能看到。
 
 ## 已知边界
 
-- 模型名取的是「发送那一刻的 `AppSettings.model`」；若中途切了激活配置，旧消息仍显示当时的模型名（符合预期）。
-- 旧消息（v0.21.0 之前）没有 `model` 字段，气泡下方不显示模型名。
-- 引导页只填了一部分（比如只填 Key）也会新建一套配置；完全没填则不会。
-- 设置二级页是 `push` 新页面（不改底部导航），返回即首页。
-- 上下文长度「自动」是按模型名规则推断，不是真的问服务商；特殊私有模型名回落 64K，可手填。
-- 「获取模型列表」依赖服务商支持 `GET /models`；不支持时给中文提示，仍可手填。
-- 必应网页版接口按 IP/风控返回 `ShowCaptcha`，属正常现象：自动换源，不会卡住流程。
-- `assistMode` 默认 off（沿用旧版「自动生成回复默认关」）；从旧版本升级时读 `auto_reply_candidates` 迁移一次。
-- 自动摘要静默执行：长对话首次发送会有一次不易察觉的额外等待；可用发送钮的停止态打断。
+- 更新源固定为 GitHub Releases（`Alorith-H/LiteTavern`）；国内网络可能较慢，失败只提示不阻断使用。
+- 未接入应用商店，也没有增量更新：每次都是完整 APK（约 59–62MB）。
+- Android 8+ 首次安装需要用户在系统弹窗里允许「安装未知应用（来自 LiteTavern）」；
+  拒绝时对话框给出引导文案，不重试。
+- API 未鉴权，GitHub 限流为每 IP 60 次/小时；只做一天一次检查，正常不会触发。
+- 下载到缓存目录，安装完成后系统清理可能留下旧 APK；同名新版本会覆盖写入。
+- 自动检查只记录「上次检查时间」，不做后台定时任务（进程不在就不检查）。
+- 之前版本的既有边界继续有效（见下方「其它已知边界」）。
+
+## 其它已知边界（沿用）
+
+- 模型名取「发送那一刻的 model」；旧消息无 `model` 字段则不显示。
+- 上下文长度「自动」是按模型名 / `/models` 自报推断；`/models` 不支持时给中文提示。
+- 必应网页版接口按 IP 风控（`ShowCaptcha`）属正常，会自动换源。
+- `assistMode` 默认 off；从旧版本升级时读 `auto_reply_candidates` 迁移一次。
+- 自动摘要静默执行，会额外消耗一次模型调用（设置里已注明）。
+- 引导页只填一部分也会新建配置；完全没填不会。
+- 角色卡市场 NSFW 默认关；LibreTranslate 默认不启用（需填地址）。
 
 ## 环境与常用命令
 
@@ -146,15 +107,19 @@
   `$env:FLUTTER_STORAGE_BASE_URL="https://storage.flutter-io.cn"`。
 - 构建：`flutter build apk --release` → `build\app\outputs\flutter-apk\app-release.apk`。
 - adb：`C:\Users\28351\Android\Sdk\platform-tools\adb.exe`；真机 23113RKC6C（Android 16，1440×3200）。
-  无线调试地址会变：先 `adb devices`，必要时 `adb connect <ip>:<port>`。
+  USB 序列号 `19faf100`；无线调试地址会变（先 `adb devices`，必要时 `adb connect <ip>:<port>`）。
 - 真机点按用**视觉坐标**（uiautomator bounds 常与视觉位置不符）。
 - git 提交不要传 `-c user.name/-c user.email`（仓库配置已是 `Alorith-H <2835147611@qq.com>`）。
+- 发 Release：`git tag -f vX.Y.Z` + push tag，再用 GitHub REST API 创建 release 并上传
+  `app-release.apk` 附件（上传地址直接拼
+  `https://uploads.github.com/repos/<owner>/<repo>/releases/<id>/assets?name=app-release.apk`）。
 
-## 本次运行记录（v0.22.0）
+## 本次运行记录（v0.23.0）
 
-- `flutter analyze`：No issues found!（4.9s）
-- `flutter test`：+315 All tests passed!（9s）
-- `flutter build apk --release`：59.3MB（Gradle 44.0s），versionCode **23** / versionName **0.22.0**
-- 装机：`adb -s 19faf100 install -r`（USB）→ **Success**，versionCode 23 / 0.22.0 / lastUpdateTime 2026-11-22 23:19:27，数据保留。
-- 装机：`adb -s 19faf100 install -r`（USB）→ **Success**，lastUpdateTime 2026-11-22 23:05:51，数据保留；`am start` 正常。
-- 说明：v0.21.2 只改了角色卡市场详情页的「正在翻译…」提示，未新增自动化测试（该路径涉及真实文件 IO，widget 测试需 runAsync；已手动装机交给用户自测）。
+- `flutter analyze`：No issues found!（3.8s）
+- `flutter test`：+335 All tests passed!（7s）
+- `flutter build apk --release`：59.3MB（Gradle 103.7s），versionCode **24** / versionName **0.23.0**
+- 装机：`adb devices` 为空、`adb connect 192.168.0.102:42543` 报 10061（无线调试端口已变）→ **本轮未装机**。
+  用户下次插 USB / 给新端口后，执行
+  `adb -s <serial> install -r build\app\outputs\flutter-apk\app-release.apk` 即可；
+  装好这一次之后，后续版本都可以用应用内「检查更新」自升级。

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 更新包下载到 getTemporaryDirectory()/updates（应用缓存目录） -->
+    <cache-path name="updates" path="updates/" />
+    <external-cache-path name="updates_external" path="updates/" />
+</paths>
