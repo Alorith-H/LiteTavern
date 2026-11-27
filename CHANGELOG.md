@@ -2,6 +2,14 @@
 
 本项目遵循语义化版本：`MAJOR.MINOR.PATCH`，Android `versionCode` 随每次发版递增。
 
+## v0.32.0
+- 角色卡导入支持 **CHARX**（SillyTavern v3 压缩卡）：自动从 zip 里找 `card.json`，取包内最大的图片当头像。
+- 聊天记录支持 **SillyTavern `.jsonl` 导入**（聊天页 ⋮ → 导入聊天记录）：按 `is_user`/`name` 分角色，读 `send_date`（ISO 或秒级时间戳），接在当前对话后面。
+- 新增 **导入体检报告**：导入角色卡或聊天记录后，告诉你「可用 / 部分可用 / 只保留」，并逐条说明缺了什么、哪些扩展（正则脚本、MVU 变量、tavern_helper 等）不会执行、哪些字段只是只读保留。
+- 修复 Android 上「.charx / .jsonl 这类不常见扩展名」会让文件选择器直接报 Unsupported filter 的问题：现在自动退回「任意文件」再按内容识别。
+- 已知边界：CHARX 只取头像一张图，其它资源不导入；卡内脚本与变量系统不执行；`.jsonl` 里认不出的行会计入「跳过 N 行」。
+
+
 ## v0.31.0
 
 - **SillyTavern 兼容模式（真实注入）**：导入预设后可打开「兼容模式」，启用条目按顺序真正进入请求 —— role=system 的放 system 最开头，role=user/assistant 的作为消息插到历史之前，带「聊天内注入」的按深度插进历史（0 = 最后一条之后，n = 倒数第 n 条之前）；标记占位、关闭的、空内容一律跳过

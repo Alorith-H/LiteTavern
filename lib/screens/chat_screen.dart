@@ -17,6 +17,7 @@ import '../services/chat_export_files.dart';
 import '../services/chat_index.dart';
 import '../services/chat_transcript.dart';
 import '../services/display_regex.dart';
+import '../services/file_pick.dart';
 import '../services/context_usage.dart';
 import '../services/hit_stats.dart';
 import '../services/impersonate.dart';
@@ -25,6 +26,7 @@ import '../services/prompt_builder.dart';
 import '../services/reply_suggestions.dart';
 import '../services/sampling_params.dart';
 import '../services/st_injection.dart';
+import '../services/st_chat_importer.dart';
 import '../services/st_preset.dart';
 import '../services/storage.dart';
 import '../services/stream_throttle.dart';
@@ -33,6 +35,7 @@ import '../services/token_estimate.dart';
 import '../services/user_personas.dart';
 import '../services/world_info_engine.dart';
 import '../widgets/chat_search_sheet.dart';
+import '../widgets/import_report_dialog.dart';
 import 'chat_tree_screen.dart';
 import '../widgets/common.dart';
 import '../widgets/reply_suggestions_bar.dart';
@@ -1943,6 +1946,14 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
             ListTile(
+              title: const Text('导入聊天记录'),
+              subtitle: const Text('从 SillyTavern 的 .jsonl 接进来（v0.32.0）'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _importChatFile();
+              },
+            ),
+            ListTile(
               title: const Text('聊天列表'),
               subtitle: Text('同一角色可有多段聊天 · 当前「$_chatTitle」'),
               onTap: () {
@@ -2112,6 +2123,65 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (e) {
       if (!mounted) return;
       _toast('导出失败：$e');
+    }
+  }
+
+  /// v0.32.0：从 SillyTavern 的 `.jsonl` 导入聊天记录，接在当前对话后面。
+  Future<void> _importChatFile() async {
+    try {
+      final result = await pickFilesWithExtensions(['jsonl']);
+      if (result == null || result.files.isEmpty) return;
+      final file = result.files.single;
+      final bytes = file.bytes;
+      if (bytes == null) {
+        _toast('读取文件失败');
+        return;
+      }
+      final charName = _isGroup ? (_group?.name ?? '群聊') : (_card?.name ?? '');
+      final parsed = StChatImporter.parse(
+        bytes,
+        charName: charName,
+        userName: _macroUserName,
+      );
+      if (!mounted) return;
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('导入聊天记录'),
+          content: Text(
+            '要导入 ${parsed.messages.length} 条消息吗？\n会接在当前这段对话的后面。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('导入'),
+            ),
+          ],
+        ),
+      );
+      if (ok != true || !mounted) return;
+      setState(() {
+        _messages.addAll(parsed.messages);
+        _msgCache.clear();
+      });
+      _save(force: true);
+      _followBottom();
+      await showImportReportDialog(
+        context,
+        parsed.report,
+        title: '导入体检 · 聊天记录',
+        subtitle: '来自 ${file.name}',
+      );
+    } on StChatFormatException catch (e) {
+      if (mounted) _toast(e.message);
+    } on FormatException catch (e) {
+      if (mounted) _toast(e.message);
+    } catch (e) {
+      if (mounted) _toast('导入失败：$e');
     }
   }
 

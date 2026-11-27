@@ -47,7 +47,7 @@
 | 角色卡 | 市场（Chub 全量筛选、译文、NSFW 开关、下载进度） | ✅ | `lib/screens/card_market_screen.dart`、`test/card_market_*` |
 | 角色卡 | AI 创建角色卡 | ✅ | `card_creator_screen.dart` |
 | 角色卡 | 翻译（Azure/LibreTranslate/必应网页/MyMemory/模型兜底） | ✅ | `lib/services/translator.dart`、`test/translation_test.dart` |
-| 角色卡 | **CHARX 导入 / ST `.jsonl` 聊天导入 / 导入体检报告** | ❌ | 未实现 |
+| 角色卡 | **CHARX 导入 / ST `.jsonl` 聊天导入 / 导入体检报告** | ✅ | `lib/services/charx_importer.dart`、`st_chat_importer.dart`、`import_report.dart`、`widgets/import_report_dialog.dart`（v0.32.0） |
 | 角色卡 | **卡内脚本执行（沙箱）/ HTML 组件 / 整页画布** | ❌ | 明确不做执行，最多做安全提示 |
 | 世界书 | 条目管理、位置/深度/递归/概率 | ✅ | `world_book_entries_screen.dart`、`world_info_engine.dart` |
 | 导出 | 剪贴板纯文本、`.txt` / `.json` 文件分享 | ✅ | `chat_export.dart`、`chat_export_files.dart` |
@@ -62,7 +62,7 @@
 | 高级 | **TTS 朗读 / 语音输入** | ❌ | 依赖系统或云服务，暂缓 |
 | 高级 | **图像生成（配图）** | ❌ | 依赖外部服务 |
 | 高级 | **向量长期记忆 / Web 搜索** | ❌ | 依赖嵌入模型/搜索服务 |
-| 高级 | **变量与状态系统（MVU）只读展示** | ❌ | 未实现 |
+| 高级 | **变量与状态系统（MVU）只读展示** | 🟡 | 体检报告里列出 MVU 等扩展为「不执行、只读保留」；不做变量编辑与回退（v0.32.0） |
 | 高级 | **Live2D / 立绘 / 舞台背景 / 背景图** | ❌ | 未实现 |
 | 高级 | 斜杠命令 / STscript | ❌ | 未实现 |
 
@@ -115,7 +115,7 @@
 | R4 | 世界书导入导出 + 命中测试 + 四范围绑定 | ✅ v0.27.0：整本导出 .json 往返、命中测试逐条给原因、四范围合并去重（单测 + 模拟器点验） |
 | R5 | 显示正则库 + 检视升级 | 检视已 ✅（v0.28.0：缓存断点 + 省钱排序）；正则库待 R6 |
 | R6 | ST 预设兼容（分两步：只读解析 → 执行） | ✅ 已完成：只读解析（v0.30.0）+ 执行（v0.31.0 兼容模式真实注入，`lib/services/st_injection.dart`、`prompt_builder.dart` 的 stSystemPrefix/stPreHistory/stDepthInjections） |
-| R7 | CHARX / jsonl 导入 + 体检报告 | 坏卡给出逐条原因，不崩 |
+| R7 | CHARX / jsonl 导入 + 体检报告 | ✅ 已完成（v0.32.0） |
 | R8 | 变量与状态只读 + 卡脚本安全提示 | 只读展示不改变生成 |
 
 ## 4. 已知边界（实现时要留意的）

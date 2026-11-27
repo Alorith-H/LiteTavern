@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../models/chat_group.dart';
@@ -11,8 +10,11 @@ import '../services/bookmarks.dart';
 import '../services/card_downloader.dart';
 import '../services/card_importer.dart';
 import '../services/chat_index.dart';
+import '../services/file_pick.dart';
+import '../services/import_report.dart';
 import '../services/storage.dart';
 import '../widgets/common.dart';
+import '../widgets/import_report_dialog.dart';
 import '../widgets/segmented_toggle.dart';
 import '../widgets/update_flow.dart';
 import 'card_creator_screen.dart';
@@ -92,11 +94,7 @@ class _HomeScreenState extends State<HomeScreen> {
   /// 从文件选择导入（FAB 底部弹窗的"从文件导入"）。
   Future<void> _import() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['png', 'json'],
-        withData: true,
-      );
+      final result = await pickFilesWithExtensions(['png', 'json', 'charx']);
       if (result == null || result.files.isEmpty) return;
       final file = result.files.single;
       final bytes = file.bytes ??
@@ -114,10 +112,16 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// 解析 + 入库 + snackbar（文件导入与链接下载共用）。
+  /// v0.32.0：识别 CHARX，并在有提醒时先弹「导入体检」。
   Future<void> _importBytes(Uint8List bytes, String name) async {
-    final card = await importCardBytes(bytes, filename: name);
+    final imported = await importCardFile(bytes, filename: name);
+    final card = imported.card;
     await _reload();
     if (!mounted) return;
+    if (imported.report.hasWarnings || imported.report.fit != ImportFit.usable) {
+      await showImportReportDialog(context, imported.report);
+      if (!mounted) return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('已导入角色「${card.name}」'),
@@ -356,7 +360,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ListTile(
                 leading: const Icon(Icons.description_outlined),
                 title: const Text('从文件导入'),
-                subtitle: const Text('选择手机里的 .png / .json 角色卡'),
+                subtitle: const Text('选择手机里的 .png / .json / .charx 角色卡'),
                 onTap: () {
                   Navigator.pop(ctx);
                   _import();
@@ -383,7 +387,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 6, 20, 16),
                 child: Text(
-                  '角色卡是 SillyTavern 格式的文件：.png 图片里内嵌了角色设定，也可以是 .json。'
+                  '角色卡是 SillyTavern 格式的文件：.png 图片里内嵌了角色设定，也可以是 .json，或压缩的 .charx。'
                   '导入后立刻出现在主页列表，随时可以编辑或删除。',
                   style: TextStyle(
                     fontSize: AppType.meta,
