@@ -220,6 +220,10 @@ class PromptBuilder {
     String? stSystemPrefix,
     List<PromptMessage>? stPreHistory,
     List<DepthInjection>? stDepthInjections,
+
+    /// 群聊主持「让大家接着说」（v0.36.0）：作为最后一条 user 消息的临时提示，
+    /// 不写进聊天记录。
+    String? hostNudge,
   }) {
     var limit = historyLimit ??
         (AppSettings.initialized ? AppSettings.contextHistoryLimit : maxHistory);
@@ -354,6 +358,15 @@ class PromptBuilder {
       stDepthInjections,
       (s) => macroFor(s, speaker),
     );
+    // v0.36.0 群聊主持「让大家接着说」：最后补一条临时 user 提示，
+    // 只影响这次请求，不落进聊天记录。
+    final nudge = (hostNudge ?? '').trim();
+    if (nudge.isNotEmpty) {
+      messages.add(PromptMessage(
+        role: 'user',
+        content: macroFor(nudge, speaker),
+      ));
+    }
 
     return PromptBuildResult(
       messages: messages,

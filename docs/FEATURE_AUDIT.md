@@ -30,7 +30,7 @@
 | 对话 | **缓存命中 / 费用估算统计** | ✅ v0.35.0 | `lib/services/usage_cost.dart`、`chat_screen.dart` `_showChatStats`、`settings_screen.dart` 用量与费用 |
 | 对话 | 消息时间戳开关、字号 | ✅ | `settings_screen.dart` |
 | 对话 | 群聊（多角色轮转、@指定、开场） | ✅ | `chat_screen.dart` `_runGroupRound` |
-| 对话 | 群聊主持（发言名单/顺序/让大家接着说） | ❌ | 未实现 |
+| 对话 | 群聊主持（发言名单/顺序/让大家接着说） | ✅ | `group_host_screen.dart`、`chat_group.dart` `hostedTurnOrder`、`prompt_builder.dart` `hostNudge`（v0.36.0） |
 | 对话 | 对模型隐藏（软删） | ✅ v0.24.0 | 同上 |
 | 提示词 | 世界书（front/after/depth、次要关键词、概率、递归、回看条数） | ✅ | `lib/services/world_info_engine.dart` |
 | 提示词 | 世界书条目命中率展示 | ✅ | `lib/services/hit_stats.dart`、`world_book_entries_screen.dart` |
@@ -39,7 +39,7 @@
 | 提示词 | 作者注释（位置/深度/角色/默认继承） | ✅ | `lib/services/authors_note.dart`、`test/v17_test.dart` |
 | 提示词 | 宏（{{char}}/{{user}}/{{persona}}/时间/随机/字段） | ✅ | `lib/services/macros.dart`、`test/v17_test.dart` |
 | 提示词 | 生成预设（多套）+ 高级采样参数 | ✅ | `lib/screens/gen_presets_screen.dart`、`test/v9_test.dart` |
-| 提示词 | SillyTavern 预设 JSON 导入（prompts/prompt_order/注入位置深度） | 🟡 | v0.30.0 已支持导入 + 只读解析 + 采样参数套用 + 顺序/开关可视化（`lib/services/st_preset.dart`、`lib/screens/st_preset_screen.dart`）；尚未把这些提示词注入实际对话（下一步「兼容模式」） |
+| 提示词 | SillyTavern 预设 JSON 导入（prompts/prompt_order/注入位置深度） | ✅ | v0.30.0 导入 + 只读解析 + 采样参数套用 + 顺序/开关可视化（`st_preset.dart`、`st_preset_screen.dart`）；v0.31.0 兼容模式按顺序真实注入（`st_injection.dart` + `prompt_builder.dart` 的 `stSystemPrefix`/`stPreHistory`/`stDepthInjections`） |
 | 提示词 | **每聊天预设覆盖（temperature 等 6 键）** | ✅ | `lib/services/chat_gen_settings.dart`、`lib/screens/chat_preset_screen.dart`（v0.34.0） |
 | 提示词 | 显示正则库（导入 ST 正则、作用域/深度、替换对比） | ✅ | `lib/services/display_regex.dart`、`lib/screens/display_regex_screen.dart`（v0.29.0；目前只作用于显示，不改提示词与原文） |
 | 提示词 | 发送内容检视（全文 + 分段 + 缓存断点 + 省钱排序） | ✅ | `lib/services/prompt_audit.dart`、`lib/screens/prompt_audit_screen.dart`（v0.28.0） |

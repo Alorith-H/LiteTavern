@@ -40,6 +40,7 @@ import '../services/world_info_engine.dart';
 import '../widgets/chat_search_sheet.dart';
 import '../widgets/import_report_dialog.dart';
 import 'chat_tree_screen.dart';
+import 'group_host_screen.dart';
 import '../widgets/common.dart';
 import '../widgets/reply_suggestions_bar.dart';
 import 'authors_note_screen.dart';
@@ -880,6 +881,90 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  // --------------------------------------------------- 群聊主持（v0.36.0） --
+
+  /// 「让大家接着说」时追加的临时提示（不写进聊天记录）。
+  static const String _kGroupContinueNudge =
+      '（没有新的用户发言，请让角色们顺着当前剧情接着聊下去，保持各自的语气，不要替用户说话。）';
+
+  /// 本轮是不是「让大家接着说」触发的（只在组装提示词时用一次）。
+  bool _continuationNudge = false;
+
+  /// 当前生效的发言名单（成员下标；空 = 全员）。
+  List<int> _hostRoster() => _group?.speakerIndexes() ?? const <int>[];
+
+  /// 群聊主持：设置发言名单与顺序。
+  Future<void> _openGroupHost() async {
+    final g = _group;
+    if (g == null) return;
+    if (_generating || _summarizing) {
+      _toast('等这一轮说完再改发言名单');
+      return;
+    }
+    final updated = await Navigator.of(context).push<ChatGroup>(
+      MaterialPageRoute(
+        builder: (_) => GroupHostScreen(
+          group: g,
+          members: _members,
+          onChanged: (next) {
+            _group = next;
+            Storage.saveGroup(next);
+          },
+        ),
+      ),
+    );
+    if (!mounted) return;
+    setState(() {
+      if (updated != null) _group = updated;
+    });
+    if (updated != null) await Storage.saveGroup(updated);
+  }
+
+  /// 「让大家接着说」：不插用户消息，让名单里的角色自己续一轮。
+  Future<void> _continueGroupRound() async {
+    if (_generating || _summarizing || !_isGroup) return;
+    if (!_canBuildPrompt) {
+      _toast('还没有可以聊的角色卡');
+      return;
+    }
+    if (!_canConfigure) {
+      _promptConfigureApi();
+      return;
+    }
+    final roster = _hostRoster();
+    final targets = hostedTurnOrder(
+      _members.length,
+      roster,
+      _group?.turnIndex ?? 0,
+      null,
+    );
+    if (targets.isEmpty) {
+      _toast('没有可发言的角色');
+      return;
+    }
+    _statsPending = false; // 不是用户真实发送，不计命中率
+    _continuationNudge = true;
+    setState(() {
+      final m = _members[targets.first];
+      _messages.add(ChatMessage(
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+        senderId: m.id,
+        senderName: m.name,
+      ));
+      _generating = true;
+      _followScroll = true;
+      _msgCache.clear();
+    });
+    _save(force: true);
+    _followBottom();
+    try {
+      await _runGroupRound(targets);
+    } finally {
+      _continuationNudge = false;
+    }
+  }
   // ------------------------------------------------------- 群聊轮转 --
 
   /// 一轮：按 [targets]（成员下标）逐个生成，每人一条回复。
@@ -906,7 +991,7 @@ class _ChatScreenState extends State<ChatScreen> {
       }
       final g = _group;
       if (g != null) {
-        final next = advanceTurn(_members.length, targets[k]);
+        final next = advanceHostTurn(_members.length, _hostRoster(), targets[k]);
         if (next != g.turnIndex) {
           _group = g.withTurnIndex(next);
           Storage.saveGroup(_group!); // 不 await，尽快落盘
@@ -1394,6 +1479,7 @@ class _ChatScreenState extends State<ChatScreen> {
         stSystemPrefix: st.systemPrefix,
         stPreHistory: st.preHistory,
         stDepthInjections: st.depthInjections,
+        hostNudge: _continuationNudge ? _kGroupContinueNudge : null,
       );
     }
     return PromptBuilder.build(
@@ -2024,6 +2110,24 @@ class _ChatScreenState extends State<ChatScreen> {
                 _openWorldBookBindings();
               },
             ),
+            if (_isGroup) ...[
+              ListTile(
+                title: const Text('群聊主持'),
+                subtitle: const Text('只让名单里的角色发言、按这个顺序轮转（v0.36.0）'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _openGroupHost();
+                },
+              ),
+              ListTile(
+                title: const Text('让大家接着说'),
+                subtitle: const Text('不用你发言，让角色们自己接着聊一轮'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _continueGroupRound();
+                },
+              ),
+            ],
             ListTile(
               title: const Text('变量与状态'),
               subtitle: const Text('只读查看卡内变量、对话里的状态更新与卡内脚本提示（v0.33.0）'),
