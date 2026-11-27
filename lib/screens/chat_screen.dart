@@ -16,6 +16,7 @@ import '../services/chat_export.dart';
 import '../services/chat_export_files.dart';
 import '../services/chat_index.dart';
 import '../services/chat_transcript.dart';
+import '../services/display_regex.dart';
 import '../services/context_usage.dart';
 import '../services/hit_stats.dart';
 import '../services/impersonate.dart';
@@ -2729,7 +2730,8 @@ class _ChatScreenState extends State<ChatScreen> {
             )
           else
             MarkdownBody(
-              data: m.content,
+              // v0.29.0：显示正则只改看到的内容，本地原文不变
+              data: DisplayRegexLibrary.apply(m.content, isUser: isUser),
               styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context))
                   .copyWith(
                 p: TextStyle(

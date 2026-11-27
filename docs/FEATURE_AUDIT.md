@@ -41,7 +41,7 @@
 | 提示词 | 生成预设（多套）+ 高级采样参数 | ✅ | `lib/screens/gen_presets_screen.dart`、`test/v9_test.dart` |
 | 提示词 | **SillyTavern 预设 JSON 导入/执行（prompts/prompt_order/注入位置深度）** | ❌ | 自研预设与 ST 结构不兼容 |
 | 提示词 | **每聊天预设覆盖（temperature 等 6 键）** | ❌ | 只有全局预设 |
-| 提示词 | **显示正则库（导入 ST 正则、作用域/深度、替换对比）** | ❌ | 输出不做正则替换 |
+| 提示词 | 显示正则库（导入 ST 正则、作用域/深度、替换对比） | ✅ | `lib/services/display_regex.dart`、`lib/screens/display_regex_screen.dart`（v0.29.0；目前只作用于显示，不改提示词与原文） |
 | 提示词 | 发送内容检视（全文 + 分段 + 缓存断点 + 省钱排序） | ✅ | `lib/services/prompt_audit.dart`、`lib/screens/prompt_audit_screen.dart`（v0.28.0） |
 | 角色卡 | 导入 PNG/JSON、编辑、导出 | ✅ | `card_parser.dart`、`character_edit_screen.dart`、`test/` |
 | 角色卡 | 市场（Chub 全量筛选、译文、NSFW 开关、下载进度） | ✅ | `lib/screens/card_market_screen.dart`、`test/card_market_*` |
@@ -114,7 +114,7 @@
 | R3 | 整库备份与恢复 | ✅ v0.26.0：导出 zip → 清数据 → 恢复后角色/聊天/世界书一致（单测覆盖打包/解析/越界/写回） |
 | R4 | 世界书导入导出 + 命中测试 + 四范围绑定 | ✅ v0.27.0：整本导出 .json 往返、命中测试逐条给原因、四范围合并去重（单测 + 模拟器点验） |
 | R5 | 显示正则库 + 检视升级 | 检视已 ✅（v0.28.0：缓存断点 + 省钱排序）；正则库待 R6 |
-| R6 | ST 预设兼容（分两步：只读解析 → 执行） | 导入 ST 预设后提示词与原文对齐 |
+| R6 | ST 预设兼容（分两步：只读解析 → 执行） | 待做；正则库已在 v0.29.0 完成 |
 | R7 | CHARX / jsonl 导入 + 体检报告 | 坏卡给出逐条原因，不崩 |
 | R8 | 变量与状态只读 + 卡脚本安全提示 | 只读展示不改变生成 |
 

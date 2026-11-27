@@ -17,6 +17,7 @@ import '../widgets/backup_sheet.dart';
 import '../widgets/update_flow.dart';
 import 'advanced_settings_screen.dart';
 import 'api_config_screen.dart';
+import 'display_regex_screen.dart';
 import 'gen_presets_screen.dart';
 import 'onboarding_screen.dart';
 import 'personas_screen.dart';
@@ -798,6 +799,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             MaterialPageRoute(builder: (_) => const QuickRepliesScreen()),
           );
           // 返回后刷新条数（页面内自行持久化）
+          if (mounted) setState(() {});
+        },
+      ),
+      const Divider(height: 1),
+      _actionRow(
+        title: '显示正则',
+        subtitle: '只改看到的内容：导入 ST 正则、开关、替换前后对比（v0.29.0）',
+        trailing: _chevron(scheme),
+        onTap: () async {
+          await Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const DisplayRegexScreen()),
+          );
           if (mounted) setState(() {});
         },
       ),

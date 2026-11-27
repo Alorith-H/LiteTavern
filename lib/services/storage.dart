@@ -1166,6 +1166,18 @@ class AppSettings {
 
   static const _kAuthorNoteDefault = 'author_note_default';
 
+  /// 显示正则库（JSON 数组，v0.29.0）；null = 空库。
+  static String? get displayRegexesJson => _sp.getString(_kDisplayRegexes);
+  static Future<void> setDisplayRegexesJson(String? v) async {
+    if (v == null || v.isEmpty) {
+      await _sp.remove(_kDisplayRegexes);
+    } else {
+      await _sp.setString(_kDisplayRegexes, v);
+    }
+  }
+
+  static const _kDisplayRegexes = 'display_regexes';
+
   /// 设置是否已加载（未初始化时读取默认值，供纯逻辑模块兜底）
   static bool get initialized => _ready;
 
