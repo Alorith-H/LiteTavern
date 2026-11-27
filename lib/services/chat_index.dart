@@ -19,19 +19,36 @@ class ChatInfo {
   final int updatedAt;
   final int messageCount;
 
+  /// 分支来源（v0.25.0）：从哪段聊天的第几条消息分出来的。
+  /// 普通聊天为 null；分支树页据此还原层级。
+  final String? parentId;
+  final int? forkIndex;
+
   const ChatInfo({
     required this.id,
     required this.name,
     this.updatedAt = 0,
     this.messageCount = 0,
+    this.parentId,
+    this.forkIndex,
   });
 
-  ChatInfo copyWith({String? name, int? updatedAt, int? messageCount}) =>
+  bool get isBranch => parentId != null && parentId!.isNotEmpty;
+
+  ChatInfo copyWith({
+    String? name,
+    int? updatedAt,
+    int? messageCount,
+    String? parentId,
+    int? forkIndex,
+  }) =>
       ChatInfo(
         id: id,
         name: name ?? this.name,
         updatedAt: updatedAt ?? this.updatedAt,
         messageCount: messageCount ?? this.messageCount,
+        parentId: parentId ?? this.parentId,
+        forkIndex: forkIndex ?? this.forkIndex,
       );
 
   Map<String, dynamic> toJson() => {
@@ -39,14 +56,21 @@ class ChatInfo {
         'name': name,
         'updatedAt': updatedAt,
         'messageCount': messageCount,
+        if (parentId != null) 'parentId': parentId,
+        if (forkIndex != null) 'forkIndex': forkIndex,
       };
 
-  factory ChatInfo.fromJson(Map<String, dynamic> json) => ChatInfo(
-        id: (json['id'] ?? '').toString(),
-        name: (json['name'] ?? '').toString(),
-        updatedAt: (json['updatedAt'] as num?)?.toInt() ?? 0,
-        messageCount: (json['messageCount'] as num?)?.toInt() ?? 0,
-      );
+  factory ChatInfo.fromJson(Map<String, dynamic> json) {
+    final parent = (json['parentId'] as String?)?.trim();
+    return ChatInfo(
+      id: (json['id'] ?? '').toString(),
+      name: (json['name'] ?? '').toString(),
+      updatedAt: (json['updatedAt'] as num?)?.toInt() ?? 0,
+      messageCount: (json['messageCount'] as num?)?.toInt() ?? 0,
+      parentId: (parent == null || parent.isEmpty) ? null : parent,
+      forkIndex: (json['forkIndex'] as num?)?.toInt(),
+    );
+  }
 
   @override
   String toString() => 'ChatInfo($id, $name, $messageCount)';
@@ -143,6 +167,8 @@ class ChatIndex {
     required int messageCount,
     String? name,
     int? updatedAt,
+    String? parentId,
+    int? forkIndex,
   }) async {
     if (owner.isEmpty || convId.isEmpty) return;
     final chats = await load(owner);
@@ -154,6 +180,8 @@ class ChatIndex {
         name: (name == null || name.trim().isEmpty) ? '未命名聊天' : name.trim(),
         updatedAt: now,
         messageCount: messageCount,
+        parentId: parentId,
+        forkIndex: forkIndex,
       ));
     } else {
       final old = chats[idx];
@@ -161,9 +189,60 @@ class ChatIndex {
         name: (name == null || name.trim().isEmpty) ? old.name : name.trim(),
         updatedAt: now,
         messageCount: messageCount,
+        parentId: parentId,
+        forkIndex: forkIndex,
       );
     }
     await save(owner, chats);
+  }
+
+  /// 把扁平索引排成「根 → 子分支」的树（v0.25.0）。
+  ///
+  /// 返回按树序展开的 `(info, depth)` 列表：根按最近使用排序，
+  /// 每个根后面紧跟它的子孙分支（深度 +1）。父节点已不存在的孤儿节点
+  /// 当作根处理，保证不会丢；出现环时靠 [ChatInfo.id] 去重兜底。
+  static List<ChatTreeNode> tree(List<ChatInfo> chats) {
+    final byId = {for (final c in chats) c.id: c};
+    final children = <String, List<ChatInfo>>{};
+    final roots = <ChatInfo>[];
+    for (final c in chats) {
+      final parent = c.parentId;
+      if (parent != null && parent.isNotEmpty && byId.containsKey(parent) && parent != c.id) {
+        children.putIfAbsent(parent, () => []).add(c);
+      } else {
+        roots.add(c);
+      }
+    }
+    final out = <ChatTreeNode>[];
+    final seen = <String>{};
+
+    void walk(ChatInfo info, int depth, Set<String> chain) {
+      if (!seen.add(info.id)) return;
+      out.add(ChatTreeNode(info: info, depth: depth));
+      final kids = children[info.id];
+      if (kids == null) return;
+      final sortedKids = List<ChatInfo>.of(kids)..sort((a, b) {
+          final byTime = b.updatedAt.compareTo(a.updatedAt);
+          return byTime != 0 ? byTime : a.name.compareTo(b.name);
+        });
+      for (final kid in sortedKids) {
+        if (chain.contains(kid.id)) continue;
+        walk(kid, depth + 1, {...chain, kid.id});
+      }
+    }
+
+    final sortedRoots = List<ChatInfo>.of(roots)..sort((a, b) {
+        final byTime = b.updatedAt.compareTo(a.updatedAt);
+        return byTime != 0 ? byTime : a.name.compareTo(b.name);
+      });
+    for (final root in sortedRoots) {
+      walk(root, 0, {root.id});
+    }
+    // 兜底：理论上不会漏，防御性补上
+    for (final c in chats) {
+      if (seen.add(c.id)) out.add(ChatTreeNode(info: c, depth: 0));
+    }
+    return out;
   }
 
   static Future<void> rename(String owner, String convId, String name) async {
@@ -199,4 +278,17 @@ class ChatIndex {
   }
 
   static int _nowMs() => DateTime.now().millisecondsSinceEpoch;
+}
+
+/// 分支树里的一项：聊天信息 + 层级深度（0 = 根）。
+class ChatTreeNode {
+  final ChatInfo info;
+  final int depth;
+
+  const ChatTreeNode({required this.info, required this.depth});
+
+  bool get isBranch => info.isBranch;
+
+  @override
+  String toString() => 'ChatTreeNode(${info.id}, depth=$depth)';
 }

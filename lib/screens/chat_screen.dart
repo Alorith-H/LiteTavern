@@ -30,6 +30,7 @@ import '../services/token_estimate.dart';
 import '../services/user_personas.dart';
 import '../services/world_info_engine.dart';
 import '../widgets/chat_search_sheet.dart';
+import 'chat_tree_screen.dart';
 import '../widgets/common.dart';
 import '../widgets/reply_suggestions_bar.dart';
 import 'authors_note_screen.dart';
@@ -1858,7 +1859,7 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
             ListTile(
               title: const Text('导出对话文件…'),
-              subtitle: const Text('存成 .txt / .json，可分享给别人'),
+              subtitle: const Text('纯文本 / JSON / 长图 / EPUB'),
               onTap: () {
                 Navigator.pop(ctx);
                 _exportChatFile();
@@ -1870,6 +1871,14 @@ class _ChatScreenState extends State<ChatScreen> {
               onTap: () {
                 Navigator.pop(ctx);
                 _showChatList();
+              },
+            ),
+            ListTile(
+              title: const Text('分支树'),
+              subtitle: const Text('看看这段聊天分出了哪些岔路'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _openChatTree();
               },
             ),
             ListTile(
@@ -1968,36 +1977,50 @@ class _ChatScreenState extends State<ChatScreen> {
   /// v0.16.0：导出成文件（.txt / .json）并交给系统分享。
   Future<void> _exportChatFile() async {
     if (!_isGroup && _card == null) return;
-    final asJson = await showModalBottomSheet<bool>(
+    final format = await showModalBottomSheet<ChatExportFormat>(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              leading: const Icon(Icons.description_outlined),
-              title: const Text('纯文本 (.txt)'),
-              subtitle: const Text('适合阅读、粘贴到别处'),
-              onTap: () => Navigator.pop(ctx, false),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 6),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '导出对话',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+              ),
             ),
-            ListTile(
-              leading: const Icon(Icons.data_object),
-              title: const Text('JSON (.json)'),
-              subtitle: const Text('保留角色、时间与变体，便于备份'),
-              onTap: () => Navigator.pop(ctx, true),
-            ),
+            for (final f in ChatExportFormat.values)
+              ListTile(
+                leading: Icon(switch (f) {
+                  ChatExportFormat.text => Icons.description_outlined,
+                  ChatExportFormat.json => Icons.data_object,
+                  ChatExportFormat.image => Icons.image_outlined,
+                  ChatExportFormat.epub => Icons.menu_book_outlined,
+                }),
+                title: Text(f.label),
+                subtitle: Text(f.hint),
+                onTap: () => Navigator.pop(ctx, f),
+              ),
           ],
         ),
       ),
     );
-    if (asJson == null || !mounted) return;
+    if (format == null || !mounted) return;
     final title = _isGroup ? (_group?.name ?? '群聊') : _card!.name;
+    if (format.isBinary) _toast('正在生成${format.label}…');
     try {
       final ok = await ChatExportFiles.shareChat(
         charName: title,
         userName: _macroUserName,
         messages: _messages,
-        asJson: asJson,
+        format: format,
       );
       if (!mounted || ok) return;
       _toast('当前设备不支持分享文件');
@@ -3121,6 +3144,24 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  /// 分支树（v0.25.0）：按层级列出这段聊天的所有岔路，点一段直接切过去。
+  Future<void> _openChatTree() async {
+    if (_busy) {
+      _toast('正在生成，先等这次回复结束再切换聊天');
+      return;
+    }
+    final picked = await Navigator.of(context).push<ChatInfo>(
+      MaterialPageRoute<ChatInfo>(
+        builder: (_) => ChatTreeScreen(
+          ownerId: _ownerId,
+          currentConvId: _convId,
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    _openChat(picked);
+  }
+
   /// 切换到另一段聊天（替换当前路由，返回键不会回到旧聊天）
   void _openChat(ChatInfo info) {
     if (info.id == _convId) return;
@@ -3171,10 +3212,18 @@ class _ChatScreenState extends State<ChatScreen> {
       convId: id,
       messageCount: copied.length,
       name: name,
+      parentId: _convId,
+      forkIndex: index,
     );
     if (!mounted) return;
     _toast('已创建分支「$name」（共 ${copied.length} 条）');
-    _openChat(ChatInfo(id: id, name: name, messageCount: copied.length));
+    _openChat(ChatInfo(
+      id: id,
+      name: name,
+      messageCount: copied.length,
+      parentId: _convId,
+      forkIndex: index,
+    ));
   }
 
   /// 加入 / 取消书签

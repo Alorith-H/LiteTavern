@@ -22,7 +22,7 @@
 | 对话 | **删除单条 / 删除这条及以后 / 对模型隐藏** | ✅ v0.24.0 | `lib/services/chat_transcript.dart`、`test/v24_test.dart`（18 例） |
 | 对话 | **对话内搜索并跳转** | ✅ v0.24.0 | `lib/widgets/chat_search_sheet.dart`、`test/v24_test.dart` |
 | 对话 | 分支（快照式）、聊天列表（多聊天/重命名/删除） | ✅ | `lib/services/chat_index.dart`、`test/v18_test.dart` |
-| 对话 | **分支树可视化页** | ❌ | 现在只有「从这里创建分支」，没有树视图 |
+| 对话 | **分支树可视化页** | ✅ | v0.25.0：`lib/screens/chat_tree_screen.dart` + `ChatIndex.tree`，菜单「分支树」进入 |
 | 对话 | 对话内长按菜单滚动不溢出 | ✅ v0.18.1 | `_showMenu` 限高 + 滚动 |
 | 对话 | 自动摘要（静默后台）+ 手动总结 | ✅ | `lib/services/summarize.dart`、`test/v15_test.dart` |
 | 对话 | 上下文占用条 + 明细 + 阈值压缩 | ✅ | `chat_screen.dart` `_showContextUsage/_compressIfNeeded` |
@@ -51,7 +51,7 @@
 | 角色卡 | **卡内脚本执行（沙箱）/ HTML 组件 / 整页画布** | ❌ | 明确不做执行，最多做安全提示 |
 | 世界书 | 条目管理、位置/深度/递归/概率 | ✅ | `world_book_entries_screen.dart`、`world_info_engine.dart` |
 | 导出 | 剪贴板纯文本、`.txt` / `.json` 文件分享 | ✅ | `chat_export.dart`、`chat_export_files.dart` |
-| 导出 | **长图 / EPUB / 故事书排版** | ❌ | 未实现 |
+| 导出 | **长图 / EPUB / 故事书排版** | ✅ | v0.25.0：`chat_image_export.dart`（Canvas 长图）、`chat_epub_export.dart`（EPUB3） |
 | 数据 | **整库备份与恢复（zip：卡/聊天/世界书/预设）** | ❌ | 未实现 |
 | 数据 | 删除角色/群聊时的级联清理 | ✅ | `home_screen.dart` |
 | 设置 | 两级菜单、6 分组、状态摘要 | ✅ | `settings_screen.dart`、`test/v21` |
@@ -110,7 +110,7 @@
 | 轮次 | 内容 | 验收 |
 | --- | --- | --- |
 | R1（本轮） | 消息操作三件套 + 对话内搜索 + 本评估文档 | 新增 18 例测试全过；全量 353 例；analyze 干净 |
-| R2 | 分支树页 + 导出长图/EPUB | 树页可切换/重命名；长图与 EPUB 可在真机打开 |
+| R2 | 分支树页 + 导出长图/EPUB | ✅ 已完成（v0.25.0）；真机/模拟器验证见 RESUME |
 | R3 | 整库备份与恢复 | 导出 zip → 清数据 → 恢复后角色/聊天/世界书一致 |
 | R4 | 世界书导入导出 + 命中测试 + 四范围绑定 | 导入 ST 世界书；命中测试与引擎结果一致 |
 | R5 | 显示正则库 + 检视升级 | 正则导入/开关/对比；检视标注缓存断点 |

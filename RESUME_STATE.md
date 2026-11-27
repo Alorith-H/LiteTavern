@@ -1,4 +1,4 @@
-# 交接状态：v0.24.0 消息操作与对话内搜索（2026-11-27 更新）
+# 交接状态：v0.25.0 分支树与导出长图 / EPUB（2026-11-27 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
 > v0.11.0（角色卡市场）、v0.12.x（市场筛选、用户侧建议回复）、
@@ -12,73 +12,100 @@
 > v0.20.0（模型配置与上下文改造：按模型自动、获取模型列表）、
 > v0.21.x（设置页二级菜单、引导新建配置、气泡下模型名、上下文按接口自报）、
 > v0.22.0（服务商改回 DeepSeek 第一、智谱只留一家、本地 LibreTranslate）、
-> v0.23.0（应用内自动更新）。
+> v0.23.0（应用内自动更新）、
+> v0.24.0（消息操作三件套、对话内搜索、功能评估清单）。
 >
-> **本轮 v0.24.0 —— 消息操作与对话内搜索（功能评估计划的第一批）**：
-> 长按消息可以「对模型隐藏 / 删除这一条 / 删除这条及以后」；聊天菜单新增「搜索对话」，
-> 输入关键词实时匹配并跳回那条消息。同时新增 `docs/FEATURE_AUDIT.md`，
-> 把「已实现 / 部分实现 / 未实现」的功能逐项列清楚，作为后续实现的总清单。
+> **本轮 v0.25.0 —— 分支树 + 导出长图 / EPUB（评估清单 R2）**：
+> 聊天菜单新增「分支树」，按层级列出同一角色下的所有聊天与分叉；
+> 导出菜单从 文本 / JSON 扩成 文本 / JSON / **长图 .png** / **电子书 .epub** 四种。
+> 长图用纯 Canvas 自绘（无新依赖），EPUB 用 archive 手写最小 EPUB3 包。
 
 ## 仓库状态
 
-- 分支 `dev`，版本 `pubspec.yaml` = **0.24.0+25**，`lib/app_info.dart` `kAppVersion = '0.24.0'`。
+- 分支 `dev`，版本 `pubspec.yaml` = **0.25.0+26**，`lib/app_info.dart` `kAppVersion = '0.25.0'`。
 - 本轮新增文件：
-  - `lib/services/chat_transcript.dart`：`visibleForModel(messages)`（过滤 `hidden`）、
-    `ChatSearchHit`、`searchMessages(messages, query, {max, snippetRadius})`、
-    `snippetAround(text, matchStart, matchLength, {radius})`。纯函数、无 UI/存储依赖。
-  - `lib/widgets/chat_search_sheet.dart`：`showChatSearchSheet(context, {messages, assistantName})`
-    → 返回被点中的消息下标；`ChatSearchSheet` 实时搜索、显示发言方/时间/片段/隐藏标记。
-  - `docs/FEATURE_AUDIT.md`：功能评估 + 未实现清单 + 分轮实施与验收表。
-  - `test/v24_test.dart`（18 例）。
+  - `lib/screens/chat_tree_screen.dart`：`ChatTreeScreen({ownerId, currentConvId})`，
+    用 `ChatIndex.tree` 按深度缩进列出根与分支，点一行 `pop(ChatInfo)` 回去切换；
+    副标题显示条数 / 时间 / 「从第 N 条分出」；空态提示怎么创建分支。
+  - `lib/services/chat_image_export.dart`：`ChatImageExport.render(...)` 纯 Canvas 长图
+    （先量高再开图，宽 1080，最大高 20000px，超长自动截断并标注；隐藏消息画「对模型隐藏」）。
+  - `lib/services/chat_epub_export.dart`：`ChatEpubExport.build(...)` 生成 EPUB3
+    （mimetype / container.xml / content.opf / nav.xhtml / style.css / chapter1.xhtml）。
+  - `test/v25_test.dart`（15 例：分支字段、`ChatIndex.tree`、EPUB 解包校验、长图 PNG 魔数与高度、导出格式常量、落盘）。
 - 本轮修改文件：
-  - `lib/models/chat_message.dart`：新增 `hidden`（默认 false；JSON `hidden: true`；旧数据缺字段回落 false；
-    `copyWith` 支持切换）。
-  - `lib/screens/chat_screen.dart`：
-    - `_buildWith()` 组 prompt 前统一 `visibleForModel(history)`（占用估算/压缩同口径）；
-    - `_showMessageActions()` 改为限高可滚动，新增「对模型隐藏 / 取消隐藏」「删除这一条」「删除这条及以后」；
-    - 新增 `_toggleHidden` / `_deleteMessage` / `_deleteMessagesFrom` / `_confirmDelete` / `_showSearch`；
-    - 隐藏消息气泡 `Opacity(0.45)` + 「对模型隐藏」小字标注；
-    - 聊天菜单新增「搜索对话」（结果跳转复用 `_jumpToMessage`）。
-  - `CHANGELOG.md`：新增 v0.24.0 段。
-  - `pubspec.yaml` / `lib/app_info.dart`：版本号 0.24.0+25。
+  - `lib/services/chat_index.dart`：`ChatInfo` 新增 `parentId` / `forkIndex` / `isBranch`，
+    JSON 只在有值时写；`ChatIndex.touch` 新增可选 `parentId` / `forkIndex`；
+    新增 `ChatIndex.tree(chats)` → `List<ChatTreeNode>`（根按最近使用排序、子分支紧跟、孤儿当根、环安全）。
+  - `lib/services/chat_export_files.dart`：新增 `ChatExportFormat { text, json, image, epub }`
+    （label / hint / extension / isBinary）、`buildBytes(...)`、`writeTempBytes(...)`；
+    `shareChat(...)` 改为按 `format` 分派（文本走字符串、长图与 EPUB 走字节）。
+  - `lib/screens/chat_screen.dart`：`_branchFrom` 写入 `parentId: _convId` 与 `forkIndex: index`；
+    聊天菜单新增「分支树」→ `_openChatTree()`；`_exportChatFile()` 改为四选一（二进制格式先 toast「正在生成…」）。
+  - `docs/FEATURE_AUDIT.md`：分支树页、长图/EPUB 标为 ✅，R2 标为已完成。
+  - `CHANGELOG.md`：新增 v0.25.0 段；版本号两处同步。
 
 ## 验证
 
 | 命令 | 结果 |
 | --- | --- |
-| `flutter analyze` | No issues found |
-| `flutter test` | **+353 All tests passed!**（新增 18 例） |
-| `flutter build apk --release` | 见本次运行记录 |
-| 真机装机 | 见本次运行记录 |
+| `flutter analyze` | No issues found（7.0s） |
+| `flutter test` | **+368 All tests passed!**（新增 15 例） |
+| `flutter build apk --release` | 59.9 MB（62,759,695 字节，Gradle 54.2s）versionCode **26** / 0.25.0 |
+| 真机装机 | 手机不在线（`192.168.0.100:39203` offline）；改用 Android 模拟器验证 |
+| 模拟器装机 | `emulator-5556 install -r` → Success，versionName 0.25.0 / code 26 |
 
-## 下一轮建议（详见 `docs/FEATURE_AUDIT.md` 第 3 节）
+## 模拟器（无真机时的测试环境）
 
-R2：分支树页 + 导出长图 / EPUB；R3：整库备份与恢复 zip；R4：世界书整本导入导出 + 命中测试 + 四范围绑定；
-R5：显示正则库 + 检视升级；R6：ST 预设兼容（先只读解析）；R7：CHARX / jsonl 导入 + 体检报告；
-R8：变量与状态只读 + 卡脚本安全提示。
+- SDK：`C:\Users\28351\Android\Sdk`；本轮新装 `emulator` + `system-images;android-34;google_apis;x86_64`，已接受全部 licenses。
+- AVD：`litetavern_test`（pixel_6 / Android 14 / x86_64），启动：
+  `C:\Users\28351\Android\Sdk\emulator\emulator.exe -avd litetavern_test -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -port 5556`
+- 端口 5556 → `adb -s emulator-5556 shell ...`；屏幕 1080x2400。
+- 已验证：冷启动 → 6 步引导（1/6 正常）→ 跳过 → 主页 → 设置（六入口 + 帮助与关于；版本 v0.25.0）
+  → 帮助子页（检查更新 / 自动检查 / 重看引导 / 关于）→ 从链接导入 Chub 卡成功 →
+  聊天菜单出现「导出对话文件…（纯文本 / JSON / 长图 / EPUB）」与「分支树」→
+  长图导出调起系统分享（Sharing image + 缩略图）→ EPUB 导出调起分享（Sharing 1 file）→
+  分支树页显示根聊天「当前 · 0 条消息」。
 
 ## 已知边界
 
-- 「对模型隐藏」只影响组 prompt；本地展示、导出、搜索、备份都保留该消息。
-- 删除不可恢复，没有回收站（以后可随「整库备份」一起解决）。
-- 搜索是本地子串匹配（大小写不敏感），不做分词/模糊匹配。
-- 分支仍是快照式（不双向同步）；聊天列表按保存时间排序。
-- 单聊新建聊天会写入开场白，群聊新聊天是空的。
-- 删除角色/群聊会级联清理所有分段聊天、书签、后台任务。
-- GitHub API 限流 60 次/小时（自动更新每天最多一次）。
-- 真机点按坐标与 uiautomator bounds 常不一致，验证以截图为准。
+- 分支树只展示 `ChatIndex` 里有记录的聊天；父节点被删除的分支会当作根显示（不会丢）。
+- 分支是「创建时的快照」，之后父子各写各的，不双向同步；重命名只改索引显示名。
+- 长图：单张最大高 20000px，超出在图上标注条数；不含附件图片，只有文字。
+- EPUB：最小 EPUB3（单章 + 目录 + 内联样式），archive 3.6 限制了 mimetype store 方式，主流阅读器可读。
+- 导出二进制格式生成需 1–3 秒，期间 toast「正在生成…」，完成后弹系统分享。
+- 「对模型隐藏」的消息不进 prompt，但长图/EPUB 仍会导出并标注。
 
-## 环境
+## 下一轮建议（详见 `docs/FEATURE_AUDIT.md` 第 3 节）
 
-- Flutter：`C:\flutter\bin\flutter.bat`（不在 PATH），命令前设
-  `$env:FLUTTER_STORAGE_BASE_URL="https://storage.flutter-io.cn"`。
-- adb：`C:\Users\28351\Android\Sdk\platform-tools\adb.exe`；USB 设备序列号 `19faf100`（23113RKC6C / Android 16），
-  无线调试地址每次可能不同，先 `adb devices`；装入：`adb -s <设备> install -r build\app\outputs\flutter-apk\app-release.apk`。
-- 提交：直接用仓库配置身份（`Alorith-H <2835147611@qq.com>`），**不要**再加 `-c user.name/-c user.email`。
+R3：整库备份与恢复 zip（角色卡 / 聊天 / 世界书 / 预设 / 设置）；
+R4：世界书整本导入导出 + 命中测试 + 四范围绑定；
+R5：显示正则库 + 提示词检视升级；
+R6：ST 预设兼容（先只读解析）；
+R7：CHARX / jsonl 导入 + 体检报告；R8：变量与状态只读 + 卡脚本安全提示。
+
+## 环境命令
+
+```powershell
+$env:FLUTTER_STORAGE_BASE_URL="https://storage.flutter-io.cn"
+& C:\flutter\bin\flutter.bat analyze
+& C:\flutter\bin\flutter.bat test
+& C:\flutter\bin\flutter.bat build apk --release
+# 真机（USB 或无线调试地址会变）
+& C:\Users\28351\Android\Sdk\platform-tools\adb.exe devices
+& C:\Users\28351\Android\Sdk\platform-tools\adb.exe -s <serial> install -r build\app\outputs\flutter-apk\app-release.apk
+# 模拟器
+& C:\Users\28351\Android\Sdk\emulator\emulator.exe -avd litetavern_test -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -port 5556
+```
+
+发 Release 时 APK 上传地址直接拼
+`https://uploads.github.com/repos/Alorith-H/LiteTavern/releases/<id>/assets?name=app-release.apk`；
+token 用 `git credential fill` 取；含中文的脚本保存为 UTF-8 并用 `pwsh -File` 执行。
+提交一律使用仓库配置身份，**不要**再传 `-c user.name/-c user.email`。
 
 ## 本次运行记录
 
-- `flutter analyze`：No issues found
-- `flutter test`：+353 All tests passed!
-- `flutter build apk --release`：59.4 MB，versionCode 25 / versionName 0.24.0（Gradle 103.7s 首次含新依赖，本次增量正常）
-- 真机装机：`adb -s 192.168.0.100:39203 install -r` → Success（0.24.0 / code 25），真机实测隐藏/取消隐藏、消息菜单、上下文占比变化均正常
+- `flutter analyze`：No issues found（7.0s）
+- `flutter test`：+368 All tests passed!
+- `flutter build apk --release`：59.9 MB，versionCode 26 / versionName 0.25.0
+- 真机：不在线（未装机）
+- 模拟器：Success（0.25.0 / code 26），导出长图/EPUB、分支树、引导、设置、导入均逐项点过
