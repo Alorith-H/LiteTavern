@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/chat_message.dart';
+import '../services/chat_index_cache.dart';
 import '../services/chat_transcript.dart';
 import 'common.dart';
 
@@ -51,7 +52,11 @@ class _ChatSearchSheetState extends State<ChatSearchSheet> {
   void _onChanged(String value) {
     setState(() {
       _query = value;
-      _hits = searchMessages(widget.messages, value);
+      _hits = searchMessages(
+        widget.messages,
+        value,
+        lowerTexts: ChatIndexCache.instance.lowerTexts(widget.messages),
+      );
     });
   }
 

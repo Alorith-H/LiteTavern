@@ -41,6 +41,7 @@ class Storage {
   @visibleForTesting
   static void initForTest(Directory docs) {
     _docs = docs;
+    _convMem.clear();
   }
 
   /// 文档根目录（整库备份用）。
@@ -133,56 +134,91 @@ class Storage {
   static File _convFile(String charId) =>
       File('${_convRoot.path}${Platform.pathSeparator}$charId.json');
 
+  /// 增量日志文件（v0.42.0）：会话变大后，每次保存只追加变化的那几条，
+  /// 累积到一定量再合并回快照，避免每次都重写几 MB 的 JSON 卡住主线程。
+  static File _journalFile(String convId) =>
+      File('${_convRoot.path}${Platform.pathSeparator}$convId.journal');
+
+  /// 每个会话在本进程内的增量状态。
+  static final Map<String, _ConvMem> _convMem = {};
+
+  /// 合并阈值：日志超过以下任一条件就重写快照。
+  static const int _journalCompactLines = 400;
+  static const int _journalCompactBytes = 512 * 1024;
+
   /// 读会话（含可选摘要）。兼容两种格式：
-  /// 旧 = 消息数组；新 = `{messages, summary?}`（v0.6.0 起带摘要时用对象）。
+  /// 旧 = 消息数组；新 = `{messages, summary?, hitStats?, gen?}`。
+  /// v0.42.0 起还会重放增量日志（.journal），把上次快照之后的改动叠加上去。
   static Future<ConversationData> loadConversationData(String convId) async {
     final file = _convFile(convId);
+    var messages = <ChatMessage>[];
+    ChatSummary? summary;
+    HitStats? hitStats;
+    var gen = 0;
     // 回归：fallback 必须是可增长列表 —— const 空列表不可 add，
     // 会话页拿到后 _doSend 落消息时抛 Unsupported operation。
-    if (!await file.exists()) return ConversationData(messages: <ChatMessage>[]);
-    try {
-      final decoded = jsonDecode(await file.readAsString());
-      if (decoded is List) {
-        return ConversationData(
-          messages: decoded
+    if (await file.exists()) {
+      try {
+        final decoded = jsonDecode(await file.readAsString());
+        if (decoded is List) {
+          messages = decoded
               .whereType<Map<String, dynamic>>()
               .map(ChatMessage.fromJson)
-              .toList(),
-        );
+              .toList();
+        } else if (decoded is Map<String, dynamic>) {
+          final raw = decoded['messages'];
+          messages = raw is List
+              ? raw
+                  .whereType<Map<String, dynamic>>()
+                  .map(ChatMessage.fromJson)
+                  .toList()
+              : <ChatMessage>[];
+          final summaryRaw = decoded['summary'];
+          summary = summaryRaw is Map<String, dynamic>
+              ? ChatSummary.fromJson(summaryRaw)
+              : null;
+          final statsRaw = decoded['hitStats'];
+          hitStats = statsRaw is Map<String, dynamic>
+              ? HitStats.fromJson(statsRaw)
+              : null;
+          final genRaw = decoded['gen'];
+          if (genRaw is int) gen = genRaw;
+        }
+      } catch (_) {
+        messages = <ChatMessage>[];
       }
-      if (decoded is Map<String, dynamic>) {
-        final raw = decoded['messages'];
-        final messages = raw is List
-            ? raw
-                .whereType<Map<String, dynamic>>()
-                .map(ChatMessage.fromJson)
-                .toList()
-            : <ChatMessage>[];
-        final summaryRaw = decoded['summary'];
-        final summary = summaryRaw is Map<String, dynamic>
-            ? ChatSummary.fromJson(summaryRaw)
-            : null;
-        final statsRaw = decoded['hitStats'];
-        final hitStats = statsRaw is Map<String, dynamic>
-            ? HitStats.fromJson(statsRaw)
-            : null;
-        return ConversationData(
-          messages: messages,
-          summary: summary != null && summary.isEmpty ? null : summary,
-          hitStats: hitStats != null && hitStats.isEmpty ? null : hitStats,
-        );
-      }
-      return ConversationData(messages: <ChatMessage>[]);
-    } catch (_) {
-      return ConversationData(messages: <ChatMessage>[]);
     }
+    // 重放增量日志（坏行跳过，坏日志不影响主文件）。
+    messages = await _replayJournal(convId, messages, gen, (s, h) {
+      summary = s ?? summary;
+      hitStats = h ?? hitStats;
+    });
+    final cleanSummary = summary != null && summary!.isEmpty ? null : summary;
+    final cleanStats = hitStats != null && hitStats!.isEmpty ? null : hitStats;
+    _convMem[convId] = _ConvMem(
+      messages: List<ChatMessage>.of(messages),
+      gen: gen,
+      summary: cleanSummary,
+      hitStats: cleanStats,
+      journalLines: await _journalLineCount(convId),
+    );
+    return ConversationData(
+      messages: messages,
+      summary: cleanSummary,
+      hitStats: cleanStats,
+    );
   }
 
   static Future<List<ChatMessage>> loadConversation(String convId) async =>
       (await loadConversationData(convId)).messages;
 
-  /// 写会话。无摘要且无命中率统计时保持旧的数组格式（单聊文件字节不变）；
-  /// 有摘要或命中率统计时写 `{messages, summary?, hitStats?}` 对象。
+  /// 写会话。
+  ///
+  /// v0.42.0 起改为「快照 + 增量日志」：
+  /// - 第一次保存（或本进程内没有缓存）仍写完整快照，格式与旧版一致
+  ///   （无摘要/统计 → 数组；有 → 对象），保证旧测试与旧文件兼容；
+  /// - 之后的保存只把「新增/改动/截断」写成日志行追加到 `.journal`；
+  /// - 日志行数或体积超过阈值时，合并成新快照（带 `gen` 代号）并清空日志。
   static Future<void> saveConversation(
     String convId,
     List<ChatMessage> messages, {
@@ -192,19 +228,220 @@ class Storage {
     final file = _convFile(convId);
     final hasSummary = summary != null && !summary.isEmpty;
     final hasStats = hitStats != null && !hitStats.isEmpty;
-    final data = !hasSummary && !hasStats
-        ? messages.map((m) => m.toJson()).toList()
-        : <String, dynamic>{
-            'messages': [for (final m in messages) m.toJson()],
-            if (hasSummary) 'summary': summary.toJson(),
-            if (hasStats) 'hitStats': hitStats.toJson(),
-          };
-    await file.writeAsString(jsonEncode(data), flush: true);
+    final mem = _convMem[convId];
+
+    // 目录可能还没建（新用户 / 测试环境）——落盘前保证父目录存在。
+    if (!await file.parent.exists()) {
+      await file.parent.create(recursive: true);
+    }
+
+    if (mem == null) {
+      // 首次落盘：保持旧格式（数组 / 对象），不引入 gen。
+      final data = !hasSummary && !hasStats
+          ? messages.map((m) => m.toJson()).toList()
+          : <String, dynamic>{
+              'messages': [for (final m in messages) m.toJson()],
+              if (hasSummary) 'summary': summary.toJson(),
+              if (hasStats) 'hitStats': hitStats.toJson(),
+            };
+      await file.writeAsString(jsonEncode(data), flush: true);
+      _convMem[convId] = _ConvMem(
+        messages: List<ChatMessage>.of(messages),
+        gen: 0,
+        summary: hasSummary ? summary : null,
+        hitStats: hasStats ? hitStats : null,
+        journalLines: 0,
+      );
+      return;
+    }
+
+    final ops = _buildJournalOps(mem, messages, summary, hitStats);
+    if (ops.isEmpty) return;
+
+    final journal = _journalFile(convId);
+    final buffer = StringBuffer();
+    for (final op in ops) {
+      op['g'] = mem.gen;
+      buffer.writeln(jsonEncode(op));
+    }
+    await journal.writeAsString(buffer.toString(),
+        mode: FileMode.append, flush: true);
+    mem.messages = List<ChatMessage>.of(messages);
+    mem.summary = hasSummary ? summary : null;
+    mem.hitStats = hasStats ? hitStats : null;
+    mem.journalLines += ops.length;
+
+    final size = await journal.length();
+    if (mem.journalLines >= _journalCompactLines ||
+        size >= _journalCompactBytes) {
+      await _compactConversation(convId, mem);
+    }
+  }
+
+  /// 生成增量操作（不含 `g`，由调用方补当前代号）。
+  static List<Map<String, Object?>> _buildJournalOps(
+    _ConvMem mem,
+    List<ChatMessage> messages,
+    ChatSummary? summary,
+    HitStats? hitStats,
+  ) {
+    final ops = <Map<String, Object?>>[];
+    final old = mem.messages;
+    final common = _commonPrefix(old, messages);
+    if (messages.length < old.length) {
+      ops.add(<String, Object?>{'o': 't', 'n': messages.length});
+    }
+    for (var i = common; i < messages.length; i++) {
+      final append = i >= old.length && common >= old.length;
+      ops.add(<String, Object?>{
+        'o': append ? 'a' : 'u',
+        if (!append) 'i': i,
+        'm': messages[i].toJson(),
+      });
+    }
+    final nextSummary = summary != null && !summary.isEmpty ? summary : null;
+    final oldSummary = mem.summary;
+    final summaryChanged = nextSummary?.text != oldSummary?.text ||
+        nextSummary?.updatedAt != oldSummary?.updatedAt;
+    if (summaryChanged) {
+      ops.add(<String, Object?>{
+        'o': 's',
+        'v': nextSummary?.toJson(),
+      });
+    }
+    final nextStats = hitStats != null && !hitStats.isEmpty ? hitStats : null;
+    final oldStatsJson = mem.hitStats?.toJson().toString();
+    final statsChanged = nextStats?.toJson().toString() != oldStatsJson;
+    if (statsChanged) {
+      ops.add(<String, Object?>{
+        'o': 'h',
+        'v': nextStats?.toJson(),
+      });
+    }
+    return ops;
+  }
+
+  static int _commonPrefix(List<ChatMessage> a, List<ChatMessage> b) {
+    final n = a.length < b.length ? a.length : b.length;
+    for (var i = 0; i < n; i++) {
+      if (!_sameMessage(a[i], b[i])) return i;
+    }
+    return n;
+  }
+
+  static bool _sameMessage(ChatMessage a, ChatMessage b) {
+    if (identical(a, b)) return true;
+    if (a.role != b.role ||
+        a.timestamp != b.timestamp ||
+        a.content != b.content ||
+        a.hidden != b.hidden ||
+        a.error != b.error ||
+        a.variantIndex != b.variantIndex ||
+        a.variants.length != b.variants.length) {
+      return false;
+    }
+    for (var i = 0; i < a.variants.length; i++) {
+      if (a.variants[i] != b.variants[i]) return false;
+    }
+    return true;
+  }
+
+  /// 合并：写新快照（带 gen+1），成功后删日志。旧代号的残留日志会被忽略。
+  static Future<void> _compactConversation(
+    String convId,
+    _ConvMem mem,
+  ) async {
+    final file = _convFile(convId);
+    final hasSummary = mem.summary != null;
+    final hasStats = mem.hitStats != null;
+    final data = <String, dynamic>{
+      'messages': [for (final m in mem.messages) m.toJson()],
+      if (hasSummary) 'summary': mem.summary!.toJson(),
+      if (hasStats) 'hitStats': mem.hitStats!.toJson(),
+      'gen': mem.gen + 1,
+    };
+    final tmp = File('${file.path}.tmp');
+    await tmp.writeAsString(jsonEncode(data), flush: true);
+    if (await file.exists()) await file.delete();
+    await tmp.rename(file.path);
+    final journal = _journalFile(convId);
+    if (await journal.exists()) await journal.delete();
+    mem.gen += 1;
+    mem.journalLines = 0;
+  }
+
+  /// 读取并重放日志；坏行跳过，返回重放后的消息列表。
+  static Future<List<ChatMessage>> _replayJournal(
+    String convId,
+    List<ChatMessage> base,
+    int gen,
+    void Function(ChatSummary?, HitStats?) onMeta,
+  ) async {
+    final journal = _journalFile(convId);
+    if (!await journal.exists()) return base;
+    final out = List<ChatMessage>.of(base);
+    try {
+      final lines = await journal.readAsLines();
+      for (final line in lines) {
+        if (line.trim().isEmpty) continue;
+        try {
+          final op = jsonDecode(line);
+          if (op is! Map<String, dynamic>) continue;
+          if ((op['g'] as int? ?? 0) != gen) continue;
+          switch (op['o']) {
+            case 'a':
+              final m = op['m'];
+              if (m is Map<String, dynamic>) out.add(ChatMessage.fromJson(m));
+            case 'u':
+              final i = op['i'];
+              final m = op['m'];
+              if (i is int && i >= 0 && i < out.length && m is Map<String, dynamic>) {
+                out[i] = ChatMessage.fromJson(m);
+              }
+            case 't':
+              final n = op['n'];
+              if (n is int && n >= 0 && n < out.length) out.removeRange(n, out.length);
+            case 's':
+              final v = op['v'];
+              onMeta(
+                v is Map<String, dynamic> ? ChatSummary.fromJson(v) : null,
+                null,
+              );
+            case 'h':
+              final v = op['v'];
+              onMeta(
+                null,
+                v is Map<String, dynamic> ? HitStats.fromJson(v) : null,
+              );
+          }
+        } catch (_) {
+          // 单行损坏（例如进程被杀在写一半）→ 跳过，不影响其它行。
+        }
+      }
+    } catch (_) {
+      return out;
+    }
+    return out;
+  }
+
+  static Future<int> _journalLineCount(String convId) async {
+    final journal = _journalFile(convId);
+    try {
+      if (!await journal.exists()) return 0;
+      return (await journal.readAsLines())
+          .where((l) => l.trim().isNotEmpty)
+          .length;
+    } catch (_) {
+      return 0;
+    }
   }
 
   static Future<void> deleteConversation(String convId) async {
     final file = _convFile(convId);
     if (await file.exists()) await file.delete();
+    final journal = _journalFile(convId);
+    if (await journal.exists()) await journal.delete();
+    _convMem.remove(convId);
   }
 
   // ---------------------------------------------------------- 群聊 --
@@ -1384,4 +1621,21 @@ class AppSettings {
 
   static bool get apiConfigured =>
       baseUrl.trim().isNotEmpty && apiKey.trim().isNotEmpty;
+}
+
+/// 会话增量存储的进程内状态（v0.42.0）。
+class _ConvMem {
+  List<ChatMessage> messages;
+  int gen;
+  ChatSummary? summary;
+  HitStats? hitStats;
+  int journalLines;
+
+  _ConvMem({
+    required this.messages,
+    required this.gen,
+    this.summary,
+    this.hitStats,
+    this.journalLines = 0,
+  });
 }

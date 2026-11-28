@@ -23,15 +23,21 @@ class ChatImageExport {
   static const double _radius = 18;
 
   /// 生成对话长图（PNG 字节）。消息很多时按高度截断，并在末尾标注。
+  ///
+  /// v0.42.0：加 [onProgress]，分块让出事件循环，界面能刷新进度条
+  /// （长会话几千条不再整段卡死 UI）。
   static Future<Uint8List> render({
     required String charName,
     required String userName,
     required List<ChatMessage> messages,
     DateTime? exportedAt,
+    void Function(double value)? onProgress,
   }) async {
     final at = exportedAt ?? DateTime.now();
     final blocks = <_Block>[];
     var used = _headerHeight + _footerHeight;
+    final total = messages.isEmpty ? 1 : messages.length;
+    var seen = 0;
 
     for (final m in messages) {
       if (m.content.trim().isEmpty) continue;
@@ -85,7 +91,14 @@ class ChatImageExport {
         hidden: hiddenTag,
       ));
       used += height + _gap;
+      seen++;
+      // 每 30 条报一次进度并让出事件循环，避免几百条消息把 UI 卡住。
+      if (seen % 30 == 0) {
+        onProgress?.call((seen / total * 0.55).clamp(0.0, 0.55));
+        await Future<void>.delayed(Duration.zero);
+      }
     }
+    onProgress?.call(0.55);
 
     final height = (used + _gap).clamp(_headerHeight + _footerHeight + 120, maxHeight);
     final recorder = ui.PictureRecorder();
@@ -128,6 +141,7 @@ class ChatImageExport {
     );
 
     var y = _headerHeight + 8;
+    var drawn = 0;
     for (final b in blocks) {
       final inner = width - _margin * 2;
       final bubbleW = (b.painter.width + _bubblePadX * 2)
@@ -170,6 +184,11 @@ class ChatImageExport {
         );
       }
       y += bubbleH + _gap;
+      drawn++;
+      if (drawn % 40 == 0 && blocks.isNotEmpty) {
+        onProgress?.call((0.55 + drawn / blocks.length * 0.4).clamp(0.55, 0.95));
+        await Future<void>.delayed(Duration.zero);
+      }
     }
 
     final footer = '由 轻酒馆 LiteTavern 导出';
@@ -182,11 +201,13 @@ class ChatImageExport {
       width - _margin * 2,
     );
 
+    onProgress?.call(0.96);
     final picture = recorder.endRecording();
     final image = await picture.toImage(width.toInt(), height.ceil());
     final data = await image.toByteData(format: ui.ImageByteFormat.png);
     image.dispose();
     picture.dispose();
+    onProgress?.call(1.0);
     return data!.buffer.asUint8List();
   }
 

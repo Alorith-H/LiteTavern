@@ -48,16 +48,19 @@ List<ChatSearchHit> searchMessages(
   String query, {
   int max = 200,
   int snippetRadius = 24,
+  List<String>? lowerTexts,
 }) {
   final q = query.trim();
   if (q.isEmpty || max <= 0) return const [];
   final needle = q.toLowerCase();
+  final lower =
+      lowerTexts != null && lowerTexts.length == messages.length ? lowerTexts : null;
   final hits = <ChatSearchHit>[];
   for (var i = 0; i < messages.length && hits.length < max; i++) {
     final m = messages[i];
     final text = m.content;
     if (text.isEmpty) continue;
-    final at = text.toLowerCase().indexOf(needle);
+    final at = (lower != null ? lower[i] : text.toLowerCase()).indexOf(needle);
     if (at < 0) continue;
     hits.add(ChatSearchHit(
       index: i,

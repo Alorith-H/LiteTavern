@@ -15,6 +15,7 @@ import '../services/bookmarks.dart';
 import '../services/chat_export.dart';
 import '../services/chat_export_files.dart';
 import '../services/chat_gen_settings.dart';
+import '../services/chat_index_cache.dart';
 import '../services/chat_index.dart';
 import '../services/chat_transcript.dart';
 import '../services/chat_layout.dart';
@@ -236,6 +237,10 @@ class _ChatScreenState extends State<ChatScreen> {
   /// 已完成消息的 widget 缓存（含 markdown 渲染结果）。
   /// key 是消息对象本身：内容/身份一变即自然失效；列表结构变化时整体清空。
   final Map<ChatMessage, Widget> _msgCache = {};
+
+  /// 分页加载窗口（v0.42.0）：先渲染最近 [_pageSize] 条，上滑到顶再往前加载。
+  static const int _pageSize = 200;
+  int _visibleCount = _pageSize;
   int _cacheLen = -1;
   Object? _cacheToken;
 
@@ -343,12 +348,14 @@ class _ChatScreenState extends State<ChatScreen> {
       _card = card;
       // 防御：无论来源如何都复制成可增长列表（_doSend 会 add）
       _messages = List.of(msgs);
+      _visibleCount = _pageSize;
       _summary = data.summary;
       _hitStats = data.hitStats; // 旧会话无记录 = null（不显示命中率）
       _worldBooks = books;
       _authorNote = AuthorNoteStore.load(_convId);
       _loading = false;
       _msgCache.clear();
+      ChatIndexCache.instance.invalidate();
       _cacheLen = -1;
     });
     _locateInitial();
@@ -400,12 +407,14 @@ class _ChatScreenState extends State<ChatScreen> {
       _members = members;
       // 防御：复制成可增长列表，杜绝任何来源的不可变列表
       _messages = List.of(msgs);
+      _visibleCount = _pageSize;
       _summary = data.summary;
       _hitStats = data.hitStats; // 旧会话无记录 = null（不显示命中率）
       _worldBooks = books;
       _authorNote = AuthorNoteStore.load(_convId);
       _loading = false;
       _msgCache.clear();
+      ChatIndexCache.instance.invalidate();
       _cacheLen = -1;
     });
     _locateInitial();
@@ -594,6 +603,12 @@ class _ChatScreenState extends State<ChatScreen> {
   // ----------------------------------------------------------- 滚动 --
 
   void _onScroll() {
+    // 上滑到接近顶部 → 往前多加载一页（v0.42.0 分页）。
+    if (_scrollCtrl.hasClients &&
+        _visibleCount < _messages.length &&
+        _scrollCtrl.position.pixels <= 80) {
+      setState(() => _visibleCount += _pageSize);
+    }
     if (_userDragging) return; // 拖动中不改变跟随状态
     if (_locating) return; // 初始收敛期间跟随判定冻结（完成后再放开）
     if (!_scrollCtrl.hasClients) return;
@@ -866,6 +881,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _generating = true;
       _followScroll = true;
       _msgCache.clear();
+      ChatIndexCache.instance.invalidate();
     });
     _inputCtrl.clear();
     _inputEmpty.value = true;
@@ -958,6 +974,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _generating = true;
       _followScroll = true;
       _msgCache.clear();
+      ChatIndexCache.instance.invalidate();
     });
     _save(force: true);
     _followBottom();
@@ -987,6 +1004,7 @@ class _ChatScreenState extends State<ChatScreen> {
             senderName: m.name,
           ));
           _msgCache.clear();
+          ChatIndexCache.instance.invalidate();
         });
         _save(force: true);
         _followBottom();
@@ -1712,6 +1730,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _generating = true;
       _followScroll = true;
       _msgCache.clear();
+      ChatIndexCache.instance.invalidate();
     });
     _save(force: true);
     _followBottom();
@@ -1736,6 +1755,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _generating = true;
         _followScroll = true;
         _msgCache.clear();
+        ChatIndexCache.instance.invalidate();
       });
       _save(force: true);
       _followBottom();
@@ -1761,6 +1781,7 @@ class _ChatScreenState extends State<ChatScreen> {
             : failed.copyWith();
       });
       _msgCache.clear();
+      ChatIndexCache.instance.invalidate();
       _save(force: true);
       return;
     }
@@ -1778,6 +1799,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _generating = true;
       _followScroll = true;
       _msgCache.clear();
+      ChatIndexCache.instance.invalidate();
     });
     _save(force: true);
     _followBottom();
@@ -1946,6 +1968,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _generating = false; // 生成已取消，立即恢复可发送
       _isContinueGen = false;
       _msgCache.clear();
+      ChatIndexCache.instance.invalidate();
       _cacheLen = -1;
     });
     _save(force: true);
@@ -1985,6 +2008,7 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       }
       _msgCache.clear();
+      ChatIndexCache.instance.invalidate();
     });
     _save(force: true);
     _scrollToBottom();
@@ -2344,17 +2368,52 @@ class _ChatScreenState extends State<ChatScreen> {
     );
     if (format == null || !mounted) return;
     final title = _isGroup ? (_group?.name ?? '群聊') : _card!.name;
-    if (format.isBinary) _toast('正在生成${format.label}…');
+    // v0.42.0：长图/EPUB 这些耗时导出改成带进度条的对话框（长会话不再干等）。
+    final busy = format.isBinary;
+    final progress = ValueNotifier<double>(0);
+    if (busy) {
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => AlertDialog(
+          title: Text('正在生成${format.label}…'),
+          content: ValueListenableBuilder<double>(
+            valueListenable: progress,
+            builder: (_, value, _) => Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                LinearProgressIndicator(value: value <= 0 ? null : value),
+                const SizedBox(height: 10),
+                Text(
+                  value <= 0
+                      ? '准备中…'
+                      : '已处理 ${(value * 100).clamp(0, 100).toStringAsFixed(0)}%',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     try {
       final ok = await ChatExportFiles.shareChat(
         charName: title,
         userName: _macroUserName,
         messages: _messages,
         format: format,
+        onProgress: busy ? (v) => progress.value = v : null,
       );
-      if (!mounted || ok) return;
-      _toast('当前设备不支持分享文件');
+      if (!mounted) return;
+      if (busy) Navigator.of(context, rootNavigator: true).pop();
+      progress.dispose();
+      if (!ok) _toast('当前设备不支持分享文件');
     } catch (e) {
+      if (mounted && busy) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      progress.dispose();
       if (!mounted) return;
       _toast('导出失败：$e');
     }
@@ -2401,6 +2460,7 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() {
         _messages.addAll(parsed.messages);
         _msgCache.clear();
+        ChatIndexCache.instance.invalidate();
       });
       _save(force: true);
       _followBottom();
@@ -2488,22 +2548,14 @@ class _ChatScreenState extends State<ChatScreen> {
   /// 聊天统计：消息条数、累计输入/输出 tokens、当前发送上下文估算。
   /// 累计值已含该消息所有变体的消耗（真实花销）。
   void _showChatStats() {
-    final total = _messages.length;
-    var inSum = 0;
-    var outSum = 0;
-    var cachedSum = 0;
-    var hasUsage = false;
-    var approx = false;
-    for (final m in _messages) {
-      final p = m.promptTokens;
-      final c = m.completionTokens;
-      if (p == null || c == null) continue;
-      hasUsage = true;
-      inSum += p;
-      outSum += c;
-      cachedSum += (m.cachedPromptTokens ?? 0).clamp(0, p);
-      if (m.tokensEstimated) approx = true;
-    }
+    // v0.42.0：统计走会话索引缓存，长会话重复打开不再每次全量扫描。
+    final agg = ChatIndexCache.instance.aggregates(_messages);
+    final total = agg.messageCount;
+    final inSum = agg.promptTokens;
+    final outSum = agg.completionTokens;
+    final cachedSum = agg.cachedTokens;
+    final hasUsage = agg.hasUsage;
+    final approx = agg.approx;
 
     var contextTokens = 0;
     if (_canBuildPrompt) {
@@ -2953,12 +3005,14 @@ class _ChatScreenState extends State<ChatScreen> {
     if (cacheToken != _cacheToken) {
       _cacheToken = cacheToken;
       _msgCache.clear();
+      ChatIndexCache.instance.invalidate();
       _cacheLen = -1;
     }
     // 消息集（长度）变化 → 缓存整体失效
     if (_messages.length != _cacheLen) {
       _cacheLen = _messages.length;
       _msgCache.clear();
+      ChatIndexCache.instance.invalidate();
     }
 
     return Scaffold(
@@ -3027,24 +3081,45 @@ class _ChatScreenState extends State<ChatScreen> {
               onTap: () => FocusScope.of(context).unfocus(),
               child: NotificationListener<ScrollNotification>(
                 onNotification: _onScrollNotification,
-                child: ListView.builder(
-                  controller: _scrollCtrl,
-                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                  itemCount: _messages.length,
-                  itemBuilder: (context, i) {
-                    final m = _messages[i];
-                    // 流式期间只有末条 AI 气泡随数据更新，不进缓存
-                    final streaming = _generating &&
-                        i == _messages.length - 1 &&
-                        m.role == 'assistant';
-                    if (streaming) return _buildMessage(scheme, m, i);
-                    final cached = _msgCache[m];
-                    if (cached != null) return cached;
-                    final w = _buildMessage(scheme, m, i);
-                    _msgCache[m] = w;
-                    return w;
-                  },
-                ),
+                child: Builder(builder: (context) {
+                  final start = _messages.length > _visibleCount
+                      ? _messages.length - _visibleCount
+                      : 0;
+                  final headerCount = start > 0 ? 1 : 0;
+                  return ListView.builder(
+                    controller: _scrollCtrl,
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                    itemCount: _messages.length - start + headerCount,
+                    itemBuilder: (context, raw) {
+                      if (headerCount == 1 && raw == 0) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Center(
+                            child: Text(
+                              '上面还有 $start 条更早的消息 · 上滑加载',
+                              style: TextStyle(
+                                fontSize: AppType.caption,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+                      final i = start + raw - headerCount;
+                      final m = _messages[i];
+                      // 流式期间只有末条 AI 气泡随数据更新，不进缓存
+                      final streaming = _generating &&
+                          i == _messages.length - 1 &&
+                          m.role == 'assistant';
+                      if (streaming) return _buildMessage(scheme, m, i);
+                      final cached = _msgCache[m];
+                      if (cached != null) return cached;
+                      final w = _buildMessage(scheme, m, i);
+                      _msgCache[m] = w;
+                      return w;
+                    },
+                  );
+                }),
               ),
             ),
           ),
@@ -3492,6 +3567,7 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       _messages[index] = _messages[index].copyWith(hidden: !before);
       _msgCache.clear();
+      ChatIndexCache.instance.invalidate();
     });
     _save(force: true);
     _toast(before ? '已取消隐藏，下一条回复会带上这条' : '已对模型隐藏，本地记录仍在');
@@ -3509,6 +3585,7 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       _messages.removeAt(index);
       _msgCache.clear();
+      ChatIndexCache.instance.invalidate();
     });
     _save(force: true);
     _toast('已删除 1 条消息');
@@ -3528,6 +3605,7 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       _messages.removeRange(index, _messages.length);
       _msgCache.clear();
+      ChatIndexCache.instance.invalidate();
     });
     _save(force: true);
     _followBottom();

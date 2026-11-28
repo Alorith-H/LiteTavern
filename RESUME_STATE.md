@@ -1,3 +1,22 @@
+## 本轮 v0.42.0 —— 长会话性能（增量保存 / 分页 / 索引 / 长图进度）
+
+> 用户需求：会话增量保存 + 分页加载，聊天统计/搜索做缓存索引，长图导出改后台 isolate + 进度条。
+
+### 变更
+| 文件 | 内容 |
+| --- | --- |
+| lib/services/storage.dart | loadConversationData 兼容数组 / 对象（含 gen）并重放 .journal；saveConversation 改为「快照 + 增量日志」（首次仍写旧格式；日志行 400 或 512KB 自动合并）；deleteConversation 连日志一起删；initForTest 清内存缓存 |
+| lib/screens/chat_screen.dart | 分页渲染（_pageSize = 200，上滑加载更早消息 + 顶部提示）；_showChatStats 走索引聚合；导出长图 / EPUB 时弹进度对话框；ChatIndexCache 在所有 _msgCache.clear() 处同步失效 |
+| lib/services/chat_index_cache.dart | 新增：全量小写文本 + 聚合统计缓存（条数 / 双方条数 / 输入输出 / 缓存命中 / 估算标记） |
+| lib/services/chat_transcript.dart | searchMessages 增可选 lowerTexts（搜索框传入缓存索引） |
+| lib/services/chat_image_export.dart | ender(onProgress:)：测量每 30 条、绘制每 40 条让出事件循环并回报进度，收尾 0.96 → 1.0 |
+| lib/services/chat_export_files.dart | uildBytes/shareChat 透传 onProgress |
+| 	est/v42_test.dart | 15 例：首次数组格式、只写日志、重放、编辑 upsert、截断、摘要日志、400 行自动合并（gen 递增）、坏行跳过、删除清日志、缓存失效、统计聚合、搜索索引一致性、长图进度单调到 1.0 |
+
+### 已知边界
+- 长图仍在主 isolate 里分块生成（每块让出一次事件循环，界面可刷新），真正离线渲染需要额外 isolate + 平台通道，留到后续版本。
+- 增量日志只保证「进程正常退出」的一致性；进程被系统杀死时，日志里已 flush 的行仍然有效，未 flush 的最后一两行可能丢失（与旧版整份重写的最坏情况相同）。
+- 分页只是渲染窗口，_messages 仍全量在内存（搜索 / 统计 / 导出都作用于全量）。
 ## 本轮 v0.41.0 —— 商用加固（极限情况与崩溃防护）
 
 > 审查记录详见 `docs/HARDENING.md`。目标：把「崩溃 / 卡死 / 丢数据」的路径堵上。

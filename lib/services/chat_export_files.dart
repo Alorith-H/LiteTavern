@@ -79,6 +79,7 @@ class ChatExportFiles {
     required String userName,
     required List<ChatMessage> messages,
     DateTime? exportedAt,
+    void Function(double value)? onProgress,
   }) async {
     final at = exportedAt ?? DateTime.now();
     switch (format) {
@@ -88,6 +89,7 @@ class ChatExportFiles {
           userName: userName,
           messages: messages,
           exportedAt: at,
+          onProgress: onProgress,
         );
       case ChatExportFormat.epub:
         return ChatEpubExport.build(
@@ -145,6 +147,7 @@ class ChatExportFiles {
     ChatExportFormat format = ChatExportFormat.text,
     DateTime? now,
     Directory? directory,
+    void Function(double value)? onProgress,
   }) async {
     final at = now ?? DateTime.now();
     File? tmp;
@@ -156,6 +159,7 @@ class ChatExportFiles {
           userName: userName,
           messages: messages,
           exportedAt: at,
+          onProgress: onProgress,
         );
         tmp = await writeTempBytes(
           bytes: bytes,
