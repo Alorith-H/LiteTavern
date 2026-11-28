@@ -17,6 +17,15 @@ class WhatsNewEntry {
 /// 最近几次更新的说明。只保留用户能感知的变化，不写内部实现。
 const List<WhatsNewEntry> kWhatsNew = <WhatsNewEntry>[
   WhatsNewEntry(
+    version: '0.47.0',
+    title: '对话更好看了',
+    bullets: <String>[
+      '角色回复里的强调、动作描写、「」台词、列表和代码块现在会分别排开，一眼能看出哪句是说出口的。',
+      '回复生成时末尾有个闪烁光标，新消息会轻轻浮现。',
+      '不习惯的话可以在「设置 → 外观与显示」里关掉「富文本渲染」和「对话动效」。',
+    ],
+  ),
+  WhatsNewEntry(
     version: '0.46.1',
     title: '界面与创建流程微调',
     bullets: <String>[

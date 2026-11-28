@@ -1,3 +1,29 @@
+## 本轮 v0.47.0 —— 富文本渲染 + 对话动效（用户需求：加入富文本支持和对话渲染效果）
+
+- **自写富文本解析层**：新增 `lib/services/rich_text.dart`（不依赖 flutter_markdown，纯函数便于单测）——
+  - `RichBlockType`：paragraph / heading / codeBlock / quote / bullet / numbered / divider / table；
+  - `RichSpan`（bold / italic / code / strike / dialogue / url）与 `RichBlock`（含 level / code / language / prefix / rows）；
+  - `parseRichText(source)` 逐行解析：围栏代码块、`#` 标题、`>` 引用（连续行合并）、`-`/`*`/`+` 列表、`1.` 有序列表、`|a|b|` 表格（跳过分隔行）、`---` 分隔线、其余段落（遇到空行或块级语法即停，前导空格记为缩进层级）；
+  - `parseInline(text)`：`**粗**` / `*斜*` / `***粗斜***` / `` `代码` `` / `~~删除~~` / `[文字](链接)`；中文 `「台词」`、`“台词”` 标记为 dialogue 样式；未闭合标记按原文保留，不吞字符。
+- **渲染组件**：新增 `lib/widgets/rich_message_text.dart`——
+  - 标题按级别放大加粗；代码块等宽字体 + 横向滚动 + 底色圆角；引用左侧竖线；列表圆点/序号用强调色；表格带表头底色与行分隔线；分隔线用细 Divider；
+  - 行内：粗体 600、斜体副色调、台词用主题强调色、行内代码等宽小一号带底纹、链接可点击（`openExternalLink`）、删除线；
+  - 生成中在文本末尾显示闪烁光标（`ValueKey('rich-text-caret')`，620ms 呼吸）；整体可选 `SelectableText` 以支持复制。
+- **聊天页接入**：`chat_screen.dart` 的 `_buildMessage` 里原 `MarkdownBody` 换成 `RichMessageText`（先过 `DisplayRegexLibrary.apply`，显示正则仍然生效），关掉开关时退回纯 `Text`；最后一条消息出现时用 `_MessageEntrance`（240ms 淡入 + 上浮 10px）。
+- **两个新开关**（`lib/services/storage.dart` + 设置 → 外观与显示）：`richTextEnabled`（`rich_text_enabled`，默认开）、`chatAnimations`（`chat_animations`，默认开）——关掉富文本即完全回到纯文本显示；关掉动效则没有光标与浮现动画。
+- **测试**：新增 `test/rich_text_test.dart` 20 例（块级解析 / 行内解析 / 台词与未闭合 / 表格 / 缩进 / `RichMessageText` 渲染与光标）；全量 **689 测试通过**。
+- **版本**：`pubspec.yaml` `0.47.0+56`、`kAppVersion='0.47.0'`；CHANGELOG、`whats_new` v0.47.0 三条；`docs/index.html` 静态版本 v0.47.0。
+
+### 本次运行记录（v0.47.0）
+| 项目 | 结果 |
+| --- | --- |
+| `flutter analyze` | No issues found!（12.3s） |
+| `flutter test` | **+689 All tests passed!** |
+| `flutter build apk --release` | 61.6MB（64,630,903 字节），versionCode 56 / 0.47.0 |
+| 模拟器装机 | `adb -s emulator-5556 install -r` Success |
+| 实机验证 | mock 服务返回带格式回复：斜体动作、紫色台词、加粗、圆点列表、引用竖线、等宽代码块均正确；流式时显示「思考中…」，完成后淡入；设置 → 外观与显示里「富文本渲染」「对话动效」两个开关均默认开启 |
+
+
 ## 本轮 v0.46.1 —— 变量改在对话里确认 + 默认主题色改为紫色（用户需求：不要弹窗；有变量就不再问；默认主题色紫色）
 
 - **变量不再弹窗**：删除 `lib/widgets/card_variables_dialog.dart` 与其测试，`card_creator_screen.dart` 的 `_generateCard()` 不再询问，改为 `wantsInitialVariables(_transcript())` 按对话内容判断。

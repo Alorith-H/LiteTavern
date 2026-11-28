@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../models/chat_group.dart';
 import '../models/chat_message.dart';
@@ -45,6 +44,7 @@ import 'chat_tree_screen.dart';
 import 'group_host_screen.dart';
 import '../widgets/common.dart';
 import '../widgets/reply_suggestions_bar.dart';
+import '../widgets/rich_message_text.dart';
 import '../widgets/sheet_menu.dart';
 import 'authors_note_screen.dart';
 import 'card_state_screen.dart';
@@ -3258,18 +3258,29 @@ class _ChatScreenState extends State<ChatScreen> {
               ],
             )
           else
-            MarkdownBody(
-              // v0.29.0：显示正则只改看到的内容，本地原文不变
-              data: DisplayRegexLibrary.apply(m.content, isUser: isUser),
-              styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context))
-                  .copyWith(
-                p: TextStyle(
+            // v0.47.0：富文本渲染——**强调**、*动作*、「台词」、列表、代码块各有层次；
+            // 关掉开关就退回纯文本，方便排查显示问题。
+            if (AppSettings.richTextEnabled)
+              RichMessageText(
+                text: DisplayRegexLibrary.apply(m.content, isUser: isUser),
+                style: TextStyle(
+                  fontSize: fontSize,
+                  height: 1.5,
+                  color: scheme.onSurface,
+                ),
+                // 流式生成时末尾跟一个闪烁光标，看起来是「正在写」，
+                // 而不是卡住的静止文本。
+                showCaret: _generating && isLast && !isUser,
+              )
+            else
+              Text(
+                DisplayRegexLibrary.apply(m.content, isUser: isUser),
+                style: TextStyle(
                   fontSize: fontSize,
                   height: 1.5,
                   color: scheme.onSurface,
                 ),
               ),
-            ),
           if (m.error != null) ...[
             const SizedBox(height: 8),
             Row(
@@ -3377,7 +3388,7 @@ class _ChatScreenState extends State<ChatScreen> {
       infoLine = parts.isEmpty ? null : parts.join(' · ');
     }
 
-    return Align(
+    final bubbleWithMeta = Align(
       alignment: style.alignRight ? Alignment.centerRight : Alignment.centerLeft,
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -3385,8 +3396,7 @@ class _ChatScreenState extends State<ChatScreen> {
             ? CrossAxisAlignment.end
             : CrossAxisAlignment.start,
         children: [
-          bubble,
-          if (m.hidden)
+          bubble,          if (m.hidden)
             Padding(
               padding: const EdgeInsets.only(top: 2, left: 6, right: 6),
               child: Row(
@@ -3431,6 +3441,15 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
     );
+
+    // v0.47.0：新消息轻轻浮现——只在最新一条上做，历史消息滚回来不重播。
+    if (isLast && AppSettings.chatAnimations) {
+      return _MessageEntrance(
+        key: ValueKey('enter-${m.timestamp}-$index-${m.variantIndex}'),
+        child: bubbleWithMeta,
+      );
+    }
+    return bubbleWithMeta;
   }
 
   /// 群里取发言者名字，单聊取角色名（小说模式的段落标签用）。
@@ -4243,6 +4262,30 @@ class _SwipeVariantWrapState extends State<_SwipeVariantWrap>
       child: Transform.translate(
         offset: Offset(_dx, 0),
         child: widget.child,
+      ),
+    );
+  }
+}
+
+
+/// 新消息的入场动效（v0.47.0）：淡入 + 轻微上浮。
+///
+/// 只在列表最后一条上使用；因为带 key，滚动后历史消息重建时不会重播。
+class _MessageEntrance extends StatelessWidget {
+  const _MessageEntrance({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOutCubic,
+      child: child,
+      builder: (context, t, inner) => Opacity(
+        opacity: 0.25 + 0.75 * t,
+        child: Transform.translate(offset: Offset(0, (1 - t) * 10), child: inner),
       ),
     );
   }

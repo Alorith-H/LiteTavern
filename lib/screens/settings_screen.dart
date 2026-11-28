@@ -1190,6 +1190,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
       const Divider(height: 1),
       _switchRow(
+        title: '富文本渲染',
+        subtitle: '把 *动作*、「台词」、列表和代码块排开；关掉就按纯文本显示',
+        value: AppSettings.richTextEnabled,
+        onChanged: (v) {
+          setState(() => AppSettings.richTextEnabled = v);
+        },
+      ),
+      const Divider(height: 1),
+      _switchRow(
+        title: '对话动效',
+        subtitle: '回复生成时在末尾显示光标，新消息轻轻浮现',
+        value: AppSettings.chatAnimations,
+        onChanged: (v) {
+          setState(() => AppSettings.chatAnimations = v);
+        },
+      ),
+      const Divider(height: 1),
+      _switchRow(
         title: '显示快捷回复',
         subtitle: '在输入框上方放一排常用短语，点一下就发',
         value: _showQuickReplies,

@@ -1678,6 +1678,18 @@ class AppSettings {
       chatLayoutFromId(_sp.getString(_kChatLayout));
   static set chatLayout(ChatLayout v) => _sp.setString(_kChatLayout, v.id);
 
+  static const _kRichText = 'rich_text_enabled';
+
+  /// 富文本渲染（v0.47.0）：把 *动作*、「台词」、列表、代码块等排出来。
+  static bool get richTextEnabled => _sp.getBool(_kRichText) ?? true;
+  static set richTextEnabled(bool v) => _sp.setBool(_kRichText, v);
+
+  static const _kChatAnimations = 'chat_animations';
+
+  /// 对话动效（v0.47.0）：流式光标与新消息浮现。默认开。
+  static bool get chatAnimations => _sp.getBool(_kChatAnimations) ?? true;
+  static set chatAnimations(bool v) => _sp.setBool(_kChatAnimations, v);
+
   static const _kAutoContinue = 'auto_continue_count';
   static const _kAutoSummarize = 'auto_summarize';
 
