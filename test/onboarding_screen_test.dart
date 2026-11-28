@@ -109,7 +109,7 @@ void main() {
     await tester.pump();
 
     expect(AppSettings.baseUrl, 'https://api.deepseek.com/v1');
-    expect(AppSettings.model, 'deepseek-chat');
+    expect(AppSettings.model, 'deepseek-flash');
     // Key 不被预设覆盖
     expect(AppSettings.apiKey, 'sk-test-123');
   });

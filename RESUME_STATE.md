@@ -1,4 +1,4 @@
-# 交接状态：v0.40.1 二级菜单返回上一级 + 设置页重新分组（2026-11-28 更新）
+# 交接状态：v0.40.2 修正 DeepSeek 上下文为 1M（2026-11-28 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
 > v0.11.0（角色卡市场）、v0.12.x（市场筛选、用户侧建议回复）、
@@ -30,7 +30,7 @@
 > v0.38.0（备份恢复可选内容）、
 > v0.39.0（菜单布局重做：统一零件、分组、图标）、
 > v0.40.0（聊天菜单改为二级：一级只列六组）、
-> v0.40.1（二级菜单返回上一级 + 设置页重新分组）。
+> v0.40.1（二级菜单返回上一级 + 设置页重新分组）、v0.40.2（DeepSeek 现役模型上下文 1M、预设改 deepseek-flash）。
 >
 > **本轮 v0.40.1 —— 菜单层级与设置分组**：
 > 1. **二级菜单返回上一级**：`showGroupedSheetMenu` 改为自绘 `showGeneralDialog` + `PopScope`；
@@ -48,7 +48,7 @@
 
 ## 仓库状态
 
-- 分支 `dev`，版本 `pubspec.yaml` = **0.40.1+42**，`lib/app_info.dart` `kAppVersion = '0.40.1'`。
+- 分支 `dev`，版本 `pubspec.yaml` = **0.40.2+43**，`lib/app_info.dart` `kAppVersion = '0.40.2'`。
 - 本轮新增 / 修改：
   - `lib/widgets/sheet_menu.dart`：`showGroupedSheetMenu` 改为自绘对话框 + `PopScope`；
     新增 `_SheetGroupHeader`（返回箭头 + 组名）、`_SheetDragHandle`；`_back()` 负责逐级返回。
@@ -112,7 +112,25 @@ python build\mock_llm.py    # 监听 127.0.0.1:8765，模拟器用 http://10.0.2
 其余底部弹层（聊天列表 / 书签 / 导出格式 / 市场筛选 / 模型列表）也换成 `sheet_menu` 零件、
 把「设置首页」也改成二级菜单风格（目前是长列表 + 分节标题）。
 
-## 本次运行记录（2026-11-28，v0.40.1）
+## 本轮 v0.40.2 —— DeepSeek 上下文修正
+
+- 官方文档核对（2026-11）：现役 `deepseek-flash`（V4.1-Flash）与 `deepseek-v4-pro`
+  最大上下文均为 **1M**，输出上限 384K；旧名 `deepseek-chat` / `deepseek-reasoner`
+  已路由到 V4.1-Flash，同为 1M（旧名三个月后停用，已过停用期）。
+- 修改：`lib/services/api_presets.dart` 里 DeepSeek 预设模型改 `deepseek-flash`、
+  `contextWindow` 改 1000000、note 标「1M 上下文」；`contextWindowForModel` 的
+  `deepseek*` 分支由 65536 改为 1000000。
+- 测试：`test/v20_test.dart`、`test/onboarding_screen_test.dart` 同步断言；全量 **559 全过**。
+- 影响：已保存的配置 `contextWindow = 0`（自动）会立刻按 1M 计算，无需迁移；
+  之前若手填过 64K 的仍以手填为准（可在模型配置里清空恢复自动）。
+
+## 本次运行记录（2026-11-28，v0.40.2）
+
+- `flutter analyze` → No issues found!（4.2s）
+- `flutter test` → +559 All tests passed!（16s）
+- `flutter build apk --release` → **61.1MB（64,056,935 字节）**，versionCode **43** / versionName **0.40.2**（Gradle 50.2s）
+- 真机 `adb -s 192.168.0.102:37433 install -r` → **Success**（dumpsys：versionCode 43 / 0.40.2 / lastUpdateTime 2026-11-28 10:03:52，数据保留）
+- 真机点验：设置 → 模型与生成 → 模型服务，dump 显示 **「Deepseek · deepseek-flash · 上下文 1M」**（修复前为「上下文 64K（自动）」）
 
 - `flutter analyze` → No issues found!（3.8s）
 - `flutter test` → +559 All tests passed!（12s）

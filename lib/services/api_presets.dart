@@ -46,12 +46,12 @@ const kApiPresets = <ApiPreset>[
   ApiPreset(
     'DeepSeek',
     'https://api.deepseek.com/v1',
-    'deepseek-chat',
+    'deepseek-flash',
     siteUrl: 'https://platform.deepseek.com/',
     keyUrl: 'https://platform.deepseek.com/api_keys',
     docsUrl: 'https://api-docs.deepseek.com/zh-cn/',
-    note: '按量付费，需先充值；Key 形如 sk-xxxx',
-    contextWindow: 65536,
+    note: '按量付费，需先充值；1M 上下文；Key 形如 sk-xxxx',
+    contextWindow: 1000000,
   ),
   // 智谱只留一家（v0.22.0）：不预设具体 GLM 型号，模型名可以自己改或从列表里挑。
   ApiPreset(
@@ -122,10 +122,11 @@ int contextWindowForModel(String model, {int fallback = 65536}) {
     if (k != null && k > 0) return k * 1024;
   }
 
-  // 各家主力模型
+  // 各家主力模型（v0.40.2：DeepSeek V4.1 Flash / V4 Pro 均为 1M 上下文，
+  // 旧名 deepseek-chat / deepseek-reasoner 也已路由到 V4.1-Flash）。
   if (m.startsWith('glm-4') || m.startsWith('glm-3')) return 128000;
   if (m.startsWith('glm-5')) return 200000;
-  if (m.startsWith('deepseek')) return 65536;
+  if (m.startsWith('deepseek')) return 1000000;
   if (m.startsWith('kimi') || m.startsWith('moonshot')) return 131072;
   if (m.startsWith('mimo')) return 65536;
   if (m.startsWith('gpt-4o') ||

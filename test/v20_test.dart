@@ -19,9 +19,9 @@ void main() {
       expect(kApiPresets, isNotEmpty);
       final first = kApiPresets.first;
       expect(first.label, 'DeepSeek');
-      expect(first.model, 'deepseek-chat');
+      expect(first.model, 'deepseek-flash');
       expect(first.free, isFalse);
-      expect(first.contextWindow, 65536);
+      expect(first.contextWindow, 1000000);
     });
 
     test('每个预设都有可用的官网与 Key 链接，上下文长度为正', () {
@@ -53,7 +53,9 @@ void main() {
       expect(contextWindowForModel('glm-4-flash'), 128000);
       expect(contextWindowForModel('glm-4-air'), 128000);
       expect(contextWindowForModel('glm-5'), 200000);
-      expect(contextWindowForModel('deepseek-chat'), 65536);
+      expect(contextWindowForModel('deepseek-chat'), 1000000);
+    expect(contextWindowForModel('deepseek-flash'), 1000000);
+    expect(contextWindowForModel('deepseek-v4-pro'), 1000000);
       expect(contextWindowForModel('kimi-k2'), 131072);
       expect(contextWindowForModel('gpt-4o-mini'), 128000);
       expect(contextWindowForModel('gpt-5'), 200000);
@@ -77,7 +79,7 @@ void main() {
 
     test('越大越好：同一模型不因大小写失效', () {
       expect(contextWindowForModel('GLM-4-Flash'), 128000);
-      expect(contextWindowForModel('DeepSeek-Chat'), 65536);
+      expect(contextWindowForModel('DeepSeek-Chat'), 1000000);
     });
   });
 

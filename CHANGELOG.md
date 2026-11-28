@@ -2,6 +2,15 @@
 
 本项目遵循语义化版本：`MAJOR.MINOR.PATCH`，Android `versionCode` 随每次发版递增。
 
+## v0.40.2
+
+- **修正 DeepSeek 上下文长度**：按官方文档（2026-11 现行），DeepSeek 现役模型 `deepseek-flash`
+  （V4.1-Flash）与 `deepseek-v4-pro` 的最大上下文都是 **1M（1,000,000）**，
+  旧名 `deepseek-chat` / `deepseek-reasoner` 也已路由到 V4.1-Flash 并有同样的 1M 窗口。
+  应用里「按模型自动」此前仍按 64K 推断，现已改为 1M，避免长对话过早触发压缩、白白浪费容量。
+- 新手引导里的 DeepSeek 预设模型名从已下线的 `deepseek-chat` 改为现役 **`deepseek-flash`**，
+  预设上下文写为 1M；模型名照常可以手动改或从「获取模型列表」里挑。
+
 ## v0.40.1
 
 - **二级菜单更顺手**：在二级里按系统返回键、或点菜单外的空白处，都会先回到一级菜单，再按一次才关闭（一级才直接关）。
