@@ -459,6 +459,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // ---------------------------------------------- 二级菜单 --
           const SectionHeader('设置'),
           _actionRow(
+            leading: Icons.tune,
             title: '生成参数',
             subtitle: _generationSummary(),
             trailing: _chevron(scheme),
@@ -466,6 +467,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const Divider(height: 1),
           _actionRow(
+            leading: Icons.forum_outlined,
             title: '聊天与上下文',
             subtitle: _chatSummary(),
             trailing: _chevron(scheme),
@@ -473,6 +475,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const Divider(height: 1),
           _actionRow(
+            leading: Icons.storefront_outlined,
             title: '角色卡市场与翻译',
             subtitle: _marketSummary(),
             trailing: _chevron(scheme),
@@ -480,6 +483,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const Divider(height: 1),
           _actionRow(
+            leading: Icons.menu_book_outlined,
             title: '世界书',
             subtitle: _worldBookSummary(),
             trailing: _chevron(scheme),
@@ -487,6 +491,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const Divider(height: 1),
           _actionRow(
+            leading: Icons.palette_outlined,
             title: '外观',
             subtitle: _appearanceSummary(),
             trailing: _chevron(scheme),
@@ -496,6 +501,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // -------------------------------------------------- 帮助 --
           const SectionHeader('帮助与关于'),
           _actionRow(
+            leading: Icons.help_outline,
             title: '帮助与关于',
             subtitle: '版本 v$kAppVersion · 重看新手引导 · 作者 Alorith',
             trailing: _chevron(scheme),
@@ -1400,7 +1406,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required String title,
     String? subtitle,
     Widget? trailing,
-    required VoidCallback onTap,
+    IconData? leading,
+  required VoidCallback onTap,
   }) {
     final scheme = Theme.of(context).colorScheme;
     return InkWell(
@@ -1409,7 +1416,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         padding: const EdgeInsets.symmetric(vertical: 12),
         child: Row(
           children: [
-            Expanded(
+            if (leading != null) ...[
+    Icon(leading, size: 20, color: scheme.onSurfaceVariant),
+    const SizedBox(width: 12),
+    ],
+    Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [

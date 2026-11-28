@@ -44,6 +44,7 @@ import 'chat_tree_screen.dart';
 import 'group_host_screen.dart';
 import '../widgets/common.dart';
 import '../widgets/reply_suggestions_bar.dart';
+import '../widgets/sheet_menu.dart';
 import 'authors_note_screen.dart';
 import 'card_state_screen.dart';
 import 'chat_preset_screen.dart';
@@ -2005,219 +2006,244 @@ class _ChatScreenState extends State<ChatScreen> {
     final canSummarize = !_generating &&
         !_summarizing &&
         hasSummarizableHistory(_messages, _historyLimit);
-    showModalBottomSheet<void>(
+    final presetSummary = ChatPresetOverrideStore.load(_convId).summary;
+
+    // v0.39.0：菜单按「生成 / 这段聊天 / 提示词与统计 / 导入与导出 / 角色」分组，
+    // 每项带图标；危险项放最后并标红，减少误触。
+    showSheetMenu<void>(
       context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      // v0.18.1：菜单项多（13+），小屏上原来会把「书签」等挤到屏幕外，
-      // 现在限高 + 可滚动，任何一项都点得到。
-      builder: (ctx) => SafeArea(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(ctx).size.height * 0.72,
-          ),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-            ListTile(
-              title: const Text('清空对话'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _clearConversation();
-              },
-            ),
-            if (card != null)
-              ListTile(
-                title: const Text('编辑角色'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _editCharacter();
-                },
-              ),
-            ListTile(
-              title: const Text('聊天统计'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showChatStats();
-              },
-            ),
-            ListTile(
-              title: const Text('查看发送内容'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showInjection();
-              },
-            ),
-            ListTile(
-              title: const Text('提示词检视'),
-              subtitle: const Text('逐段 token、缓存能复用到哪、哪里在浪费'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _openPromptAudit();
-              },
-            ),
-            ListTile(
-              title: const Text('上下文占用'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showContextUsage();
-              },
-            ),
-            ListTile(
-              title: const Text('复制对话'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _exportConversation();
-              },
-            ),
-            ListTile(
-              title: const Text('导出对话文件…'),
-              subtitle: const Text('纯文本 / JSON / 长图 / EPUB'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _exportChatFile();
-              },
-            ),
-            ListTile(
-              title: const Text('导入聊天记录'),
-              subtitle: const Text('从 SillyTavern 的 .jsonl 接进来（v0.32.0）'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _importChatFile();
-              },
-            ),
-            ListTile(
-              title: const Text('聊天列表'),
-              subtitle: Text('同一角色可有多段聊天 · 当前「$_chatTitle」'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showChatList();
-              },
-            ),
-            ListTile(
-              title: const Text('分支树'),
-              subtitle: const Text('看看这段聊天分出了哪些岔路'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _openChatTree();
-              },
-            ),
-            ListTile(
-              title: const Text('世界书绑定'),
-              subtitle: const Text('全局 / 人设 / 角色 / 这段聊天，分别绑定'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _openWorldBookBindings();
-              },
-            ),
-            if (_isGroup) ...[
-              ListTile(
-                title: const Text('群聊主持'),
-                subtitle: const Text('只让名单里的角色发言、按这个顺序轮转（v0.36.0）'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _openGroupHost();
-                },
-              ),
-              ListTile(
-                title: const Text('让大家接着说'),
-                subtitle: const Text('不用你发言，让角色们自己接着聊一轮'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _continueGroupRound();
-                },
-              ),
-            ],
-            ListTile(
-              title: const Text('变量与状态'),
-              subtitle: const Text('只读查看卡内变量、对话里的状态更新与卡内脚本提示（v0.33.0）'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _openCardState();
-              },
-            ),
-            ListTile(
-              title: const Text('这段聊天的生成参数'),
-              subtitle: Text(
-                ChatPresetOverrideStore.load(_convId).summary,
-              ),
-              onTap: () {
-                Navigator.pop(ctx);
-                _openChatPreset();
-              },
-            ),
-            ListTile(
-              title: const Text('搜索对话'),
-              subtitle: const Text('在这段聊天里找关键词，点结果跳过去'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showSearch();
-              },
-            ),
-            ListTile(
-              title: const Text('书签'),
-              subtitle: const Text('回看收藏的消息片段'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showBookmarks();
-              },
-            ),
-            ListTile(
-              title: const Text('作者注释'),
-              subtitle: Text(
-                _authorNote.isActive
-                    ? (_authorNote.placement == AuthorNotePlacement.inChat
-                        ? '已启用 · 聊天内 深度 ${_authorNote.depth}'
-                        : '已启用 · 设定之后')
-                    : '未启用 · 临时给模型的额外指令',
-              ),
-              onTap: () {
-                Navigator.pop(ctx);
-                _openAuthorNote();
-              },
-            ),
-            ListTile(
-              title: const Text('继续生成'),
-              enabled: canContinue,
-              onTap: canContinue
-                  ? () {
-                      Navigator.pop(ctx);
-                      _continueGeneration();
-                    }
-                  : null,
-            ),
-            ListTile(
-              title: const Text('重新生成'),
-              enabled: canRegen,
-              onTap: canRegen
-                  ? () {
-                      Navigator.pop(ctx);
-                      _regenerate();
-                    }
-                  : null,
-            ),
-            if (canSummarize)
-              ListTile(
-                title: const Text('立即总结早期对话'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _manualSummarize();
-                },
-              ),
-            if (card != null && card.alternateGreetings.isNotEmpty)
-              ListTile(
-                title: const Text('换开场白'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _rotateGreeting();
-                },
-              ),
-              ],
-            ),
-          ),
+      children: [
+        SheetMenuTitle(
+          title: _isGroup ? '群聊菜单' : '聊天菜单',
+          subtitle: '当前：$_chatTitle',
         ),
-      ),
+        const SheetMenuSection('生成'),
+        SheetMenuItem(
+          icon: Icons.refresh_outlined,
+          title: '重新生成',
+          subtitle: '用同一条你的话再要一次回复',
+          enabled: canRegen,
+          onTap: () {
+            Navigator.pop(context);
+            _regenerate();
+          },
+        ),
+        SheetMenuItem(
+          icon: Icons.play_arrow_outlined,
+          title: '继续生成',
+          subtitle: '让角色顺着最后一句往下写',
+          enabled: canContinue,
+          onTap: () {
+            Navigator.pop(context);
+            _continueGeneration();
+          },
+        ),
+        if (!_isGroup && card != null && card.alternateGreetings.isNotEmpty)
+          SheetMenuItem(
+            icon: Icons.style_outlined,
+            title: '换开场白',
+            subtitle: '换一张卡里自带的开场',
+            onTap: () {
+              Navigator.pop(context);
+              _rotateGreeting();
+            },
+          ),
+        const SheetMenuSection('这段聊天'),
+        SheetMenuItem(
+          icon: Icons.forum_outlined,
+          title: '聊天列表',
+          subtitle: '同一角色可有多段聊天 · 当前「$_chatTitle」',
+          onTap: () {
+            Navigator.pop(context);
+            _showChatList();
+          },
+        ),
+        SheetMenuItem(
+          icon: Icons.account_tree_outlined,
+          title: '分支树',
+          subtitle: '看看这段聊天分出了哪些岔路',
+          onTap: () {
+            Navigator.pop(context);
+            _openChatTree();
+          },
+        ),
+        SheetMenuItem(
+          icon: Icons.search_outlined,
+          title: '搜索对话',
+          subtitle: '在这段聊天里找关键词，点结果跳过去',
+          onTap: () {
+            Navigator.pop(context);
+            _showSearch();
+          },
+        ),
+        SheetMenuItem(
+          icon: Icons.bookmark_border_outlined,
+          title: '书签',
+          subtitle: '回看收藏的消息片段',
+          onTap: () {
+            Navigator.pop(context);
+            _showBookmarks();
+          },
+        ),
+        SheetMenuItem(
+          icon: Icons.sticky_note_2_outlined,
+          title: '作者注释',
+          subtitle: _authorNote.isActive
+              ? (_authorNote.placement == AuthorNotePlacement.inChat
+                  ? '已启用 · 聊天内 深度 ${_authorNote.depth}'
+                  : '已启用 · 设定之后')
+              : '未启用 · 临时给模型的额外指令',
+          onTap: () {
+            Navigator.pop(context);
+            _openAuthorNote();
+          },
+        ),
+        SheetMenuItem(
+          icon: Icons.tune_outlined,
+          title: '这段聊天的生成参数',
+          subtitle: presetSummary,
+          onTap: () {
+            Navigator.pop(context);
+            _openChatPreset();
+          },
+        ),
+        SheetMenuItem(
+          icon: Icons.menu_book_outlined,
+          title: '世界书绑定',
+          subtitle: '全局 / 人设 / 角色 / 这段聊天，分别绑定',
+          onTap: () {
+            Navigator.pop(context);
+            _openWorldBookBindings();
+          },
+        ),
+        SheetMenuItem(
+          icon: Icons.monitor_heart_outlined,
+          title: '变量与状态',
+          subtitle: '只读查看卡内变量、状态更新与卡内脚本提示',
+          onTap: () {
+            Navigator.pop(context);
+            _openCardState();
+          },
+        ),
+        if (_isGroup) ...[
+          SheetMenuItem(
+            icon: Icons.groups_outlined,
+            title: '群聊主持',
+            subtitle: '只让名单里的角色发言、按这个顺序轮转',
+            onTap: () {
+              Navigator.pop(context);
+              _openGroupHost();
+            },
+          ),
+          SheetMenuItem(
+            icon: Icons.fast_forward_outlined,
+            title: '让大家接着说',
+            subtitle: '不用你发言，让角色们自己接着聊一轮',
+            onTap: () {
+              Navigator.pop(context);
+              _continueGroupRound();
+            },
+          ),
+        ],
+        const SheetMenuSection('提示词与统计'),
+        SheetMenuItem(
+          icon: Icons.receipt_long_outlined,
+          title: '查看发送内容',
+          subtitle: '这一轮实际发给模型的提示词',
+          onTap: () {
+            Navigator.pop(context);
+            _showInjection();
+          },
+        ),
+        SheetMenuItem(
+          icon: Icons.manage_search_outlined,
+          title: '提示词检视',
+          subtitle: '逐段 token、缓存能复用到哪、哪里在浪费',
+          onTap: () {
+            Navigator.pop(context);
+            _openPromptAudit();
+          },
+        ),
+        SheetMenuItem(
+          icon: Icons.data_usage_outlined,
+          title: '上下文占用',
+          subtitle: '这段对话用了多少窗口、还差多少要摘要',
+          onTap: () {
+            Navigator.pop(context);
+            _showContextUsage();
+          },
+        ),
+        SheetMenuItem(
+          icon: Icons.bar_chart_outlined,
+          title: '聊天统计',
+          subtitle: '条数、token、缓存命中与预计花费',
+          onTap: () {
+            Navigator.pop(context);
+            _showChatStats();
+          },
+        ),
+        if (canSummarize)
+          SheetMenuItem(
+            icon: Icons.compress_outlined,
+            title: '立即总结早期对话',
+            subtitle: '把较早的内容压成摘要（会额外消耗 token）',
+            onTap: () {
+              Navigator.pop(context);
+              _manualSummarize();
+            },
+          ),
+        const SheetMenuSection('导入与导出'),
+        SheetMenuItem(
+          icon: Icons.copy_all_outlined,
+          title: '复制对话',
+          subtitle: '纯文本复制到剪贴板',
+          onTap: () {
+            Navigator.pop(context);
+            _exportConversation();
+          },
+        ),
+        SheetMenuItem(
+          icon: Icons.ios_share_outlined,
+          title: '导出对话文件…',
+          subtitle: '纯文本 / JSON / 长图 / EPUB',
+          onTap: () {
+            Navigator.pop(context);
+            _exportChatFile();
+          },
+        ),
+        SheetMenuItem(
+          icon: Icons.file_download_outlined,
+          title: '导入聊天记录',
+          subtitle: '从 SillyTavern 的 .jsonl 接进来',
+          onTap: () {
+            Navigator.pop(context);
+            _importChatFile();
+          },
+        ),
+        if (card != null) ...[
+          const SheetMenuSection('角色'),
+          SheetMenuItem(
+            icon: Icons.edit_outlined,
+            title: '编辑角色',
+            subtitle: '改设定、开场白、世界书挂载',
+            onTap: () {
+              Navigator.pop(context);
+              _editCharacter();
+            },
+          ),
+        ],
+        const SheetMenuSection('危险操作'),
+        SheetMenuItem(
+          icon: Icons.delete_sweep_outlined,
+          title: '清空对话',
+          subtitle: '只清空这一段聊天的本地记录，不可恢复',
+          danger: true,
+          onTap: () {
+            Navigator.pop(context);
+            _clearConversation();
+          },
+        ),
+      ],
     );
   }
 
@@ -3317,117 +3343,107 @@ class _ChatScreenState extends State<ChatScreen> {
         m.role == 'assistant' &&
         !_generating &&
         _messages.take(index).any((x) => x.role == 'user');
+    final isUser = m.role == 'user';
+    final hiddenHint = m.hidden ? '恢复后这条会重新发给模型' : '本地仍然保留并显示，只是不再发给模型';
 
-    showModalBottomSheet<void>(
+    // v0.39.0：按「查看与修改 / 剧情 / 给模型 / 危险操作」分组，
+    // 删除类统一放最后并标红。
+    showSheetMenu<void>(
       context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (ctx) => SafeArea(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(ctx).size.height * 0.72,
-          ),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  title: const Text('复制'),
-                  onTap: () async {
-                    Navigator.pop(ctx);
-                    await Clipboard.setData(ClipboardData(text: m.content));
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('已复制')),
-                    );
-                  },
-                ),
-                ListTile(
-                  title: const Text('编辑'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _editMessage(m);
-                  },
-                ),
-                if (canRegen)
-                  ListTile(
-                    title: const Text('重新生成'),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      _regenerate();
-                    },
-                  ),
-                if (!_busy)
-                  ListTile(
-                    title: const Text('从这里创建分支'),
-                    subtitle: const Text('把这条及之前的对话复制成一段新聊天'),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      _branchFrom(index);
-                    },
-                  ),
-                ListTile(
-                  title: const Text('书签'),
-                  subtitle: const Text('加入或取消这条消息的书签'),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _toggleBookmark(m);
-                  },
-                ),
-                const Divider(height: 1),
-                // v0.24.0：对模型隐藏 / 删除单条 / 删除这条及以后
-                ListTile(
-                  leading: Icon(
-                    m.hidden
-                        ? Icons.visibility_outlined
-                        : Icons.visibility_off_outlined,
-                  ),
-                  title: Text(m.hidden ? '取消隐藏' : '对模型隐藏'),
-                  subtitle: Text(
-                    m.hidden
-                        ? '恢复后这条会重新发给模型'
-                        : '本地仍然保留并显示，只是不再发给模型',
-                  ),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _toggleHidden(index);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.delete_outline),
-                  title: const Text('删除这一条'),
-                  subtitle: const Text('只删这一条，前后对话保持连续'),
-                  enabled: !_busy,
-                  onTap: !_busy
-                      ? () {
-                          Navigator.pop(ctx);
-                          _deleteMessage(index);
-                        }
-                      : null,
-                ),
-                ListTile(
-                  leading: Icon(
-                    Icons.delete_sweep_outlined,
-                    color: Theme.of(context).colorScheme.error,
-                  ),
-                  title: Text(
-                    '删除这条及以后',
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
-                  ),
-                  subtitle: Text('会一起删掉后面 ${_messages.length - index - 1} 条，不可撤销'),
-                  enabled: !_busy,
-                  onTap: !_busy
-                      ? () {
-                          Navigator.pop(ctx);
-                          _deleteMessagesFrom(index);
-                        }
-                      : null,
-                ),
-              ],
-            ),
-          ),
+      children: [
+        SheetMenuTitle(
+          title: '这条消息',
+          subtitle: '${isUser ? '你的话' : '角色回复'} · ${_formatTime(m.timestamp)}',
         ),
-      ),
+        const SheetMenuSection('查看与修改'),
+        SheetMenuItem(
+          icon: Icons.copy_all_outlined,
+          title: '复制',
+          subtitle: '把这条内容复制到剪贴板',
+          onTap: () async {
+            Navigator.pop(context);
+            await Clipboard.setData(ClipboardData(text: m.content));
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('已复制')),
+            );
+          },
+        ),
+        SheetMenuItem(
+          icon: Icons.edit_outlined,
+          title: '编辑',
+          subtitle: '只改这一段聊天的本地内容',
+          onTap: () {
+            Navigator.pop(context);
+            _editMessage(m);
+          },
+        ),
+        const SheetMenuSection('剧情'),
+        if (canRegen)
+          SheetMenuItem(
+            icon: Icons.refresh_outlined,
+            title: '重新生成',
+            subtitle: '用前面的对话再写一版',
+            onTap: () {
+              Navigator.pop(context);
+              _regenerate();
+            },
+          ),
+        if (!_busy)
+          SheetMenuItem(
+            icon: Icons.call_split_outlined,
+            title: '从这里创建分支',
+            subtitle: '把这条及之前的对话复制成一段新聊天',
+            onTap: () {
+              Navigator.pop(context);
+              _branchFrom(index);
+            },
+          ),
+        SheetMenuItem(
+          icon: Icons.bookmark_border_outlined,
+          title: '书签',
+          subtitle: '加入或取消这条消息的书签',
+          onTap: () {
+            Navigator.pop(context);
+            _toggleBookmark(m);
+          },
+        ),
+        const SheetMenuSection('给模型'),
+        SheetMenuItem(
+          icon: m.hidden
+              ? Icons.visibility_outlined
+              : Icons.visibility_off_outlined,
+          title: m.hidden ? '取消隐藏' : '对模型隐藏',
+          subtitle: hiddenHint,
+          onTap: () {
+            Navigator.pop(context);
+            _toggleHidden(index);
+          },
+        ),
+        const SheetMenuSection('危险操作'),
+        SheetMenuItem(
+          icon: Icons.delete_outline,
+          title: '删除这一条',
+          subtitle: '只删这一条，前后对话保持连续',
+          danger: true,
+          enabled: !_busy,
+          onTap: () {
+            Navigator.pop(context);
+            _deleteMessage(index);
+          },
+        ),
+        SheetMenuItem(
+          icon: Icons.delete_sweep_outlined,
+          title: '删除这条及以后',
+          subtitle: '会一起删掉后面 ${_messages.length - index - 1} 条，不可撤销',
+          danger: true,
+          enabled: !_busy,
+          onTap: () {
+            Navigator.pop(context);
+            _deleteMessagesFrom(index);
+          },
+        ),
+      ],
     );
   }
 

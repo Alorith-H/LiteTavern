@@ -14,6 +14,7 @@ import '../services/file_pick.dart';
 import '../services/import_report.dart';
 import '../services/storage.dart';
 import '../widgets/common.dart';
+import '../widgets/sheet_menu.dart';
 import '../widgets/import_report_dialog.dart';
 import '../widgets/segmented_toggle.dart';
 import '../widgets/update_flow.dart';
@@ -251,30 +252,33 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showActions(CharacterCard card) {
-    showModalBottomSheet<void>(
+    // v0.39.0：长按角色的菜单也统一成「标题 + 分组 + 危险项」。
+    showSheetMenu<void>(
       context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              title: const Text('编辑'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _editCharacter(card);
-              },
-            ),
-            ListTile(
-              title: Text('删除',
-                  style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _deleteCharacter(card);
-              },
-            ),
-          ],
+      children: [
+        SheetMenuTitle(title: card.name, subtitle: '角色操作'),
+        const SheetMenuSection('编辑'),
+        SheetMenuItem(
+          icon: Icons.edit_outlined,
+          title: '编辑角色',
+          subtitle: '设定、开场白、世界书挂载',
+          onTap: () {
+            Navigator.pop(context);
+            _editCharacter(card);
+          },
         ),
-      ),
+        const SheetMenuSection('危险操作'),
+        SheetMenuItem(
+          icon: Icons.delete_outline,
+          title: '删除角色',
+          subtitle: '会一起删掉它的聊天记录与书签，不可恢复',
+          danger: true,
+          onTap: () {
+            Navigator.pop(context);
+            _deleteCharacter(card);
+          },
+        ),
+      ],
     );
   }
 
@@ -292,114 +296,79 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// FAB / 空态按钮：底部弹窗四选
   /// "角色卡市场 / 从文件导入 / 从链接下载 / AI 创建角色卡"。
+  // v0.39.0：按来源分三组，市场带「推荐」徽章，避免四个入口平铺时看不出先点哪个。
   void _showImportSheet() {
     final scheme = Theme.of(context).colorScheme;
-    showModalBottomSheet<void>(
+    showSheetMenu<void>(
       context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (ctx) => SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
-                child: Text(
-                  '导入角色卡',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: scheme.onSurface,
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-                child: Text(
-                  '第一次用？直接从「角色卡市场」挑一张，点下载就导入完成。',
-                  style: TextStyle(
-                    fontSize: AppType.caption,
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.storefront_outlined),
-                title: Row(
-                  children: [
-                    const Text('角色卡市场'),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 1,
-                      ),
-                      decoration: BoxDecoration(
-                        color: scheme.primary.withValues(alpha: 0.16),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        '推荐',
-                        style: TextStyle(
-                          fontSize: AppType.meta,
-                          color: scheme.primary,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                subtitle: const Text('在线浏览公开角色卡，点一下就下载导入'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _openMarket();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.description_outlined),
-                title: const Text('从文件导入'),
-                subtitle: const Text('选择手机里的 .png / .json / .charx 角色卡'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _import();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.link_outlined),
-                title: const Text('从链接下载'),
-                subtitle: const Text('粘贴角色卡直链，下载后自动导入'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _showDownloadDialog();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.auto_awesome_outlined),
-                title: const Text('AI 创建角色卡'),
-                subtitle: const Text('和 AI 聊几句，生成角色卡再微调'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _openCardCreator();
-                },
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 6, 20, 16),
-                child: Text(
-                  '角色卡是 SillyTavern 格式的文件：.png 图片里内嵌了角色设定，也可以是 .json，或压缩的 .charx。'
-                  '导入后立刻出现在主页列表，随时可以编辑或删除。',
-                  style: TextStyle(
-                    fontSize: AppType.meta,
-                    height: 1.5,
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-            ],
+      children: [
+        const SheetMenuTitle(
+          title: '导入角色卡',
+          subtitle: '第一次用？直接从「角色卡市场」挑一张，点下载就导入完成。',
+        ),
+        const SheetMenuSection('在线获取'),
+        SheetMenuItem(
+          icon: Icons.storefront_outlined,
+          title: '角色卡市场',
+          subtitle: '在线浏览公开角色卡，点一下就下载导入',
+          trailing: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+            decoration: BoxDecoration(
+              color: scheme.primary.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              '推荐',
+              style: TextStyle(fontSize: AppType.meta, color: scheme.primary),
+            ),
+          ),
+          onTap: () {
+            Navigator.pop(context);
+            _openMarket();
+          },
+        ),
+        const SheetMenuSection('从手机或链接'),
+        SheetMenuItem(
+          icon: Icons.description_outlined,
+          title: '从文件导入',
+          subtitle: '选择手机里的 .png / .json / .charx 角色卡',
+          onTap: () {
+            Navigator.pop(context);
+            _import();
+          },
+        ),
+        SheetMenuItem(
+          icon: Icons.link_outlined,
+          title: '从链接下载',
+          subtitle: '粘贴角色卡直链，下载后自动导入',
+          onTap: () {
+            Navigator.pop(context);
+            _showDownloadDialog();
+          },
+        ),
+        const SheetMenuSection('自己创建'),
+        SheetMenuItem(
+          icon: Icons.auto_awesome_outlined,
+          title: 'AI 创建角色卡',
+          subtitle: '和 AI 聊几句，生成角色卡再微调',
+          onTap: () {
+            Navigator.pop(context);
+            _openCardCreator();
+          },
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+          child: Text(
+            '角色卡是 SillyTavern 格式的文件：.png 图片里内嵌了角色设定，也可以是 .json，或压缩的 .charx。'
+            '导入后立刻出现在主页列表，随时可以编辑或删除。',
+            style: TextStyle(
+              fontSize: AppType.meta,
+              height: 1.5,
+              color: scheme.onSurfaceVariant,
+            ),
           ),
         ),
-      ),
+      ],
     );
   }
 
