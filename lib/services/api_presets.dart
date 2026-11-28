@@ -54,26 +54,31 @@ const kApiPresets = <ApiPreset>[
     contextWindow: 1000000,
   ),
   // 智谱只留一家（v0.22.0）：不预设具体 GLM 型号，模型名可以自己改或从列表里挑。
+  // v0.40.3：按官方文档核对——GLM-4.6 / 4.7 / 5.x 均为 200K 上下文；
+  // 免费型号 glm-4.6v-flash 是 128K，可在模型列表里换成它。
   ApiPreset(
     '智谱 GLM',
     'https://open.bigmodel.cn/api/paas/v4',
-    'glm-4-flash',
+    'glm-4.6',
     siteUrl: 'https://bigmodel.cn/',
     keyUrl: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys',
     docsUrl: 'https://docs.bigmodel.cn/cn/guide/develop/http/introduction',
-    note: '按量付费（部分型号有免费额度）；手机号注册并实名即可拿 Key',
-    contextWindow: 128000,
+    note: '按量付费；GLM-4.6 为 200K 上下文；免费型号 glm-4.6v-flash 为 128K',
+    contextWindow: 200000,
   ),
+  // v0.40.3：moonshot-v1-* 系列已全部下线，官方现役是 kimi-k3.1-pro / kimi-k3，
+  // 上下文均为 1M（platform.kimi.com/docs/models）。
   ApiPreset(
     'Kimi',
     'https://api.moonshot.cn/v1',
-    'moonshot-v1-8k',
+    'kimi-k3.1-pro',
     siteUrl: 'https://platform.kimi.com/',
     keyUrl: 'https://platform.kimi.com/console/api-keys',
-    docsUrl: 'https://platform.moonshot.cn/docs/api',
-    note: '按量付费，需先充值；Key 形如 sk-xxxx',
-    contextWindow: 8192,
+    docsUrl: 'https://platform.kimi.com/docs/models',
+    note: '按量付费；Kimi K3.1 Pro 为 1M 上下文；Key 形如 sk-xxxx',
+    contextWindow: 1000000,
   ),
+  // v0.40.3：官方规格页写 MiMo-V2.6-Flash 上下文 1M、最大输出 128K。
   ApiPreset(
     '小米 MiMo',
     'https://api.xiaomimimo.com/v1',
@@ -81,8 +86,8 @@ const kApiPresets = <ApiPreset>[
     siteUrl: 'https://platform.xiaomimimo.com/',
     keyUrl: 'https://platform.xiaomimimo.com/#/console/api-keys',
     docsUrl: 'https://mimo.mi.com/docs/zh-CN/quick-start/summary/first-api-call',
-    note: '按量付费，需先充值；Key 形如 sk-xxxx',
-    contextWindow: 65536,
+    note: '按量付费；MiMo-V2.6-Flash 为 1M 上下文；Key 形如 sk-xxxx',
+    contextWindow: 1000000,
   ),
   ApiPreset(
     'Ollama（局域网）',
@@ -122,26 +127,31 @@ int contextWindowForModel(String model, {int fallback = 65536}) {
     if (k != null && k > 0) return k * 1024;
   }
 
-  // 各家主力模型（v0.40.2：DeepSeek V4.1 Flash / V4 Pro 均为 1M 上下文，
-  // 旧名 deepseek-chat / deepseek-reasoner 也已路由到 V4.1-Flash）。
-  if (m.startsWith('glm-4') || m.startsWith('glm-3')) return 128000;
-  if (m.startsWith('glm-5')) return 200000;
-  if (m.startsWith('deepseek')) return 1000000;
-  if (m.startsWith('kimi') || m.startsWith('moonshot')) return 131072;
-  if (m.startsWith('mimo')) return 65536;
-  if (m.startsWith('gpt-4o') ||
-      m.startsWith('gpt-4.1') ||
-      m.startsWith('gpt-4-turbo')) {
-    return 128000;
+  // 各家主力模型（v0.40.2 起按官方文档核对：
+  // DeepSeek V4.1-Flash / V4-Pro 均 1M；智谱 GLM-4.6/4.7/5.x 200K、GLM-4 老型号 128K；
+  // Kimi K3.1/K3 1M、K2 256K；MiMo V2.6 1M；GPT-6.x 1.05M、GPT-5 400K、GPT-4.1 1M、GPT-4o 128K；
+  // Gemini 4/3/2.5 1M；Claude 200K（1M 为 beta）；Qwen3.8 1M、Qwen3 128K）。
+  if (m.startsWith('glm-4.6') || m.startsWith('glm-4.7') || m.startsWith('glm-5')) {
+    return 200000;
   }
-  if (m.startsWith('gpt-5') ||
-      m.startsWith('o1') ||
+  if (m.startsWith('glm-4') || m.startsWith('glm-3')) return 128000;
+  if (m.startsWith('deepseek')) return 1000000;
+  if (m.startsWith('kimi-k3')) return 1000000;
+  if (m.startsWith('kimi-k2')) return 262144;
+  if (m.startsWith('kimi') || m.startsWith('moonshot')) return 131072;
+  if (m.startsWith('mimo')) return 1000000;
+  if (m.startsWith('gpt-6')) return 1050000;
+  if (m.startsWith('gpt-5')) return 400000;
+  if (m.startsWith('gpt-4.1')) return 1000000;
+  if (m.startsWith('gpt-4o') || m.startsWith('gpt-4-turbo')) return 128000;
+  if (m.startsWith('o1') ||
       m.startsWith('o3') ||
       m.startsWith('o4')) {
     return 200000;
   }
   if (m.startsWith('gemini')) return 1000000;
   if (m.startsWith('claude')) return 200000;
+  if (m.startsWith('qwen3.8') || m.startsWith('qwen3-8')) return 1000000;
   if (m.startsWith('qwen')) return 131072;
   if (m.startsWith('llama') ||
       m.startsWith('mistral') ||

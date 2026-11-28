@@ -39,7 +39,18 @@ void main() {
       expect(zhipu, hasLength(1));
       expect(zhipu.single.label, contains('智谱'));
       expect(zhipu.single.free, isFalse);
-      expect(zhipu.single.contextWindow, 128000);
+      // v0.40.3：默认 GLM-4.6，官方 200K 上下文。
+      expect(zhipu.single.model, 'glm-4.6');
+      expect(zhipu.single.contextWindow, 200000);
+    });
+
+    test('Kimi / MiMo 预设跟进官方现役模型（v0.40.3）', () {
+      final kimi = kApiPresets.firstWhere((p) => p.label == 'Kimi');
+      expect(kimi.model, 'kimi-k3.1-pro');
+      expect(kimi.contextWindow, 1000000);
+      final mimo = kApiPresets.firstWhere((p) => p.label.contains('MiMo'));
+      expect(mimo.model, 'mimo-v2.6-flash');
+      expect(mimo.contextWindow, 1000000);
     });
 
     test('没有预设再标成免费', () {
@@ -52,16 +63,22 @@ void main() {
     test('常见模型各自的窗口', () {
       expect(contextWindowForModel('glm-4-flash'), 128000);
       expect(contextWindowForModel('glm-4-air'), 128000);
+      expect(contextWindowForModel('glm-4.6'), 200000);
       expect(contextWindowForModel('glm-5'), 200000);
       expect(contextWindowForModel('deepseek-chat'), 1000000);
     expect(contextWindowForModel('deepseek-flash'), 1000000);
     expect(contextWindowForModel('deepseek-v4-pro'), 1000000);
-      expect(contextWindowForModel('kimi-k2'), 131072);
+      expect(contextWindowForModel('kimi-k3.1-pro'), 1000000);
+      expect(contextWindowForModel('kimi-k2'), 262144);
+      expect(contextWindowForModel('mimo-v2.6-flash'), 1000000);
       expect(contextWindowForModel('gpt-4o-mini'), 128000);
-      expect(contextWindowForModel('gpt-5'), 200000);
+      expect(contextWindowForModel('gpt-4.1'), 1000000);
+      expect(contextWindowForModel('gpt-5'), 400000);
+      expect(contextWindowForModel('gpt-6.2-sol'), 1050000);
       expect(contextWindowForModel('gemini-2.5-pro'), 1000000);
       expect(contextWindowForModel('claude-3-7-sonnet'), 200000);
       expect(contextWindowForModel('qwen-plus'), 131072);
+      expect(contextWindowForModel('qwen3.8-max'), 1000000);
       expect(contextWindowForModel('llama3.1'), 32768);
     });
 

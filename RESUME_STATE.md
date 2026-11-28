@@ -1,3 +1,26 @@
+## 本轮 v0.40.3 —— 所有预设按官方文档核对
+
+| 服务商 | 预设模型 | 上下文（官方） | 依据 |
+| --- | --- | --- | --- |
+| DeepSeek | deepseek-flash (V4.1-Flash) | 1M（输出 384K） | api-docs.deepseek.com 模型&价格 |
+| 智谱 GLM | glm-4.6（免费型号 glm-4.6v-flash 128K） | 200K（输出 128K） | docs.bigmodel.cn 模型概览 |
+| Kimi | kimi-k3.1-pro（kimi-k3 同 1M；moonshot-v1-* 已下线） | 1M | platform.kimi.com/docs/models |
+| 小米 MiMo | mimo-v2.6-flash | 1M（输出 128K） | mimo.mi.com 模型规格 |
+| Ollama | qwen2.5:7b（本地） | 32K | 本地默认 |
+
+- 自动推断同步：GLM-4.6/4.7/5.x 200K、GLM-4 老型号 128K、Kimi K3 1M / K2 256K、MiMo 1M、
+  GPT-6.x 1.05M、GPT-5 400K、GPT-4.1 1M、GPT-4o 128K、Qwen3.8 1M、Claude 200K（1M 为 beta）、Gemini 1M。
+- 测试：test/v20_test.dart 增「Kimi / MiMo 预设跟进官方现役模型」等断言；全量 **560 全过**。
+- 真机点验（设置 → 模型与生成 → 模型服务 → 编辑）：智谱 GLM → `glm-4.6`、Kimi → `kimi-k3.1-pro`、
+  小米 MiMo → `mimo-v2.6-flash`；当前配置显示「deepseek-flash · 上下文 1M（自动）」。未保存，未改用户数据。
+
+## 本次运行记录（2026-11-28，v0.40.3）
+
+- `flutter analyze` → No issues found!（9.8s）
+- `flutter test` → +560 All tests passed!（17s）
+- `flutter build apk --release` → **61.1MB**，versionCode **44** / versionName **0.40.3**
+- 真机 `adb -s 192.168.0.102:37433 install -r` → **Success**（dumpsys：versionCode 44 / 0.40.3）
+- 真机点验：见上表预设回填；当前配置「deepseek-flash · 上下文 1M（自动）」
 # 交接状态：v0.40.2 修正 DeepSeek 上下文为 1M（2026-11-28 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、

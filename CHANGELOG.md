@@ -1,3 +1,15 @@
+## v0.40.3
+
+### 模型与上下文按官方文档重新核对
+- **智谱 GLM**：默认模型改为 `glm-4.6`，上下文 **200K**（GLM-4.6 / 4.7 / 5.x 均为 200K；免费型号 `glm-4.6v-flash` 为 128K，可在模型列表里换）。
+- **Kimi**：`moonshot-v1-*` 系列已全部下线，默认模型改为现役 **`kimi-k3.1-pro`**，上下文 **1M**（`kimi-k3` 同为 1M）。
+- **小米 MiMo**：`mimo-v2.6-flash` 官方规格为 **1M 上下文 / 128K 输出**，自动推断由 64K 改为 1M。
+- **DeepSeek**：上一版已改为 `deepseek-flash`（V4.1-Flash）1M，本版不变。
+- **自动推断补齐**：GPT-6.x 1.05M、GPT-5 400K、GPT-4.1 1M、GPT-4o 128K；Kimi K2 256K；Qwen3.8 1M；Claude 200K（1M 为 beta）；Gemini 1M；Ollama 本地模型 32K 不变。
+
+### 说明
+- 这些都只是「自动推断」的默认值；模型配置里留空即跟随自动，手填则覆盖。
+- 服务商接口若自报上下文（`/models` 返回 `context_length` 等字段），优先用自报值。
 # 更新日志
 
 本项目遵循语义化版本：`MAJOR.MINOR.PATCH`，Android `versionCode` 随每次发版递增。
