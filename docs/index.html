@@ -14,11 +14,13 @@
 <link rel="icon" href="assets/logo.png" type="image/png">
 <link rel="icon" href="assets/logo-dark.png" type="image/png" media="(prefers-color-scheme: dark)">
 <link rel="apple-touch-icon" href="assets/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700;900&display=swap" media="print" onload="this.media='all'">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700;900&display=swap');
 :root{--bg:#f7f7f4;--surface:#fff;--ink:#171916;--muted:#72766e;--line:#dfe1da;--soft:#eceee8;--accent:#5b6e55;--accent-ink:#fff;--nav:rgba(247,247,244,.88);--shadow:0 28px 80px rgba(25,30,22,.12);--chip:#e7ebe3}
 [data-theme=dark]{--bg:#171a17;--surface:#202520;--ink:#f0f1eb;--muted:#a3aa9e;--line:#3a4339;--soft:#252d25;--accent:#a9bb9d;--accent-ink:#172016;--nav:rgba(23,26,23,.88);--shadow:0 28px 80px rgba(0,0,0,.35);--chip:#303a30;color-scheme:dark}
-*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:84px}body{margin:0;background:var(--bg);color:var(--ink);font-family:"DM Sans","Noto Sans SC",sans-serif;transition:background .25s,color .25s}a{color:inherit;text-decoration:none}button{font:inherit}.mono,.eyebrow,.num,.tag{font-family:"DM Mono",monospace}.wrap{width:min(1240px,calc(100% - 64px));margin:auto}
+*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:84px}body{margin:0;background:var(--bg);color:var(--ink);font-family:"DM Sans","Noto Sans SC",-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;transition:background .25s,color .25s}a{color:inherit;text-decoration:none}button{font:inherit}.mono,.eyebrow,.num,.tag{font-family:"DM Mono",ui-monospace,SFMono-Regular,Menlo,monospace}.wrap{width:min(1240px,calc(100% - 64px));margin:auto}
 header{height:76px;position:sticky;top:0;z-index:30;background:var(--nav);backdrop-filter:blur(16px);border-bottom:1px solid var(--line)}.nav{height:100%;display:flex;align-items:center;justify-content:space-between;gap:24px}.logo{display:flex;align-items:center;gap:11px;font-weight:700;letter-spacing:-.04em;font-size:18px}.logo picture{display:block;line-height:0;flex:none}.logo-symbol{height:31px;width:31px;display:block;border-radius:8px;box-shadow:0 0 0 1px rgba(23,25,22,.08);flex:none}.logo small{font:9px "DM Mono";letter-spacing:.12em;color:var(--muted);display:block;margin-top:1px}.links{display:flex;gap:29px;font-size:12px;color:var(--muted)}.links a:hover{color:var(--accent)}.nav-actions{display:flex;align-items:center;gap:10px}.theme{width:36px;height:36px;border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer;border-radius:50%}.button{display:inline-flex;align-items:center;justify-content:center;gap:12px;padding:13px 19px;background:var(--ink);color:var(--bg);font-size:12px;font-weight:600;border:1px solid var(--ink);transition:transform .2s,opacity .2s}.button:hover{transform:translateY(-2px);opacity:.88}.button.outline{background:transparent;color:var(--ink);border-color:var(--line)}
 .hero{padding:72px 0 76px}.hero-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:30px}.eyebrow{font-size:10px;letter-spacing:.16em;color:var(--accent);text-transform:uppercase}.hero-top .edition{font:10px "DM Mono";color:var(--muted)}.hero-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:34px;align-items:end}.hero h1{font-size:clamp(58px,9.2vw,130px);line-height:.99;letter-spacing:-.095em;font-weight:700;margin:0;max-width:820px}.hero h1 span{display:block}.hero h1 .indent{padding-left:13.5%}.hero h1 .accent{color:var(--accent)}.hero-aside{padding:0 0 9px 27px;border-left:1px solid var(--line);max-width:370px;margin-left:auto}.hero-aside .lead{font-size:16px;line-height:1.85;font-weight:500;letter-spacing:-.025em}.hero-aside p{font-size:12px;line-height:1.9;color:var(--muted);margin:15px 0 23px}.hero-links{display:flex;gap:9px;flex-wrap:wrap}.hero-visual{margin-top:62px;display:grid;grid-template-columns:1.2fr .8fr;gap:14px;align-items:stretch}.visual-main{min-height:380px;background:#dce2d6;color:#20271e;position:relative;overflow:hidden;padding:28px;display:flex;flex-direction:column;justify-content:space-between}.visual-main:before{content:"";position:absolute;width:430px;height:430px;border:1px solid rgba(36,48,33,.18);border-radius:50%;right:6%;top:9%}.visual-main:after{content:"";position:absolute;width:310px;height:310px;border:1px solid rgba(36,48,33,.18);border-radius:50%;right:17%;top:22%}.visual-caption{font:10px "DM Mono";letter-spacing:.12em;position:relative;z-index:2}.visual-quote{position:relative;z-index:2;font-size:clamp(25px,4vw,46px);line-height:1.25;letter-spacing:-.06em;font-weight:700;max-width:440px}.visual-quote small{display:block;font:10px "DM Mono";letter-spacing:.1em;margin-top:18px}.visual-side{background:var(--surface);border:1px solid var(--line);padding:24px;display:flex;flex-direction:column;justify-content:space-between;min-height:380px}.side-top{display:flex;justify-content:space-between;font:10px "DM Mono";color:var(--muted)}.phone-ui{width:min(100%,245px);margin:14px auto 12px;background:#f0eee7;color:#292c27;border:6px solid #252a24;border-radius:26px;padding:15px 12px;box-shadow:var(--shadow);transform:rotate(2deg)}.phone-head{font:10px "DM Sans";padding-bottom:12px;border-bottom:1px solid #d9d9cf;display:flex;justify-content:space-between}.phone-name{font-size:12px;font-weight:700;margin:14px 0}.msg{font-size:10px;line-height:1.8;background:white;padding:10px;border-radius:10px;margin:8px 0;max-width:90%}.msg.you{background:#dce5d5;margin-left:auto}.phone-input{font-size:9px;color:#8b9086;border:1px solid #d9d9cf;border-radius:20px;padding:9px;margin-top:16px}.side-bottom{font-size:11px;color:var(--muted);display:flex;justify-content:space-between}
 .marquee{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:15px 0;overflow:hidden;white-space:nowrap;color:var(--muted);font:10px "DM Mono";letter-spacing:.16em}.marquee span{display:inline-block;margin-right:42px}.marquee b{color:var(--accent);font-weight:400}
@@ -28,6 +30,16 @@ section.content{padding:105px 0;border-bottom:1px solid var(--line)}.section-hea
 .showcase{display:grid;grid-template-columns:1fr 1fr;gap:15px}.showcase-card{background:var(--surface);border:1px solid var(--line);padding:25px;min-height:330px}.showcase-card .tag{font-size:9px;color:var(--accent);letter-spacing:.14em}.showcase-card h3{font-size:22px;margin:13px 0 22px;letter-spacing:-.05em}.chat-sample{max-width:410px;margin:auto;display:flex;flex-direction:column;gap:9px}.chat-sample div{font-size:11px;line-height:1.8;padding:12px 14px;background:var(--soft);max-width:88%}.chat-sample .right{align-self:flex-end;background:var(--chip)}.novel-sample{max-width:420px;margin:0 auto;font-size:13px;line-height:2.4;color:var(--muted)}.novel-sample b{color:var(--ink)}.novel-sample p{margin:0 0 10px}.compat{display:flex;align-items:center;justify-content:space-between;gap:25px;padding:25px 0;border-top:1px solid var(--line);margin-top:30px}.compat strong{font-size:16px}.compat p{font-size:11px;color:var(--muted);max-width:620px;line-height:1.9;margin:6px 0 0}.pill{font:9px "DM Mono";border:1px solid var(--line);padding:8px 10px;color:var(--muted);white-space:nowrap}
 .faq-layout{display:grid;grid-template-columns:.7fr 1.3fr;gap:50px}.faq-list{border-top:1px solid var(--line)}.faq-item{border-bottom:1px solid var(--line)}.faq-q{border:0;background:none;color:var(--ink);width:100%;display:flex;justify-content:space-between;align-items:center;text-align:left;padding:20px 0;cursor:pointer;font-size:14px;font-weight:600}.faq-q span:last-child{font-size:20px;color:var(--accent);transition:transform .2s}.faq-a{max-height:0;overflow:hidden;color:var(--muted);font-size:11px;line-height:2;transition:max-height .3s,padding .3s}.faq-item.open .faq-a{max-height:300px;padding:0 35px 18px 0}.faq-item.open .faq-q span:last-child{transform:rotate(45deg)}
 .endcap{padding:100px 0;background:var(--ink);color:var(--bg)}.endcap-inner{display:grid;grid-template-columns:1fr auto;gap:35px;align-items:end}.endcap .eyebrow{color:#a8ba9e}.endcap h2{font-size:clamp(42px,7vw,88px);line-height:1.02;letter-spacing:-.085em;margin:24px 0 18px;max-width:800px}.endcap p{font-size:12px;color:color-mix(in srgb,var(--bg),transparent 35%)}.endcap .button{background:var(--bg);color:var(--ink);border-color:var(--bg);white-space:nowrap}.footer{padding:28px 0;color:var(--muted);font-size:10px}.footer-inner{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}.footer a{color:var(--accent)}.reveal{opacity:0;transform:translateY(16px);transition:opacity .65s ease,transform .65s ease}.reveal.in{opacity:1;transform:none}
+.dl-cta{display:flex;flex-direction:column;align-items:flex-start;gap:14px}.dl-cta .button{white-space:nowrap}
+.dl-sources{display:flex;gap:7px;flex-wrap:wrap;font:9px "DM Mono";letter-spacing:.08em;color:var(--muted)}
+.dl-sources a{border:1px solid var(--line);padding:7px 9px;transition:border-color .2s,color .2s}
+.dl-sources a:hover{color:var(--accent);border-color:var(--accent)}
+.endcap .dl-sources{color:color-mix(in srgb,var(--bg),transparent 30%)}
+.endcap .dl-sources a{border-color:color-mix(in srgb,var(--bg),transparent 72%)}
+.endcap .dl-sources a:hover{color:var(--bg);border-color:var(--bg)}
+.dl-note{font-size:10px;line-height:1.9;color:var(--muted);max-width:330px}
+.dl-toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,18px);opacity:0;pointer-events:none;background:var(--ink);color:var(--bg);font-size:12px;line-height:1.6;padding:11px 16px;z-index:60;transition:opacity .25s,transform .25s;max-width:calc(100% - 32px);text-align:center}
+.dl-toast.show{opacity:1;transform:translate(-50%,0)}
 @media(max-width:850px){.wrap{width:min(100% - 40px,1240px)}.links{display:none}.hero-grid{grid-template-columns:1fr;gap:30px}.hero-aside{margin:0 0 0 14%;max-width:500px}.hero-visual{margin-top:40px}.section-head,.faq-layout{grid-template-columns:1fr;gap:18px}.features{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:600px){.wrap{width:calc(100% - 32px)}header{height:66px}.logo{font-size:16px}.logo small{display:none}.nav-actions .button{padding:10px 12px;font-size:10px}.hero{padding:53px 0 55px}.hero-top{margin-bottom:23px;flex-direction:column;align-items:flex-start;gap:7px}.hero h1{font-size:clamp(54px,15vw,83px)}.hero-aside{margin-left:8%;padding-left:17px}.hero-aside .lead{font-size:14px}.hero-visual{grid-template-columns:1fr}.visual-main{min-height:280px}.visual-side{min-height:360px}.section.content{padding:75px 0}.section-head{margin-bottom:38px}.manifesto{grid-template-columns:1fr;gap:17px}.features{grid-template-columns:1fr}.feature{min-height:0;padding:22px}.feature h3{margin:22px 0 8px}.workflow{grid-template-columns:1fr}.step,.step+.step{border-left:0;border-bottom:1px solid var(--line);padding:23px 0}.step:last-child{border-bottom:0}.step h3{margin:17px 0 8px}.step .symbol{margin-top:10px}.showcase{grid-template-columns:1fr}.showcase-card{min-height:300px}.compat{align-items:flex-start;flex-direction:column}.endcap{padding:75px 0}.endcap-inner{grid-template-columns:1fr}.endcap .button{justify-self:start}.footer-inner{flex-direction:column}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}.reveal{opacity:1;transform:none}}
@@ -37,13 +49,13 @@ section.content{padding:105px 0;border-bottom:1px solid var(--line)}.section-hea
 <header><div class="wrap nav">
 <a class="logo" href="#top"><img class="logo-symbol" id="logo-img" src="assets/logo.png" width="31" height="31" alt="LiteTavern 图标"><span>LiteTavern<small>轻酒馆 / PRIVATE STORY SPACE</small></span></a>
 <nav class="links"><a href="#about">理念</a><a href="#features">功能</a><a href="#workflow">开始使用</a><a href="#compatibility">兼容性</a><a href="#faq">FAQ</a></nav>
-<div class="nav-actions"><button class="theme" id="theme" aria-label="切换深浅色主题">◐</button><a class="button" href="https://github.com/Alorith-H/LiteTavern/releases/latest">下载应用 ↗</a></div>
+<div class="nav-actions"><button class="theme" id="theme" aria-label="切换深浅色主题">◐</button><a class="button" href="https://github.com/Alorith-H/LiteTavern/releases/latest/download/app-release.apk" data-dl>下载 APK ↓</a></div>
 </div></header>
 <main id="top">
 <section class="hero"><div class="wrap">
 <div class="hero-top"><div class="eyebrow">01 — A QUIET PLACE FOR STORIES</div><div class="edition" id="edition">ANDROID APP / OPEN SOURCE / v0.44.0</div></div>
 <div class="hero-grid"><h1><span>Stories,</span><span class="indent">on your</span><span class="accent">own terms.</span></h1>
-<aside class="hero-aside"><div class="eyebrow">MEET LITETAVERN</div><div class="lead">给角色与故事，一个安静的地方。</div><p>轻酒馆是一个开源的 Android 角色聊天应用。接上你自己的模型，导入喜欢的角色卡，聊天记录只留在手机上。</p><div class="hero-links"><a class="button" href="https://github.com/Alorith-H/LiteTavern/releases/latest">获取 LiteTavern <span>↗</span></a><a class="button outline" href="#features">探索功能 ↓</a></div></aside></div>
+<aside class="hero-aside"><div class="eyebrow">MEET LITETAVERN</div><div class="lead">给角色与故事，一个安静的地方。</div><p>轻酒馆是一个开源的 Android 角色聊天应用。接上你自己的模型，导入喜欢的角色卡，聊天记录只留在手机上。</p><div class="hero-links"><a class="button" href="https://github.com/Alorith-H/LiteTavern/releases/latest/download/app-release.apk" data-dl>下载 LiteTavern <span>↓</span></a><a class="button outline" href="#features">探索功能 ↓</a></div><p class="dl-note" style="margin-top:14px">直接下 APK，不跳转页面。国内网络会先测速，从 GitHub 直连和几个加速镜像里挑最快的那个。</p></aside></div>
 <div class="hero-visual reveal"><div class="visual-main"><div class="visual-caption">LITETAVERN / FIELD NOTES 001</div><div class="visual-quote">不必赶路。<br>故事可以慢慢发生。<small>A SPACE THAT BELONGS TO YOU.</small></div></div>
 <div class="visual-side"><div class="side-top"><span>APP PREVIEW</span><span>01 / 03</span></div><div class="phone-ui"><div class="phone-head"><span>9:41</span><span>◦ ◦ ▰</span></div><div class="phone-name">‹　林间来信　　⋯</div><div class="msg">今天的风很轻，适合走一段没有目的地的路。</div><div class="msg you">那就走慢一点。</div><div class="msg">好。等云影移过屋檐，我们再决定去哪。</div><div class="phone-input">写下你的回复…　　↗</div></div><div class="side-bottom"><span>CHAT / FICTION</span><span>DESIGNED FOR ANDROID</span></div></div></div>
 </div></section>
@@ -60,7 +72,7 @@ section.content{padding:105px 0;border-bottom:1px solid var(--line)}.section-hea
 <article class="feature reveal"><div class="num">06 / LOCAL DATA</div><span class="arrow">↗</span><h3>本地优先</h3><p>对话、角色与设置都在本机；整库备份能导出成 zip，换设备时挑要恢复的内容即可。</p></article>
 </div></div></section>
 <section class="content" id="workflow"><div class="wrap"><div class="section-head reveal"><div class="section-label">04 — GET STARTED</div><div><h2 class="section-title">从安装到第一句话。<br>只要三步。</h2><p class="section-desc">准备好模型服务商给的 API 信息，或者接一个本地模型；再带一张角色卡进来就行了。</p></div></div>
-<div class="workflow reveal"><article class="step"><div class="num">STEP 01 / INSTALL</div><h3>安装应用</h3><p>从 Releases 页面下载 APK。第一次更新时系统会要求允许「安装未知应用」，应用里会直接带你去打开。</p><div class="symbol">↘</div></article><article class="step"><div class="num">STEP 02 / CONNECT</div><h3>连接模型</h3><p>选择服务商，填 API 地址、密钥和模型名，点「获取模型列表」就能选好模型并测试连接。</p><div class="symbol">⌁</div></article><article class="step"><div class="num">STEP 03 / IMPORT</div><h3>导入角色</h3><p>导入本地角色卡，或者去角色市场挑一个；也可以直接建个空白角色，从第一句话开始。</p><div class="symbol">＋</div></article></div></div></section>
+<div class="workflow reveal"><article class="step"><div class="num">STEP 01 / INSTALL</div><h3>安装应用</h3><p>点页面上的下载按钮就能直接拿到 APK，会自动挑最快的源。第一次更新时系统会要求允许「安装未知应用」，应用里会直接带你去打开。</p><div class="symbol">↘</div></article><article class="step"><div class="num">STEP 02 / CONNECT</div><h3>连接模型</h3><p>选择服务商，填 API 地址、密钥和模型名，点「获取模型列表」就能选好模型并测试连接。</p><div class="symbol">⌁</div></article><article class="step"><div class="num">STEP 03 / IMPORT</div><h3>导入角色</h3><p>导入本地角色卡，或者去角色市场挑一个；也可以直接建个空白角色，从第一句话开始。</p><div class="symbol">＋</div></article></div></div></section>
 <section class="content" id="compatibility"><div class="wrap"><div class="section-head reveal"><div class="section-label">05 — THE EXPERIENCE</div><div><h2 class="section-title">对话方式，由你决定。</h2><p class="section-desc">同一段故事，可以用熟悉的聊天气泡看，也可以切成更适合长篇阅读的连续排版。界面服务于内容，而不是反过来。</p></div></div>
 <div class="showcase"><article class="showcase-card reveal"><div class="tag">VIEW 01 / CHAT</div><h3>聊天模式</h3><div class="chat-sample"><div>窗外的雨停了。要不要出去走走？</div><div class="right">等我拿件外套。</div><div>好，我在门口等你。</div></div></article><article class="showcase-card reveal"><div class="tag">VIEW 02 / READING</div><h3>阅读模式</h3><div class="novel-sample"><p><b>林间来信</b>　窗外的雨停了。要不要出去走走？</p><p><b>你</b>　等我拿件外套。</p><p><b>林间来信</b>　好，我在门口等你。</p></div></article></div>
 <div class="compat reveal"><div><strong>为熟悉的酒馆生态留好入口。</strong><p>可以导入 SillyTavern 常见的角色卡、世界书、预设、正则与聊天记录（jsonl）。不同版本的扩展字段兼容程度会有差异，导入时应用会给出提示，建议保留原始文件。</p></div><span class="pill">CHARACTER CARD · ST IMPORT</span></div></div></section>
@@ -69,12 +81,13 @@ section.content{padding:105px 0;border-bottom:1px solid var(--line)}.section-hea
 <div class="faq-item"><button class="faq-q"><span>我的聊天内容会上传到哪里？</span><span>＋</span></button><div class="faq-a">对话保存在本机。只有发送消息时，内容才会按你的配置发给你选择的模型服务商，具体怎么处理取决于那家的隐私政策。</div></div>
 <div class="faq-item"><button class="faq-q"><span>可以导入其他酒馆的角色卡吗？</span><span>＋</span></button><div class="faq-a">可以导入 SillyTavern 的常见格式，比如 PNG、JSON、CHARX；世界书、预设、正则和聊天记录也做了兼容。带扩展脚本的角色卡会提示可能不完整，建议先留一份原文件。</div></div>
 <div class="faq-item"><button class="faq-q"><span>换手机后怎么迁移？</span><span>＋</span></button><div class="faq-a">用「备份与恢复」把整库导出成一个 zip，在新设备上选择要恢复的内容（角色、会话、世界书、分组、设置）即可。备份里可能含 API 密钥，请自己收好。</div></div>
-<div class="faq-item"><button class="faq-q"><span>更新下载很慢，甚至装不上怎么办？</span><span>＋</span></button><div class="faq-a">应用内更新会先测速，在 GitHub 和几个加速镜像之间自动挑最快的，还支持断点续传；第一次安装时按提示打开「允许安装未知应用」就行了。也可以在「设置 → 帮助与关于 → 更新下载源」里填自己的加速地址。</div></div>
-<div class="faq-item"><button class="faq-q"><span>在哪里下载最新版？</span><span>＋</span></button><div class="faq-a">点击页面上的下载按钮会进入 GitHub Releases，可以看到最新构建、更新说明和历史版本。</div></div>
+<div class="faq-item"><button class="faq-q"><span>更新下载很慢，甚至装不上怎么办？</span><span>＋</span></button><div class="faq-a">应用内更新会先测速，在 GitHub 和几个加速镜像之间自动挑最快的，还支持断点续传；第一次安装时按提示打开「允许安装未知应用」就行了。也可以在「设置 → 帮助与关于 → 更新下载源」里填自己的加速地址。<br><br>网页这边同理：点下载按钮会先测速再挑源，下不动就换下一个；页面底部也列了每个源，可以自己点。</div></div>
+<div class="faq-item"><button class="faq-q"><span>在哪里下载最新版？</span><span>＋</span></button><div class="faq-a">点页面上的下载按钮就可以了，会直接开始下载 APK，不用先打开 GitHub 页面。<br><br>想手动选源的话：<br>· <a href="https://github.com/Alorith-H/LiteTavern/releases/latest/download/app-release.apk" data-dl-src="github" style="color:var(--accent)">GitHub 直连</a><br>· <a href="https://ghfast.top/https://github.com/Alorith-H/LiteTavern/releases/latest/download/app-release.apk" data-dl-src="ghfast" style="color:var(--accent)">加速镜像 ghfast</a><br>· <a href="https://gh-proxy.com/https://github.com/Alorith-H/LiteTavern/releases/latest/download/app-release.apk" data-dl-src="ghproxy" style="color:var(--accent)">加速镜像 gh-proxy</a><br>· <a href="https://ghproxy.imciel.com/https://github.com/Alorith-H/LiteTavern/releases/latest/download/app-release.apk" data-dl-src="imciel" style="color:var(--accent)">加速镜像 ghproxy.imciel</a><br>· <a href="https://ghproxy.net/https://github.com/Alorith-H/LiteTavern/releases/latest/download/app-release.apk" data-dl-src="ghproxynet" style="color:var(--accent)">加速镜像 ghproxy.net</a><br><br>历史版本和更新说明在 <a href="https://github.com/Alorith-H/LiteTavern/releases" style="color:var(--accent)">Releases 页面</a>；加速镜像属于第三方服务，偶尔会失效，失效就换一个。</div></div>
 </div></div></section>
-<section class="endcap"><div class="wrap endcap-inner reveal"><div><div class="eyebrow">YOUR STORY STARTS HERE</div><h2>A quieter space.<br>A world of stories.</h2><p>轻酒馆 LiteTavern · Android · 开源 · <span id="foot-version">v0.44.0</span></p></div><a class="button" href="https://github.com/Alorith-H/LiteTavern/releases/latest">前往 GitHub 下载 ↗</a></div></section>
+<section class="endcap"><div class="wrap endcap-inner reveal"><div><div class="eyebrow">YOUR STORY STARTS HERE</div><h2>A quieter space.<br>A world of stories.</h2><p>轻酒馆 LiteTavern · Android · 开源 · <span id="foot-version">v0.44.0</span></p></div><div class="dl-cta"><a class="button" href="https://github.com/Alorith-H/LiteTavern/releases/latest/download/app-release.apk" data-dl>下载 LiteTavern ↓</a><div class="dl-sources"><a href="https://github.com/Alorith-H/LiteTavern/releases/latest/download/app-release.apk" data-dl-src="github">GITHUB 直连</a><a href="https://ghfast.top/https://github.com/Alorith-H/LiteTavern/releases/latest/download/app-release.apk" data-dl-src="ghfast">GHFAST</a><a href="https://gh-proxy.com/https://github.com/Alorith-H/LiteTavern/releases/latest/download/app-release.apk" data-dl-src="ghproxy">GH-PROXY</a><a href="https://ghproxy.imciel.com/https://github.com/Alorith-H/LiteTavern/releases/latest/download/app-release.apk" data-dl-src="imciel">IMCIEL</a><a href="https://ghproxy.net/https://github.com/Alorith-H/LiteTavern/releases/latest/download/app-release.apk" data-dl-src="ghproxynet">GHPROXY.NET</a></div></div></div></section>
 </main>
 <footer class="footer"><div class="wrap footer-inner"><span>© LiteTavern / Alorith · MIT License</span><span><a href="https://github.com/Alorith-H/LiteTavern">GitHub Repository ↗</a></span><span>Independent project · Open source</span></div></footer>
+<div class="dl-toast" id="dl-toast" role="status" aria-live="polite"></div>
 <script>
 const root=document.documentElement,themeBtn=document.getElementById('theme'),logoImg=document.getElementById('logo-img');
 const stored=localStorage.getItem('lt-theme');
@@ -94,5 +107,66 @@ fetch('https://api.github.com/repos/Alorith-H/LiteTavern/releases/latest').then(
   const ed=document.getElementById('edition');if(ed)ed.textContent='ANDROID APP / OPEN SOURCE / v'+v;
   const fv=document.getElementById('foot-version');if(fv)fv.textContent='v'+v;
 }).catch(()=>{});
+
+/* ---------- 直接下载 APK + 多源自动测速 ---------- */
+const DL_FILE='https://github.com/Alorith-H/LiteTavern/releases/latest/download/app-release.apk';
+const DL_SOURCES=[
+  {id:'github',label:'GitHub 直连',prefix:''},
+  {id:'ghfast',label:'加速镜像 · ghfast',prefix:'https://ghfast.top/'},
+  {id:'ghproxy',label:'加速镜像 · gh-proxy',prefix:'https://gh-proxy.com/'},
+  {id:'imciel',label:'加速镜像 · ghproxy.imciel',prefix:'https://ghproxy.imciel.com/'},
+  {id:'ghproxynet',label:'加速镜像 · ghproxy.net',prefix:'https://ghproxy.net/'}
+];
+const dlToast=document.getElementById('dl-toast');
+let dlToastTimer=null,dlBest=null,dlProbing=null,dlLastReport='';
+function dlSay(msg,ms){
+  if(!dlToast)return;
+  dlToast.textContent=msg;dlToast.classList.add('show');
+  clearTimeout(dlToastTimer);
+  dlToastTimer=setTimeout(()=>dlToast.classList.remove('show'),ms||5000);
+}
+/* 只测到响应头：no-cors 拿到 opaque 响应立刻 abort，不会把整个 APK 拉下来 */
+async function dlProbe(src){
+  const t0=performance.now(),ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),3000);
+  try{
+    await fetch((src.prefix||'')+DL_FILE,{mode:'no-cors',cache:'no-store',signal:ctrl.signal});
+    return {src,ms:Math.round(performance.now()-t0)};
+  }catch(e){return null}
+  finally{clearTimeout(timer);ctrl.abort()}
+}
+function dlStartProbe(){
+  dlProbing=Promise.all(DL_SOURCES.map(dlProbe)).then(list=>{
+    const ok=list.filter(Boolean).sort((a,b)=>a.ms-b.ms);
+    dlLastReport=ok.map(x=>x.src.id+' '+x.ms+'ms').join(' / ');
+    if(ok.length)dlBest=ok[0].src;
+    return dlBest;
+  }).catch(()=>null);
+  return dlProbing;
+}
+function dlGo(src){
+  const url=(src.prefix||'')+DL_FILE;
+  dlSay('开始下载 · 来源：'+src.label+'　（如果没反应，页面底部可以手动换源）',7000);
+  const a=document.createElement('a');
+  a.href=url;a.rel='noopener';a.style.display='none';
+  document.body.appendChild(a);a.click();a.remove();
+}
+async function dlDownload(forced){
+  if(forced)return dlGo(forced);
+  if(dlBest)return dlGo(dlBest);
+  dlSay('正在测速，挑最快的下载源…',7000);
+  const best=await Promise.race([
+    dlProbing||dlStartProbe(),
+    new Promise(r=>setTimeout(()=>r(null),4000))
+  ]);
+  dlGo(best||DL_SOURCES.find(s=>s.id==='ghfast')||DL_SOURCES[0]);
+}
+document.querySelectorAll('[data-dl]').forEach(el=>el.addEventListener('click',e=>{e.preventDefault();dlDownload(null)}));
+document.querySelectorAll('[data-dl-src]').forEach(el=>el.addEventListener('click',e=>{
+  e.preventDefault();
+  const src=DL_SOURCES.find(s=>s.id===el.dataset.dlSrc);
+  if(src)dlDownload(src);
+}));
+setTimeout(()=>{if(!dlProbing)dlStartProbe()},300);
+window.ltDebug={sources:DL_SOURCES,report:()=>dlLastReport,best:()=>dlBest,probe:dlStartProbe,download:dlDownload};
 </script>
 </body></html>
