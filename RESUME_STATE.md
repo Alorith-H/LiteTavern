@@ -1,4 +1,4 @@
-# 交接状态：v0.39.0 菜单布局重做（2026-11-28 更新）
+# 交接状态：v0.40.0 聊天菜单改为二级（2026-11-28 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
 > v0.11.0（角色卡市场）、v0.12.x（市场筛选、用户侧建议回复）、
@@ -28,9 +28,16 @@
 > v0.36.0（群聊主持：发言名单与顺序、让大家接着说）、
 > v0.37.0（对话排版：气泡 / 小说）、
 > v0.38.0（备份恢复可选内容）、
-> v0.39.0（菜单布局重做：统一零件、分组、图标）。
+> v0.39.0（菜单布局重做：统一零件、分组、图标）、
+> v0.40.0（聊天菜单改为二级：一级只列六组，点开一组再看条目；去掉占位标题）。
 >
-> **本轮 v0.39.0 —— 菜单布局重做**：
+> **本轮 v0.40.0 —— 聊天菜单改二级**：
+> 1. 一级只列六组（生成 / 这段聊天 / 提示词与统计 / 导入与导出 / 角色 / 危险操作），
+>    每组带图标与一句「组里有什么」的概括，右侧箭头；不再显示「聊天菜单 · 当前：<会话名>」标题块。
+> 2. 点一组才弹这一组（二级），顶部只有组名；条目行为与原菜单完全一致。
+> 3. 实现：`lib/widgets/sheet_menu.dart` 新增 `SheetMenuGroup` + `showGroupedSheetMenu`；
+>    `chat_screen._showMenu` 改为按组建菜单。
+> **v0.39.0 —— 菜单布局重做**：
 > 1. **统一零件**：新增 `lib/widgets/sheet_menu.dart`，提供 `SheetMenuTitle` /
 >    `SheetMenuSection` / `SheetMenuItem`（支持 danger、禁用、trailing）/ `showSheetMenu`。
 >    以后所有底部菜单都用这一套：标题 + 分组 + 图标 + 一行副标题。
@@ -45,7 +52,7 @@
 
 ## 仓库状态
 
-- 分支 `dev`，版本 `pubspec.yaml` = **0.39.0+40**，`lib/app_info.dart` `kAppVersion = '0.39.0'`。
+- 分支 `dev`，版本 `pubspec.yaml` = **0.40.0+41**，`lib/app_info.dart` `kAppVersion = '0.40.0'`。
 - 本轮新增 / 修改：
   - `lib/widgets/sheet_menu.dart`（新）：菜单统一零件（标题 / 分组小标题 / 条目 / 弹层）。
   - `lib/screens/chat_screen.dart`：`_showMenu` 与 `_showMessageActions` 全量重写为分组菜单。
@@ -59,12 +66,12 @@
 | 项目 | 结果 |
 | --- | --- |
 | `flutter analyze` | No issues found!（3.7s） |
-| `flutter test` | **+554 All tests passed!**（15s，含新增 7 例） |
-| `flutter build apk --release` | **61.1MB**，versionCode **40** / versionName **0.39.0** |
-| 模拟器装机 | `adb -s emulator-5556 install -r` → Success（code 40 / 0.39.0） |
+| `flutter test` | **+556 All tests passed!**（18s，含新增 2 例二级菜单用例） |
+| `flutter build apk --release` | **61.1MB**，versionCode **41** / versionName **0.40.0** |
+| 装机 | `adb -s 192.168.0.102:37433 install -r` → Success（真机 code 41 / 0.40.0，数据保留） |
 | 导入弹层点验 | dump 确认「导入角色卡 / 在线获取 / 角色卡市场·推荐 / 从手机或链接 / 从文件导入 / 从链接下载 / 自己创建 / AI 创建角色卡」（截图 `build/v390_import.png`） |
 | 设置首页点验 | 六行二级入口带图标 + 「帮助与关于 · 版本 v0.39.0」（截图 `build/v390_settings.png`） |
-| 聊天菜单点验 | dump 确认标题「聊天菜单 · 当前：恢复测试角色」与「生成 / 这段聊天 / 聊天列表 / 分支树 / 搜索对话 / 书签 / 作者注释 / 这段聊天的生成参数」（`build/v390_chatmenu.png`）；滚动后「提示词与统计 / 查看发送内容 / 提示词检视 / 上下文占用 / 聊天统计 / 导入与导出 / 复制对话」（`build/v390_chatmenu2.png`） |
+| 二级菜单点验（真机） | 一级只显示六组与概括、无标题（`build/v400_menu1.png`）；点「生成」进入二级显示「重新生成 / 继续生成 / 换开场白」（`build/v400_menu2.png`，dump 核对） |
 | 对话排版切换 | 设置 → 聊天与上下文 → 显示 → 对话排版 → 气泡（由小说切回），气泡恢复左右分栏（`build/v390_layout_sheet.png`） |
 | 回归 | 单人 / 群聊、导出、世界书、ST 兼容、备份等原有测试全绿 |
 
@@ -110,10 +117,10 @@ python build\mock_llm.py    # 监听 127.0.0.1:8765，模拟器用 http://10.0.2
 后续可做的小项：聊天统计按模型拆分、自动更新忽略版本、恢复前自动快照、
 其余底部弹层（聊天列表 / 书签 / 导出格式 / 市场筛选 / 模型列表）也换成 `sheet_menu` 零件。
 
-## 本次运行记录（2026-11-28）
+## 本次运行记录（2026-11-28，v0.40.0）
 
 - `flutter analyze` → No issues found!（3.7s）
-- `flutter test` → +554 All tests passed!（15s）
-- `flutter build apk --release` → 61.1MB，versionCode 40 / 0.39.0
-- `adb -s emulator-5556 install -r` → Success（code 40 / 0.39.0）
-- 模拟器点验：导入弹层分组、设置首页六图标、聊天菜单两组（含滚动）、对话排版切回气泡，截图见 `build/v390_*.png`
+- `flutter test` → +556 All tests passed!（18s）
+- `flutter build apk --release` → 61.1MB，versionCode 41 / 0.40.0
+- 真机 `adb -s 192.168.0.102:37433 install -r` → Success（code 41 / 0.40.0，数据保留）
+- 真机点验：聊天菜单一级只有六组与概括、无标题块；点「生成」进入二级显示三项；截图 `build/v400_menu1.png`、`build/v400_menu2.png`

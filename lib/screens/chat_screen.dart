@@ -2007,241 +2007,279 @@ class _ChatScreenState extends State<ChatScreen> {
         !_summarizing &&
         hasSummarizableHistory(_messages, _historyLimit);
     final presetSummary = ChatPresetOverrideStore.load(_convId).summary;
+    final hasAltGreetings =
+        !_isGroup && card != null && card.alternateGreetings.isNotEmpty;
 
-    // v0.39.0：菜单按「生成 / 这段聊天 / 提示词与统计 / 导入与导出 / 角色」分组，
-    // 每项带图标；危险项放最后并标红，减少误触。
-    showSheetMenu<void>(
-      context: context,
-      children: [
-        SheetMenuTitle(
-          title: _isGroup ? '群聊菜单' : '聊天菜单',
-          subtitle: '当前：$_chatTitle',
+    // v0.40.0：二级菜单。一级只列几组（图标 + 一句概括 + 箭头），点开才看这一组的条目；
+    // 不再显示「聊天菜单 / 当前：xxx」那块标题。
+    showGroupedSheetMenu(
+      context,
+      groups: [
+        SheetMenuGroup(
+          label: '生成',
+          icon: Icons.auto_awesome_outlined,
+          description: hasAltGreetings
+              ? '重新生成 / 继续生成 / 换开场白'
+              : '重新生成 / 继续生成',
+          children: [
+            SheetMenuItem(
+              icon: Icons.refresh_outlined,
+              title: '重新生成',
+              subtitle: '用同一条你的话再要一次回复',
+              enabled: canRegen,
+              onTap: () {
+                Navigator.pop(context);
+                _regenerate();
+              },
+            ),
+            SheetMenuItem(
+              icon: Icons.play_arrow_outlined,
+              title: '继续生成',
+              subtitle: '让角色顺着最后一句往下写',
+              enabled: canContinue,
+              onTap: () {
+                Navigator.pop(context);
+                _continueGeneration();
+              },
+            ),
+            if (hasAltGreetings)
+              SheetMenuItem(
+                icon: Icons.style_outlined,
+                title: '换开场白',
+                subtitle: '换一张卡里自带的开场',
+                onTap: () {
+                  Navigator.pop(context);
+                  _rotateGreeting();
+                },
+              ),
+          ],
         ),
-        const SheetMenuSection('生成'),
-        SheetMenuItem(
-          icon: Icons.refresh_outlined,
-          title: '重新生成',
-          subtitle: '用同一条你的话再要一次回复',
-          enabled: canRegen,
-          onTap: () {
-            Navigator.pop(context);
-            _regenerate();
-          },
-        ),
-        SheetMenuItem(
-          icon: Icons.play_arrow_outlined,
-          title: '继续生成',
-          subtitle: '让角色顺着最后一句往下写',
-          enabled: canContinue,
-          onTap: () {
-            Navigator.pop(context);
-            _continueGeneration();
-          },
-        ),
-        if (!_isGroup && card != null && card.alternateGreetings.isNotEmpty)
-          SheetMenuItem(
-            icon: Icons.style_outlined,
-            title: '换开场白',
-            subtitle: '换一张卡里自带的开场',
-            onTap: () {
-              Navigator.pop(context);
-              _rotateGreeting();
-            },
-          ),
-        const SheetMenuSection('这段聊天'),
-        SheetMenuItem(
+        SheetMenuGroup(
+          label: '这段聊天',
           icon: Icons.forum_outlined,
-          title: '聊天列表',
-          subtitle: '同一角色可有多段聊天 · 当前「$_chatTitle」',
-          onTap: () {
-            Navigator.pop(context);
-            _showChatList();
-          },
+          description: _isGroup
+              ? '聊天列表 / 分支树 / 搜索 / 书签 / 作者注释 / 生成参数 / 世界书 / 变量 / 群聊主持'
+              : '聊天列表 / 分支树 / 搜索 / 书签 / 作者注释 / 生成参数 / 世界书 / 变量',
+          children: [
+            SheetMenuItem(
+              icon: Icons.forum_outlined,
+              title: '聊天列表',
+              subtitle: '同一角色可有多段聊天 · 当前「$_chatTitle」',
+              onTap: () {
+                Navigator.pop(context);
+                _showChatList();
+              },
+            ),
+            SheetMenuItem(
+              icon: Icons.account_tree_outlined,
+              title: '分支树',
+              subtitle: '看看这段聊天分出了哪些岔路',
+              onTap: () {
+                Navigator.pop(context);
+                _openChatTree();
+              },
+            ),
+            SheetMenuItem(
+              icon: Icons.search_outlined,
+              title: '搜索对话',
+              subtitle: '在这段聊天里找关键词，点结果跳过去',
+              onTap: () {
+                Navigator.pop(context);
+                _showSearch();
+              },
+            ),
+            SheetMenuItem(
+              icon: Icons.bookmark_border_outlined,
+              title: '书签',
+              subtitle: '回看收藏的消息片段',
+              onTap: () {
+                Navigator.pop(context);
+                _showBookmarks();
+              },
+            ),
+            SheetMenuItem(
+              icon: Icons.sticky_note_2_outlined,
+              title: '作者注释',
+              subtitle: _authorNote.isActive
+                  ? (_authorNote.placement == AuthorNotePlacement.inChat
+                      ? '已启用 · 聊天内 深度 ${_authorNote.depth}'
+                      : '已启用 · 设定之后')
+                  : '未启用 · 临时给模型的额外指令',
+              onTap: () {
+                Navigator.pop(context);
+                _openAuthorNote();
+              },
+            ),
+            SheetMenuItem(
+              icon: Icons.tune_outlined,
+              title: '这段聊天的生成参数',
+              subtitle: presetSummary,
+              onTap: () {
+                Navigator.pop(context);
+                _openChatPreset();
+              },
+            ),
+            SheetMenuItem(
+              icon: Icons.menu_book_outlined,
+              title: '世界书绑定',
+              subtitle: '全局 / 人设 / 角色 / 这段聊天，分别绑定',
+              onTap: () {
+                Navigator.pop(context);
+                _openWorldBookBindings();
+              },
+            ),
+            SheetMenuItem(
+              icon: Icons.monitor_heart_outlined,
+              title: '变量与状态',
+              subtitle: '只读查看卡内变量、状态更新与卡内脚本提示',
+              onTap: () {
+                Navigator.pop(context);
+                _openCardState();
+              },
+            ),
+            if (_isGroup) ...[
+              SheetMenuItem(
+                icon: Icons.groups_outlined,
+                title: '群聊主持',
+                subtitle: '只让名单里的角色发言、按这个顺序轮转',
+                onTap: () {
+                  Navigator.pop(context);
+                  _openGroupHost();
+                },
+              ),
+              SheetMenuItem(
+                icon: Icons.fast_forward_outlined,
+                title: '让大家接着说',
+                subtitle: '不用你发言，让角色们自己接着聊一轮',
+                onTap: () {
+                  Navigator.pop(context);
+                  _continueGroupRound();
+                },
+              ),
+            ],
+          ],
         ),
-        SheetMenuItem(
-          icon: Icons.account_tree_outlined,
-          title: '分支树',
-          subtitle: '看看这段聊天分出了哪些岔路',
-          onTap: () {
-            Navigator.pop(context);
-            _openChatTree();
-          },
+        SheetMenuGroup(
+          label: '提示词与统计',
+          icon: Icons.analytics_outlined,
+          description: '查看发送内容 / 提示词检视 / 上下文占用 / 聊天统计 / 总结早期对话',
+          children: [
+            SheetMenuItem(
+              icon: Icons.receipt_long_outlined,
+              title: '查看发送内容',
+              subtitle: '这一轮实际发给模型的提示词',
+              onTap: () {
+                Navigator.pop(context);
+                _showInjection();
+              },
+            ),
+            SheetMenuItem(
+              icon: Icons.manage_search_outlined,
+              title: '提示词检视',
+              subtitle: '逐段 token、缓存能复用到哪、哪里在浪费',
+              onTap: () {
+                Navigator.pop(context);
+                _openPromptAudit();
+              },
+            ),
+            SheetMenuItem(
+              icon: Icons.data_usage_outlined,
+              title: '上下文占用',
+              subtitle: '这段对话用了多少窗口、还差多少要摘要',
+              onTap: () {
+                Navigator.pop(context);
+                _showContextUsage();
+              },
+            ),
+            SheetMenuItem(
+              icon: Icons.bar_chart_outlined,
+              title: '聊天统计',
+              subtitle: '条数、token、缓存命中与预计花费',
+              onTap: () {
+                Navigator.pop(context);
+                _showChatStats();
+              },
+            ),
+            if (canSummarize)
+              SheetMenuItem(
+                icon: Icons.compress_outlined,
+                title: '立即总结早期对话',
+                subtitle: '把较早的内容压成摘要（会额外消耗 token）',
+                onTap: () {
+                  Navigator.pop(context);
+                  _manualSummarize();
+                },
+              ),
+          ],
         ),
-        SheetMenuItem(
-          icon: Icons.search_outlined,
-          title: '搜索对话',
-          subtitle: '在这段聊天里找关键词，点结果跳过去',
-          onTap: () {
-            Navigator.pop(context);
-            _showSearch();
-          },
+        SheetMenuGroup(
+          label: '导入与导出',
+          icon: Icons.swap_vert,
+          description: '复制对话 / 导出文件 / 导入聊天记录',
+          children: [
+            SheetMenuItem(
+              icon: Icons.copy_all_outlined,
+              title: '复制对话',
+              subtitle: '纯文本复制到剪贴板',
+              onTap: () {
+                Navigator.pop(context);
+                _exportConversation();
+              },
+            ),
+            SheetMenuItem(
+              icon: Icons.ios_share_outlined,
+              title: '导出对话文件…',
+              subtitle: '纯文本 / JSON / 长图 / EPUB',
+              onTap: () {
+                Navigator.pop(context);
+                _exportChatFile();
+              },
+            ),
+            SheetMenuItem(
+              icon: Icons.file_download_outlined,
+              title: '导入聊天记录',
+              subtitle: '从 SillyTavern 的 .jsonl 接进来',
+              onTap: () {
+                Navigator.pop(context);
+                _importChatFile();
+              },
+            ),
+          ],
         ),
-        SheetMenuItem(
-          icon: Icons.bookmark_border_outlined,
-          title: '书签',
-          subtitle: '回看收藏的消息片段',
-          onTap: () {
-            Navigator.pop(context);
-            _showBookmarks();
-          },
-        ),
-        SheetMenuItem(
-          icon: Icons.sticky_note_2_outlined,
-          title: '作者注释',
-          subtitle: _authorNote.isActive
-              ? (_authorNote.placement == AuthorNotePlacement.inChat
-                  ? '已启用 · 聊天内 深度 ${_authorNote.depth}'
-                  : '已启用 · 设定之后')
-              : '未启用 · 临时给模型的额外指令',
-          onTap: () {
-            Navigator.pop(context);
-            _openAuthorNote();
-          },
-        ),
-        SheetMenuItem(
-          icon: Icons.tune_outlined,
-          title: '这段聊天的生成参数',
-          subtitle: presetSummary,
-          onTap: () {
-            Navigator.pop(context);
-            _openChatPreset();
-          },
-        ),
-        SheetMenuItem(
-          icon: Icons.menu_book_outlined,
-          title: '世界书绑定',
-          subtitle: '全局 / 人设 / 角色 / 这段聊天，分别绑定',
-          onTap: () {
-            Navigator.pop(context);
-            _openWorldBookBindings();
-          },
-        ),
-        SheetMenuItem(
-          icon: Icons.monitor_heart_outlined,
-          title: '变量与状态',
-          subtitle: '只读查看卡内变量、状态更新与卡内脚本提示',
-          onTap: () {
-            Navigator.pop(context);
-            _openCardState();
-          },
-        ),
-        if (_isGroup) ...[
-          SheetMenuItem(
-            icon: Icons.groups_outlined,
-            title: '群聊主持',
-            subtitle: '只让名单里的角色发言、按这个顺序轮转',
-            onTap: () {
-              Navigator.pop(context);
-              _openGroupHost();
-            },
+        if (card != null)
+          SheetMenuGroup(
+            label: '角色',
+            icon: Icons.person_outline,
+            description: '编辑角色设定、开场白、世界书挂载',
+            children: [
+              SheetMenuItem(
+                icon: Icons.edit_outlined,
+                title: '编辑角色',
+                subtitle: '改设定、开场白、世界书挂载',
+                onTap: () {
+                  Navigator.pop(context);
+                  _editCharacter();
+                },
+              ),
+            ],
           ),
-          SheetMenuItem(
-            icon: Icons.fast_forward_outlined,
-            title: '让大家接着说',
-            subtitle: '不用你发言，让角色们自己接着聊一轮',
-            onTap: () {
-              Navigator.pop(context);
-              _continueGroupRound();
-            },
-          ),
-        ],
-        const SheetMenuSection('提示词与统计'),
-        SheetMenuItem(
-          icon: Icons.receipt_long_outlined,
-          title: '查看发送内容',
-          subtitle: '这一轮实际发给模型的提示词',
-          onTap: () {
-            Navigator.pop(context);
-            _showInjection();
-          },
-        ),
-        SheetMenuItem(
-          icon: Icons.manage_search_outlined,
-          title: '提示词检视',
-          subtitle: '逐段 token、缓存能复用到哪、哪里在浪费',
-          onTap: () {
-            Navigator.pop(context);
-            _openPromptAudit();
-          },
-        ),
-        SheetMenuItem(
-          icon: Icons.data_usage_outlined,
-          title: '上下文占用',
-          subtitle: '这段对话用了多少窗口、还差多少要摘要',
-          onTap: () {
-            Navigator.pop(context);
-            _showContextUsage();
-          },
-        ),
-        SheetMenuItem(
-          icon: Icons.bar_chart_outlined,
-          title: '聊天统计',
-          subtitle: '条数、token、缓存命中与预计花费',
-          onTap: () {
-            Navigator.pop(context);
-            _showChatStats();
-          },
-        ),
-        if (canSummarize)
-          SheetMenuItem(
-            icon: Icons.compress_outlined,
-            title: '立即总结早期对话',
-            subtitle: '把较早的内容压成摘要（会额外消耗 token）',
-            onTap: () {
-              Navigator.pop(context);
-              _manualSummarize();
-            },
-          ),
-        const SheetMenuSection('导入与导出'),
-        SheetMenuItem(
-          icon: Icons.copy_all_outlined,
-          title: '复制对话',
-          subtitle: '纯文本复制到剪贴板',
-          onTap: () {
-            Navigator.pop(context);
-            _exportConversation();
-          },
-        ),
-        SheetMenuItem(
-          icon: Icons.ios_share_outlined,
-          title: '导出对话文件…',
-          subtitle: '纯文本 / JSON / 长图 / EPUB',
-          onTap: () {
-            Navigator.pop(context);
-            _exportChatFile();
-          },
-        ),
-        SheetMenuItem(
-          icon: Icons.file_download_outlined,
-          title: '导入聊天记录',
-          subtitle: '从 SillyTavern 的 .jsonl 接进来',
-          onTap: () {
-            Navigator.pop(context);
-            _importChatFile();
-          },
-        ),
-        if (card != null) ...[
-          const SheetMenuSection('角色'),
-          SheetMenuItem(
-            icon: Icons.edit_outlined,
-            title: '编辑角色',
-            subtitle: '改设定、开场白、世界书挂载',
-            onTap: () {
-              Navigator.pop(context);
-              _editCharacter();
-            },
-          ),
-        ],
-        const SheetMenuSection('危险操作'),
-        SheetMenuItem(
-          icon: Icons.delete_sweep_outlined,
-          title: '清空对话',
-          subtitle: '只清空这一段聊天的本地记录，不可恢复',
+        SheetMenuGroup(
+          label: '危险操作',
+          icon: Icons.warning_amber_outlined,
           danger: true,
-          onTap: () {
-            Navigator.pop(context);
-            _clearConversation();
-          },
+          description: '清空这段对话（不可恢复）',
+          children: [
+            SheetMenuItem(
+              icon: Icons.delete_sweep_outlined,
+              title: '清空对话',
+              subtitle: '只清空这一段聊天的本地记录，不可恢复',
+              danger: true,
+              onTap: () {
+                Navigator.pop(context);
+                _clearConversation();
+              },
+            ),
+          ],
         ),
       ],
     );

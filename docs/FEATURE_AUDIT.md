@@ -147,3 +147,11 @@
 - `lib/screens/home_screen.dart`：角色长按菜单加标题与分组（编辑 / 危险操作）；导入弹层重做为「在线获取 / 从手机或链接 / 自己创建」三组，市场项带「推荐」徽章，底部补格式说明。
 - `lib/screens/settings_screen.dart`：设置首页六个二级入口加图标（tune / forum / storefront / menu_book / palette / help），`_actionRow` 支持 leading 图标。
 - 测试：`test/v39_test.dart` 7 例（零件渲染/禁用/danger 配色/弹层开合/设置首页图标）；全量 **554 全过**，analyze 干净。
+
+## 7. 本轮变更记录（v0.40.0 二级菜单）
+
+- `lib/widgets/sheet_menu.dart`：新增 `SheetMenuGroup`（组名 + 图标 + 一句概括 + 条目）与 `showGroupedSheetMenu`——
+  一级只列组，点开一组再弹这一组的条目；一级不显示大标题。
+- `lib/screens/chat_screen.dart`：`_showMenu` 改为二级菜单，六组（生成 / 这段聊天 / 提示词与统计 / 导入与导出 / 角色 / 危险操作），
+  删掉「聊天菜单 · 当前：<会话名>」标题块。
+- 测试：`test/v40_test.dart` 2 例（一级只列组且无标题、点组进二级、点条目回调并关闭、点遮罩关闭不进二级）；全量 **556 全过**。

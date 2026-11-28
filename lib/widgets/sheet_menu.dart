@@ -135,6 +135,23 @@ class SheetMenuItem extends StatelessWidget {
   }
 }
 
+/// 二级菜单的一组：一级只显示组名与一句概括，点开才看组里的条目（v0.40.0）。
+class SheetMenuGroup {
+  const SheetMenuGroup({
+    required this.label,
+    required this.icon,
+    required this.children,
+    this.description,
+    this.danger = false,
+  });
+
+  final String label;
+  final IconData icon;
+  final List<Widget> children;
+  final String? description;
+  final bool danger;
+}
+
 /// 统一弹出底部菜单：限高 78% + 可滚动 + 拖拽手柄 + SafeArea。
 Future<T?> showSheetMenu<T>({
   required BuildContext context,
@@ -165,5 +182,42 @@ Future<T?> showSheetMenu<T>({
               ),
       ),
     ),
+  );
+}
+
+/// 二级菜单：先只列组（图标 + 组名 + 一句概括 + 右侧箭头），点一组再弹这一组的条目。
+/// 一级不显示大标题，避免「聊天菜单 / 当前：xxx」这种占地方的块（v0.40.0）。
+Future<void> showGroupedSheetMenu(
+  BuildContext context, {
+  required List<SheetMenuGroup> groups,
+  double maxHeightFactor = 0.78,
+}) async {
+  final picked = await showSheetMenu<SheetMenuGroup>(
+    context: context,
+    maxHeightFactor: maxHeightFactor,
+    children: [
+      const SizedBox(height: 6),
+      for (final group in groups)
+        SheetMenuItem(
+          icon: group.icon,
+          title: group.label,
+          subtitle: group.description,
+          danger: group.danger,
+          trailing: const Icon(Icons.chevron_right, size: 20),
+          onTap: () => Navigator.of(context).pop(group),
+        ),
+      const SizedBox(height: 8),
+    ],
+  );
+  if (picked == null) return;
+  if (!context.mounted) return;
+  await showSheetMenu<void>(
+    context: context,
+    maxHeightFactor: maxHeightFactor,
+    children: [
+      SheetMenuTitle(title: picked.label),
+      ...picked.children,
+      const SizedBox(height: 8),
+    ],
   );
 }
