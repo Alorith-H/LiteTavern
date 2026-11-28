@@ -31,6 +31,11 @@ class StChatFormatException implements Exception {
 /// 常见字段：`name`（发言者）、`is_user`、`mes`（正文）、`send_date`
 /// （ISO 字符串或毫秒），部分版本用 `role` / `message` / `content`。
 class StChatImporter {
+  /// 防超大文件 / 超长行把内存与 UI 卡死（v0.41.0）。
+  static const int maxBytes = 100 * 1024 * 1024; // 100MB
+  static const int maxLines = 200000;
+  static const int maxLineChars = 2 * 1024 * 1024; // 单行 2MB
+
   static bool isJsonlName(String filename) =>
       filename.toLowerCase().endsWith('.jsonl');
 
@@ -62,13 +67,25 @@ class StChatImporter {
     String charName = '',
     String userName = '你',
   }) {
+    if (bytes.length > maxBytes) {
+      throw const StChatFormatException('这个聊天记录文件太大了（超过 100MB），已拒绝导入');
+    }
     final text = utf8.decode(bytes, allowMalformed: true);
     final lines = text.split(RegExp(r'\r?\n'));
+    if (lines.length > maxLines) {
+      throw StChatFormatException(
+        '这个聊天记录行数太多（${lines.length} 行，上限 $maxLines 行），已拒绝导入',
+      );
+    }
     final messages = <ChatMessage>[];
     var skipped = 0;
     int? firstTs;
 
     for (final rawLine in lines) {
+      if (rawLine.length > maxLineChars) {
+        skipped++;
+        continue;
+      }
       final line = rawLine.trim();
       if (line.isEmpty) continue;
       Map<String, dynamic>? json;

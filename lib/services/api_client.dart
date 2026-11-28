@@ -61,6 +61,28 @@ class ApiClient {
   http.Client? _client;
   bool _cancelled = false;
 
+  /// 响应体上限（v0.41.0，商用加固）：服务端异常/被劫持时可能返回超大内容，
+  /// 这里主动截断，避免内存被撑爆或 UI 长时间卡住。
+  static const int maxResponseBytes = 8 * 1024 * 1024; // 8MB
+  static const int maxStreamChars = 2000000; // 单次流式累积 200 万字符
+
+  /// 读取整段响应体，超过 [maxBytes] 时返回 null（不抛异常）。
+  Future<String?> _readLimited(
+    http.StreamedResponse response,
+    int maxBytes,
+  ) async {
+    final declared = response.contentLength;
+    if (declared != null && declared > maxBytes) return null;
+    final chunks = <int>[];
+    var size = 0;
+    await for (final chunk in response.stream) {
+      size += chunk.length;
+      if (size > maxBytes) return null;
+      chunks.addAll(chunk);
+    }
+    return utf8.decode(chunks, allowMalformed: true);
+  }
+
   /// 流式聊天。回调逐 chunk 收到 delta 文本；
   /// provider 返回 usage 时（[DONE] 前最后一个 chunk）回调 [onUsage]。
   /// [stream] = false 时整段生成完一次性回调（v0.9.0 流式传输开关）；
@@ -127,16 +149,26 @@ class ApiClient {
 
       if (response.statusCode != 200) {
         if (_cancelled) return;
-        final body = await response.stream.bytesToString();
+        final body = await _readLimited(response, 64 * 1024) ?? '';
         onError(humanError(response.statusCode, body));
         return;
       }
 
       // 非流式：读完整 JSON，一次性回调全文与 usage。
       if (!stream) {
-        final raw = await response.stream.bytesToString();
+        final raw = await _readLimited(response, maxResponseBytes);
         if (_cancelled) return;
-        final json = jsonDecode(raw);
+        if (raw == null) {
+          onError('响应过大（超过 8MB），已中断；请检查接口地址是否指向了正确服务');
+          return;
+        }
+        Object? json;
+        try {
+          json = jsonDecode(raw);
+        } catch (_) {
+          onError('请求失败：响应不是合法 JSON（可能不是 OpenAI 兼容接口）');
+          return;
+        }
         if (json is! Map) {
           onError('请求失败：响应不是合法 JSON');
           return;
@@ -165,6 +197,8 @@ class ApiClient {
 
       int? usagePrompt;
       int? usageCompletion;
+      var streamedChars = 0;
+      var aborted = false;
 
       final lines = response.stream
           .transform(utf8.decoder)
@@ -196,6 +230,12 @@ class ApiClient {
               final delta = first is Map ? first['delta'] : null;
               final content = delta is Map ? delta['content'] : null;
               if (content is String && content.isNotEmpty) {
+                streamedChars += content.length;
+                if (streamedChars > maxStreamChars) {
+                  aborted = true;
+                  onError('回复过长（超过 200 万字符），已中断；可以调低「单次回复长度上限」');
+                  break;
+                }
                 onDelta(content);
               }
             }
@@ -204,7 +244,7 @@ class ApiClient {
           // 忽略无法解析的行（如注释行、半包）
         }
       }
-      if (!_cancelled) {
+      if (!_cancelled && !aborted) {
         if (usagePrompt != null && usageCompletion != null) {
           onUsage?.call(usagePrompt, usageCompletion);
         }

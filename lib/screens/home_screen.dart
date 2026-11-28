@@ -35,6 +35,10 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  /// 单个导入文件的上限（v0.41.0，商用加固）：角色卡正常情况下远小于这个值，
+  /// 超过多半是选错了文件（视频、压缩包），直接在读入内存前拦下。
+  static const int _maxImportBytes = 50 * 1024 * 1024; // 50MB
+
   List<CharacterCard> _characters = [];
   List<ChatGroup> _groups = [];
   bool _loading = true;
@@ -102,6 +106,16 @@ class _HomeScreenState extends State<HomeScreen> {
           (file.path != null ? await File(file.path!).readAsBytes() : null);
       if (bytes == null) {
         throw const FormatException('读取文件失败');
+      }
+      // v0.41.0：本地文件先卡上限，避免一次性把超大文件读进内存。
+      if (bytes.length > _maxImportBytes) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('这个文件太大了（超过 50MB），请检查是不是选错了文件'),
+          ),
+        );
+        return;
       }
       await _importBytes(bytes, file.name);
     } catch (_) {

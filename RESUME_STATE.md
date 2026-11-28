@@ -1,3 +1,34 @@
+## 本轮 v0.41.0 —— 商用加固（极限情况与崩溃防护）
+
+> 审查记录详见 `docs/HARDENING.md`。目标：把「崩溃 / 卡死 / 丢数据」的路径堵上。
+
+### 新增的防护
+| 位置 | 防护 | 上限 |
+| --- | --- | --- |
+| `lib/services/charx_importer.dart` | CHARX 压缩包守卫（`_guardArchive`） | 条目 ≤ 2000、单文件 ≤ 100MB、解压总量 ≤ 200MB |
+| `lib/services/backup_service.dart` | 备份包守卫 | 条目 ≤ 20000、单文件 ≤ 200MB、解压总量 ≤ 1GB |
+| `lib/services/st_chat_importer.dart` | `.jsonl` 导入守卫 | 文件 ≤ 100MB、行数 ≤ 20 万、单行 ≤ 2MB |
+| `lib/services/display_regex.dart` | 正则安全 | pattern ≤ 1000 字符、单次文本 ≤ 20 万字符、单次导入 ≤ 200 条 |
+| `lib/services/api_client.dart` | 响应体守卫 | 整段 ≤ 8MB、流式累积 ≤ 200 万字符、错误页最多读 64KB |
+| `lib/screens/home_screen.dart` | 角色卡文件导入 | ≤ 50MB（读入内存前拦） |
+| `lib/services/app_log.dart`（新） | 本地诊断日志 | 内存 300 行 / 文件 256KB，不联网、永不抛异常 |
+| `lib/main.dart` | 全局错误处理 | `FlutterError.onError` + `PlatformDispatcher.onError` 写入诊断日志 |
+| `lib/screens/diagnostics_screen.dart`（新） | 诊断日志页 | 最近 150 条，可复制、可清空；入口：设置 → 帮助与关于 → 诊断日志 |
+
+### 验证（2026-11-28）
+- `flutter analyze` → No issues found!
+- `flutter test` → **+572 All tests passed!**（新增 `test/v41_test.dart` 12 例）
+- `flutter build apk --release` → **61.2MB**，versionCode **45** / versionName **0.41.0**
+- 真机 `192.168.0.102:37433` install → Success（versionCode 45 / 0.41.0），启动正常，数据保留
+- 模拟器 monkey 压测：`adb shell monkey -p com.alorith.litetavern -v 300` → 300 事件注入完成，`logcat -b crash` 空、无 `FATAL`，App 进程存活
+- 真机点验诊断日志：显示「App 启动 · v0.41.0」，重复条目已去重
+
+### 已知残余风险（下一轮）
+- 显示正则仍是 Dart `RegExp`，超长文本直接跳过（降级而非崩溃）；要彻底防 ReDoS 需换线性时间匹配实现。
+- file_picker / share_plus 等插件的系统层崩溃无法被 Dart 捕获，只能靠降级提示规避。
+- 大长图导出在低端机可能耗时数秒，目前只有 toast 提示。
+- 备份包未加密（含 API Key），分享时需注意。
+
 ## 本轮 v0.40.3 —— 所有预设按官方文档核对
 
 | 服务商 | 预设模型 | 上下文（官方） | 依据 |

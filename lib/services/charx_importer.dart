@@ -50,6 +50,12 @@ class CharxImporter {
         (bytes[2] == 0x03 || bytes[2] == 0x05 || bytes[2] == 0x07);
   }
 
+  /// 防 zip 炸弹（v0.41.0）：条目数与解压后总大小都设上限，
+  /// 超过就当成坏文件拒绝，避免一个几 KB 的 zip 把内存吃爆。
+  static const int maxEntries = 2000;
+  static const int maxUncompressedBytes = 200 * 1024 * 1024;
+  static const int maxSingleFileBytes = 100 * 1024 * 1024;
+
   static bool isCharxName(String filename) =>
       filename.toLowerCase().endsWith('.charx');
 
@@ -65,6 +71,7 @@ class CharxImporter {
     if (files.isEmpty) {
       throw const CharxFormatException('这个 .charx 里没有文件');
     }
+    _guardArchive(files);
 
     Map<String, dynamic>? raw;
     try {
@@ -98,6 +105,30 @@ class CharxImporter {
   }
 
   /// 优先按约定文件名找，其次在根目录找能解析出角色名的 json。
+  /// 条目数 / 解压后总大小 / 单文件大小三重上限（v0.41.0 防 zip 炸弹）。
+  static void _guardArchive(List<ArchiveFile> files) {
+    if (files.length > maxEntries) {
+      throw CharxFormatException(
+        '这个 .charx 里文件太多（${files.length} 个），为安全起见已拒绝导入',
+      );
+    }
+    var total = 0;
+    for (final f in files) {
+      final size = f.size;
+      if (size > maxSingleFileBytes) {
+        throw CharxFormatException(
+          '这个 .charx 里有一个文件解压后超过 100MB（${f.name}），已拒绝导入',
+        );
+      }
+      total += size;
+      if (total > maxUncompressedBytes) {
+        throw const CharxFormatException(
+          '这个 .charx 解压后超过 200MB，为安全起见已拒绝导入',
+        );
+      }
+    }
+  }
+
   static Map<String, dynamic>? _findCardJson(List<ArchiveFile> files) {
     for (final name in _preferredCardNames) {
       for (final f in files) {

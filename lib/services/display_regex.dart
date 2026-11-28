@@ -64,8 +64,13 @@ class DisplayRegex {
 
   bool get isDisabled => !enabled;
 
+  /// 防护上限（v0.41.0）：避免超长 pattern（ReDoS 风险）或超长消息把 UI 卡死。
+  static const int maxPatternLength = 1000;
+  static const int maxAppliedLength = 200000;
+
   /// 正则写错时返回 null（界面上提示，不抛异常）。
   RegExp? compile() {
+    if (pattern.length > maxPatternLength) return null;
     try {
       return RegExp(pattern, caseSensitive: !flags.contains('i'), multiLine: flags.contains('m'), dotAll: flags.contains('s'), unicode: flags.contains('u'));
     } catch (_) {
@@ -81,9 +86,9 @@ class DisplayRegex {
         RegexScope.assistant => !isUser,
       };
 
-  /// 应用这条正则；正则非法或未启用时原样返回。
+  /// 应用这条正则；正则非法、未启用或文本过长时原样返回。
   String apply(String text) {
-    if (!enabled) return text;
+    if (!enabled || text.isEmpty || text.length > maxAppliedLength) return text;
     final re = compile();
     if (re == null) return text;
     return text.replaceAllMapped(re, (m) => _expandReplacement(replacement, m));
@@ -264,6 +269,11 @@ class DisplayRegexLibrary {
   }
 
   /// 导入 SillyTavern 的正则 JSON（数组或单个对象），返回新增条数。
+  ///
+  /// 防护（v0.41.0）：单条 pattern 超过 [DisplayRegex.maxPatternLength] 的条目会被跳过，
+  /// 单次导入最多 [maxImportCount] 条，避免一次性灌入上万个正则把启动拖慢。
+  static const int maxImportCount = 200;
+
   static Future<int> importFromJson(String raw) async {
     final decoded = jsonDecode(raw);
     final items = <Object?>[];
@@ -274,11 +284,16 @@ class DisplayRegexLibrary {
     } else {
       items.add(decoded);
     }
-    final incoming = <DisplayRegex>[
-      for (var i = 0; i < items.length; i++)
-        DisplayRegex.fromSillyTavern(items[i],
-            fallbackId: 'rx_${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}_$i'),
-    ];
+    if (items.length > maxImportCount) {
+      items.removeRange(maxImportCount, items.length);
+    }
+    final incoming = <DisplayRegex>[];
+    for (var i = 0; i < items.length; i++) {
+      final regex = DisplayRegex.fromSillyTavern(items[i],
+          fallbackId: 'rx_${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}_$i');
+      if (regex.pattern.length > DisplayRegex.maxPatternLength) continue;
+      incoming.add(regex);
+    }
     if (incoming.isEmpty) return 0;
     final list = List<DisplayRegex>.of(all);
     var added = 0;

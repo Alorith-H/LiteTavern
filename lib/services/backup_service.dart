@@ -153,6 +153,12 @@ class BackupService {
   static const String manifestName = 'manifest.json';
   static const String filesPrefix = 'files';
 
+  /// 防 zip 炸弹（v0.41.0）：备份包条目数与解压后总大小上限。
+  /// 正常整库备份也就几 MB 到几十 MB，超过这些值基本可以断定是坏包或恶意包。
+  static const int maxEntries = 20000;
+  static const int maxUncompressedBytes = 1024 * 1024 * 1024; // 1GB
+  static const int maxSingleFileBytes = 200 * 1024 * 1024; // 200MB
+
   /// 参与备份的子目录（Storage 里创建的那四个）。
   static const List<String> dataDirs = [
     'characters',
@@ -221,10 +227,31 @@ class BackupService {
       throw const BackupException('这不是有效的 zip 文件，或者文件已损坏');
     }
 
+    // v0.41.0：先按「未解压大小」卡上限，避免恶意包在遍历时把内存吃爆
+    final entries = archive.files.where((f) => f.isFile).toList();
+    if (entries.length > maxEntries) {
+      throw BackupException(
+        '这个备份包文件太多（${entries.length} 个），为安全起见已拒绝恢复',
+      );
+    }
+    var totalSize = 0;
+    for (final entry in entries) {
+      if (entry.size > maxSingleFileBytes) {
+        throw BackupException(
+          '备份包里有一个文件解压后超过 200MB（${entry.name}），已拒绝恢复',
+        );
+      }
+      totalSize += entry.size;
+      if (totalSize > maxUncompressedBytes) {
+        throw const BackupException(
+          '这个备份包解压后超过 1GB，为安全起见已拒绝恢复',
+        );
+      }
+    }
+
     Map<String, dynamic>? manifestJson;
     final files = <String, List<int>>{};
-    for (final entry in archive) {
-      if (!entry.isFile) continue;
+    for (final entry in entries) {
       final name = entry.name;
       if (name == manifestName) {
         try {

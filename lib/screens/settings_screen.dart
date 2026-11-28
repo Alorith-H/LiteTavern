@@ -19,6 +19,7 @@ import '../widgets/update_flow.dart';
 import 'advanced_settings_screen.dart';
 import 'api_config_screen.dart';
 import 'display_regex_screen.dart';
+import 'diagnostics_screen.dart';
 import 'gen_presets_screen.dart';
 import 'onboarding_screen.dart';
 import 'personas_screen.dart';
@@ -1284,6 +1285,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
         onTap: () {
           Navigator.of(context).push(
             MaterialPageRoute(builder: (_) => const OnboardingScreen()),
+          );
+        },
+      ),
+      const Divider(height: 1),
+      _actionRow(
+        title: '诊断日志',
+        subtitle: '崩溃或报错时看这里，最近 150 条记录可复制',
+        trailing: _chevron(scheme),
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const DiagnosticsScreen()),
           );
         },
       ),

@@ -1,7 +1,12 @@
+import 'dart:async';
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
+import 'app_info.dart';
 import 'screens/home_screen.dart';
 import 'screens/onboarding_screen.dart';
+import 'services/app_log.dart';
 import 'services/storage.dart';
 
 // ---------------------------------------------------------- 设计令牌 --
@@ -38,8 +43,10 @@ final ValueNotifier<Color> themeSeedNotifier = ValueNotifier(kDefaultSeed);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  _installErrorHandlers();
   await Storage.init();
   await AppSettings.init();
+  AppLog.record('App 启动 · v$kAppVersion');
   themeModeNotifier.value = switch (AppSettings.themeMode) {
     'light' => ThemeMode.light,
     'dark' => ThemeMode.dark,
@@ -47,6 +54,23 @@ Future<void> main() async {
   };
   themeSeedNotifier.value = Color(AppSettings.themeSeed);
   runApp(const LiteTavernApp());
+}
+
+/// 全局错误记录（v0.41.0 商用加固）：框架异常与未捕获的异步异常都写进诊断日志，
+/// 不改变默认的崩溃行为（仍然交给 Flutter 打印/上报），只是让用户能在「诊断日志」里回看。
+void _installErrorHandlers() {
+  final previous = FlutterError.onError;
+  FlutterError.onError = (details) {
+    AppLog.record(
+      'Flutter 异常：${details.exceptionAsString()}',
+      stackTrace: details.stack,
+    );
+    previous?.call(details);
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    AppLog.record('未捕获异常：$error', stackTrace: stack);
+    return false;
+  };
 }
 
 class LiteTavernApp extends StatelessWidget {
