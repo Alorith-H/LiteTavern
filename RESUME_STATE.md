@@ -1,3 +1,20 @@
+## 本轮 v0.43.0（文案 / 引导 / 更新提示 / 官网）
+
+- **文案去 AI 味**：设置页 14 条说明改写为口语；主页空态与导入弹层 5 条改写；去掉了说明里的版本号。
+- **新手引导**：开场补「大概 2 分钟」；完成页新增「更新后会告诉你改了什么」条目。
+- **更新说明**：新增 `lib/services/whats_new.dart`（登记 0.43.0 / 0.42.0 两版要点、`pendingWhatsNew`、`markWhatsNewSeen`）与 `lib/widgets/whats_new_dialog.dart`；`home_screen` 启动后弹一次；设置 → 帮助与关于 → 「更新说明」可回看（回看不改已读状态）；`AppSettings.lastSeenVersion`（键 `last_seen_version`）。
+- **静态官网**：`docs/index.html` + `docs/assets/style.css` + `icon.svg`；GitHub Pages 从 dev 分支 /docs 发布，地址 https://alorith-h.github.io/LiteTavern/ ；页面 JS 从 Releases API 读取最新版本与 APK 大小。
+
+### 本次运行记录（v0.43.0）
+| 项目 | 结果 |
+| --- | --- |
+| `flutter analyze` | No issues found!（4.3s） |
+| `flutter test` | **+593 All tests passed!**（20s，含 v43 新增 6 例） |
+| `flutter build apk --release` | 61.3MB（64,237,327 字节），versionCode 47 / 0.43.0 |
+| 装机 | 真机 192.168.0.102:37433 → Success（0.43.0 / code 47） |
+| 真机点验 | 首次启动弹出「这一版更顺手了」四条要点 + 「知道了」，点掉后进入主页（`build/v430_whatsnew.png`、`v430_home.png`） |
+| 官网 | Pages 构建 built（commit 065cd7a），https://alorith-h.github.io/LiteTavern/ 返回 200 |
+| 提交 / 发布 | commit 065cd7a · tag v0.43.0 · Release id 461269240（APK asset 803040109） |
 ## 本轮 v0.42.0 —— 长会话性能（增量保存 / 分页 / 索引 / 长图进度）
 
 > 用户需求：会话增量保存 + 分页加载，聊天统计/搜索做缓存索引，长图导出改后台 isolate + 进度条。

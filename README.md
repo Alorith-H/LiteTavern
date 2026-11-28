@@ -2,8 +2,12 @@
 
 > 简洁、克制的 AI 角色扮演聊天 App。兼容 SillyTavern 角色卡与世界书，直连任意 OpenAI 兼容接口。
 
-[![Release](https://img.shields.io/github/v/release/Alorith-H/LiteTavern?sort=semver&label=Release)](https://github.com/Alorith-H/LiteTavern/releases)
-[![Platform](https://img.shields.io/badge/platform-Android%207.0%2B-3ddc84)](https://github.com/Alorith-H/LiteTavern/releases)
+[![Release](https://img.shields.io/github/v/release/Alorith-H/LiteTavern?sort=semver&label=Release)](https://alorith-h.github.io/LiteTavern/
+
+下载页：https://github.com/Alorith-H/LiteTavern/releases)
+[![Platform](https://img.shields.io/badge/platform-Android%207.0%2B-3ddc84)](https://alorith-h.github.io/LiteTavern/
+
+下载页：https://github.com/Alorith-H/LiteTavern/releases)
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-02569b?logo=flutter&logoColor=white)](https://flutter.dev)
 [![Tests](https://img.shields.io/badge/tests-208%20passed-brightgreen)](#开发)
 [![License](https://img.shields.io/github/license/Alorith-H/LiteTavern)](LICENSE)
@@ -54,7 +58,9 @@
 
 ## 下载
 
-到 [Releases](https://github.com/Alorith-H/LiteTavern/releases) 下载最新的 `app-release.apk` 直接安装。
+到 [Releases](https://alorith-h.github.io/LiteTavern/
+
+下载页：https://github.com/Alorith-H/LiteTavern/releases) 下载最新的 `app-release.apk` 直接安装。
 
 - 系统要求：Android 7.0（API 24）及以上。
 - 若提示「未知来源」，在系统设置中允许安装即可。
