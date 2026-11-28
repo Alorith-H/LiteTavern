@@ -104,6 +104,9 @@ class _UpdateDialogState extends State<UpdateDialog> {
   int _received = 0;
   int? _total;
   bool _cancel = false;
+  String? _sourceLabel;
+  double _bytesPerSecond = 0;
+  String? _notice;
 
   @override
   void initState() {
@@ -155,6 +158,9 @@ class _UpdateDialogState extends State<UpdateDialog> {
       _total = info.apkSize > 0 ? info.apkSize : null;
       _cancel = false;
       _error = null;
+      _notice = null;
+      _sourceLabel = null;
+      _bytesPerSecond = 0;
     });
     try {
       final tmp = await getTemporaryDirectory();
@@ -168,9 +174,26 @@ class _UpdateDialogState extends State<UpdateDialog> {
             _total = total ?? _total;
           });
         },
+        onSource: (source) {
+          if (!mounted || _cancel) return;
+          setState(() => _sourceLabel = source.label);
+        },
+        onSpeed: (bytesPerSecond) {
+          if (!mounted || _cancel) return;
+          setState(() => _bytesPerSecond = bytesPerSecond);
+        },
         isCancelled: () => _cancel,
       );
       if (!mounted) return;
+      if (!await widget.installer.canInstall()) {
+        if (!mounted) return;
+        setState(() {
+          _phase = _UpdatePhase.available;
+          _notice = '安装包已经下好了。系统还差一步：先允许 LiteTavern 安装应用。';
+        });
+        await _askInstallPermission();
+        return;
+      }
       setState(() => _phase = _UpdatePhase.installing);
       await widget.installer.install(file);
       if (!mounted) return;
@@ -179,14 +202,56 @@ class _UpdateDialogState extends State<UpdateDialog> {
       if (!mounted) return;
       setState(() {
         _phase = _UpdatePhase.available;
-        _error = e.message == '已取消下载' ? null : e.message;
+        final cancelled = _cancel || e.message == '已取消下载';
+        _error = cancelled ? null : e.message;
+        _notice = cancelled
+            ? '已取消下载。已经下的一部分留着了，下次点「下载并安装」会接着下。'
+            : null;
       });
+    } on ApkInstallPermissionException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _phase = _UpdatePhase.available;
+        _notice = '${e.message}。点「下载并安装」前先把它打开。';
+      });
+      await _askInstallPermission();
     } on ApkInstallException catch (e) {
       if (!mounted) return;
       setState(() {
         _phase = _UpdatePhase.available;
         _error = '${e.message}\n如果没弹出安装界面，请到 系统设置 → 应用 → 安装未知应用 里允许 LiteTavern';
       });
+    }
+  }
+
+  /// 系统没允许安装 APK 时，带用户去对应的设置页。
+  Future<void> _askInstallPermission() async {
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('还差一步：允许安装应用'),
+        content: const Text(
+          '按 Android 的规定，应用要更新自己，得先在系统里允许一次「安装未知应用」。\n\n'
+          '点下面的按钮会打开这个开关的页面，打开后回到这里，再点一次「下载并安装」就行——安装包已经下好了，不会重新下载。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('稍后'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('去打开设置'),
+          ),
+        ],
+      ),
+    );
+    if (go != true) return;
+    try {
+      await widget.installer.openInstallSettings();
+    } on ApkInstallException catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.message);
     }
   }
 
@@ -276,10 +341,14 @@ class _UpdateDialogState extends State<UpdateDialog> {
           const SizedBox(height: 10),
           Text(
             info.hasApk
-                ? '下载后在系统弹窗里点「安装」即可覆盖升级，聊天记录和角色卡都会保留。'
+                ? '下载时会在 GitHub 和几个加速镜像之间自动挑最快的；中断了会接着下，聊天记录和角色卡都会保留。'
                 : '这个版本没有附带 APK，去 Release 页面查看。',
             style: caption,
           ),
+          if (_notice != null) ...[
+            const SizedBox(height: 10),
+            Text(_notice!, style: TextStyle(fontSize: AppType.caption, color: scheme.onSurfaceVariant)),
+          ],
           if (_error != null) ...[
             const SizedBox(height: 10),
             Text(_error!, style: TextStyle(fontSize: AppType.caption, color: scheme.error)),
@@ -288,6 +357,11 @@ class _UpdateDialogState extends State<UpdateDialog> {
       case _UpdatePhase.downloading:
         final total = _total;
         final progress = total != null && total > 0 ? (_received / total).clamp(0.0, 1.0) : null;
+        final speed = _bytesPerSecond;
+        final detail = [
+          if (speed > 0) '${formatBytes(speed.round())}/s',
+          if (_sourceLabel != null) '来源：${_sourceLabel!}',
+        ].join(' · ');
         return [
           const SizedBox(height: 6),
           LinearProgressIndicator(value: progress, minHeight: 6, borderRadius: BorderRadius.circular(4)),
@@ -298,8 +372,12 @@ class _UpdateDialogState extends State<UpdateDialog> {
                 : '已下载 ${formatBytes(_received)}',
             style: body,
           ),
+          if (detail.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(detail, style: caption),
+          ],
           const SizedBox(height: 8),
-          Text('下载完成后会自动打开系统安装界面。', style: caption),
+          Text('慢的话会自动换下一个源；这个对话框关掉后，下次会从断点接着下。', style: caption),
         ];
       case _UpdatePhase.installing:
         return const [

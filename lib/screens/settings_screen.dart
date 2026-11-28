@@ -1253,6 +1253,77 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // ---------------------------------------------------- 帮助（二级） --
 
+  Future<void> _pickUpdateSource() async {
+    final scheme = Theme.of(context).colorScheme;
+    final caption = TextStyle(fontSize: AppType.caption, color: scheme.onSurfaceVariant);
+    var mode = AppSettings.updateSourceMode;
+    final ctrl = TextEditingController(text: AppSettings.updateCustomMirror);
+    final result = await showDialog<(UpdateSourceMode, String)>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: const Text('更新下载源'),
+          content: SizedBox(
+            width: 430,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final option in UpdateSourceMode.values)
+                    ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(option.label, style: const TextStyle(fontSize: AppType.body)),
+                      subtitle: Text(option.description, style: caption),
+                      trailing: Icon(
+                        option == mode ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                        size: 20,
+                        color: option == mode ? scheme.primary : scheme.onSurfaceVariant,
+                      ),
+                      onTap: () => setLocal(() => mode = option),
+                    ),
+                  if (mode == UpdateSourceMode.custom) ...[
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: ctrl,
+                      decoration: const InputDecoration(
+                        labelText: '加速前缀',
+                        hintText: 'https://gh-proxy.com/',
+                        helperText: '把 GitHub 地址接在这个前缀后面；留空就只用内置源',
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  Text(
+                    '内置镜像：ghfast、gh-proxy、ghproxy.imciel、ghproxy.net（下不动会自动换下一个）。'
+                    '下载前会先测速，挂了或太慢的源会被跳过；中途断了会从断点续传。',
+                    style: caption,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, (mode, ctrl.text)),
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      ),
+    );
+    ctrl.dispose();
+    if (result == null || !mounted) return;
+    AppSettings.updateSourceMode = result.$1;
+    AppSettings.updateCustomMirror = result.$2;
+    setState(() {});
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text('下载源已设为：${result.$1.label}')));
+  }
+
   List<Widget> _helpChildren(ColorScheme scheme) {
     return [
       const SectionHeader('帮助与关于'),
@@ -1271,6 +1342,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
           setState(() => _autoCheckUpdates = v);
           AppSettings.autoCheckUpdates = v;
         },
+      ),
+      const Divider(height: 1),
+      _actionRow(
+        title: '更新下载源',
+        subtitle: '${AppSettings.updateSourceMode.label} · 国内网络慢的时候自动换加速镜像',
+        trailing: _chevron(scheme),
+        onTap: _pickUpdateSource,
       ),
       const Divider(height: 1),
       _actionRow(

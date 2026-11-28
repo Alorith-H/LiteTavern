@@ -17,6 +17,15 @@ class WhatsNewEntry {
 /// 最近几次更新的说明。只保留用户能感知的变化，不写内部实现。
 const List<WhatsNewEntry> kWhatsNew = <WhatsNewEntry>[
   WhatsNewEntry(
+    version: '0.44.0',
+    title: '国内网络下更新更快了',
+    bullets: <String>[
+      '下载更新时会先测一下各个源的速度，自动挑最快的那个。',
+      '一个源卡住了会自动换下一个，不用再手动重试。',
+      '下到一半断了也没关系：已经下好的部分会留着，下次接着下。',
+      '设置 → 帮助与关于 → 更新下载源：可以选自动、只走 GitHub，或填自己的加速前缀。',
+    ],
+  ),  WhatsNewEntry(
     version: '0.43.1',
     title: '关于页和官网都换了样子',
     bullets: <String>[

@@ -982,6 +982,22 @@ enum AssistMode {
 }
 
 /// 应用设置（shared_preferences）。
+/// 下载源策略：自动挑最快的源 / 只走 GitHub / 自定义加速前缀优先。
+enum UpdateSourceMode { auto, githubOnly, custom }
+
+extension UpdateSourceModeLabel on UpdateSourceMode {
+  String get label => switch (this) {
+        UpdateSourceMode.auto => '自动（推荐）',
+        UpdateSourceMode.githubOnly => '只走 GitHub',
+        UpdateSourceMode.custom => '自定义加速前缀',
+      };
+
+  String get description => switch (this) {
+        UpdateSourceMode.auto => '先测一下各个源的速度，挑最快的下；一个不行自动换下一个',
+        UpdateSourceMode.githubOnly => '只从 GitHub 官方地址下，不走第三方加速',
+        UpdateSourceMode.custom => '用你填的加速前缀拼出地址，失败再退回 GitHub 和内置镜像',
+      };
+}
 class AppSettings {
   static late SharedPreferences _sp;
   static bool _ready = false;
@@ -1319,6 +1335,22 @@ class AppSettings {
   static set lastUpdateCheckMs(int v) => _sp.setInt(_kLastUpdateCheck, v);
   static const _kLastUpdateCheck = 'last_update_check_ms';
 
+  /// 更新下载源策略（0 自动 / 1 只走 GitHub / 2 自定义前缀）。
+  static UpdateSourceMode get updateSourceMode {
+    final raw = _sp.getInt(_kUpdateSourceMode) ?? 0;
+    return UpdateSourceMode.values[raw.clamp(0, UpdateSourceMode.values.length - 1)];
+  }
+
+  static set updateSourceMode(UpdateSourceMode v) =>
+      _sp.setInt(_kUpdateSourceMode, v.index);
+  static const _kUpdateSourceMode = 'update_source_mode';
+
+  /// 自定义加速前缀，例如 https://gh-proxy.com/（也可以是自己服务器上的地址）。
+  static String get updateCustomMirror =>
+      _sp.getString(_kUpdateCustomMirror) ?? '';
+  static set updateCustomMirror(String v) =>
+      _sp.setString(_kUpdateCustomMirror, v.trim());
+  static const _kUpdateCustomMirror = 'update_custom_mirror';
   /// 用户点了「稍后」的版本号：同版本不再自动弹出提醒。
   static String get skippedUpdateVersion =>
       _sp.getString(_kSkippedUpdateVersion) ?? '';
@@ -1651,3 +1683,5 @@ class _ConvMem {
     this.journalLines = 0,
   });
 }
+
+

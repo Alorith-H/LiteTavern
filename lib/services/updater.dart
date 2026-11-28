@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 import '../app_info.dart';
+import 'storage.dart';
 
 /// 一个新版本的信息（来自 GitHub Releases）。
 class UpdateInfo {
@@ -102,6 +103,18 @@ int compareVersions(String a, String b) {
   return 0;
 }
 
+
+/// 一个候选下载源。
+class DownloadSource {
+  const DownloadSource(this.label, this.url);
+
+  final String label;
+  final String url;
+
+  @override
+  String toString() => '$label（$url）';
+}
+
 /// 检查更新：读 GitHub Releases 的 latest，比较版本、取 APK 附件。
 ///
 /// 纯本机逻辑，不引入新依赖；网络失败抛 [UpdateCheckException]（中文文案）。
@@ -118,6 +131,54 @@ class UpdateService {
 
   /// APK 下载上限（防止异常响应把手机写满）。
   static const int maxApkBytes = 300 * 1024 * 1024;
+
+  /// 内置的公共加速镜像（把 GitHub 原始地址拼在结尾）。
+  ///
+  /// 这些是社区镜像，随时可能失效；所以每次下载都会先测速，
+  /// 只把响应的源排进候选，全挂了再回落到直连。
+  /// 公共加速镜像。只放实测能通的：2026-11 实测 hub.gitmirror.com 域名解析失败、
+  /// github.moeyy.xyz 连接超时，已去掉，免得每次测速都白等一轮。
+  static const Map<String, String> mirrorPrefixes = {
+    'ghfast': 'https://ghfast.top/',
+    'gh-proxy': 'https://gh-proxy.com/',
+    'ghproxy.imciel': 'https://ghproxy.imciel.com/',
+    'ghproxy.net': 'https://ghproxy.net/',
+  };
+
+  /// 按设置拼出候选下载源列表（第一个是首选）。
+  ///
+  /// 纯函数，方便单测：GitHub 直连永远在列表里，`custom` 模式会把它排到最后。
+  static List<DownloadSource> downloadSourcesFor(
+    String apkUrl, {
+    UpdateSourceMode mode = UpdateSourceMode.auto,
+    String customPrefix = '',
+  }) {
+    final raw = apkUrl.trim();
+    if (raw.isEmpty) return const [];
+    final direct = DownloadSource('GitHub 直连', raw);
+    final custom = customPrefix.trim();
+    String withPrefix(String prefix) {
+      final base = prefix.endsWith('/') ? prefix : '$prefix/';
+      return '$base$raw';
+    }
+
+    switch (mode) {
+      case UpdateSourceMode.githubOnly:
+        return [direct];
+      case UpdateSourceMode.custom:
+        return [
+          if (custom.isNotEmpty) DownloadSource('自定义源', withPrefix(custom)),
+          direct,
+        ];
+      case UpdateSourceMode.auto:
+        return [
+          if (custom.isNotEmpty) DownloadSource('自定义源', withPrefix(custom)),
+          direct,
+          for (final entry in mirrorPrefixes.entries)
+            DownloadSource('加速镜像·${entry.key}', withPrefix(entry.value)),
+        ];
+    }
+  }
 
   Uri get latestReleaseUri =>
       Uri.parse('https://api.github.com/repos/$repo/releases/latest');
@@ -217,12 +278,18 @@ class UpdateService {
 
   /// 下载 APK 到 [dir]，返回落盘的文件。
   ///
-  /// [isCancelled] 每读一块都会问一次；返回 true 时中止并删掉半成品。
+  /// 行为：
+  /// * 按 [AppSettings.updateSourceMode] 拼候选源，先并行测速（只读 64KB）再挑最快的；
+  /// * 下到一半断了/换源，会用 `Range` 从已下载的位置续传（`.part` 文件）；
+  /// * 取消下载时保留 `.part`，下次接着下；
+  /// * 所有源都失败才抛错，错误里带上试过的源。
   Future<File> downloadApk(
     UpdateInfo info, {
     required Directory dir,
     void Function(int received, int? total)? onProgress,
     bool Function()? isCancelled,
+    void Function(DownloadSource source)? onSource,
+    void Function(double bytesPerSecond)? onSpeed,
   }) async {
     if (!info.hasApk) {
       throw const UpdateCheckException('这个版本没有提供 APK 附件');
@@ -230,37 +297,157 @@ class UpdateService {
     await dir.create(recursive: true);
     final safeName = info.version.replaceAll(RegExp(r'[^0-9A-Za-z._-]'), '_');
     final target = File('${dir.path}${Platform.pathSeparator}LiteTavern-$safeName.apk');
+    final part = File('${target.path}.part');
+    final expected = info.apkSize > 0 ? info.apkSize : 0;
 
-    final request = http.Request('GET', Uri.parse(info.apkUrl))
+    // 0) 之前已经下完（比如上次卡在「允许安装应用」那一步）就直接复用，不再重下。
+    if (expected > 0) {
+      if (await target.exists() && await target.length() == expected) {
+        onProgress?.call(expected, expected);
+        return target;
+      }
+      if (!await target.exists() &&
+          await part.exists() &&
+          await part.length() == expected) {
+        onProgress?.call(expected, expected);
+        return part.rename(target.path);
+      }
+    }
+
+    final candidates = downloadSourcesFor(
+      info.apkUrl,
+      mode: AppSettings.updateSourceMode,
+      customPrefix: AppSettings.updateCustomMirror,
+    );
+    if (candidates.isEmpty) {
+      throw const UpdateCheckException('这个版本没有提供 APK 附件');
+    }
+
+    // 1) 并行测速：只读响应开头，超时/报错的源直接排除。
+    final probes = await Future.wait(
+      candidates.take(6).map((source) => _probe(source, isCancelled: isCancelled)),
+    );
+    final ranked = probes.whereType<_Probe>().toList()
+      ..sort((a, b) => b.bytesPerSecond.compareTo(a.bytesPerSecond));
+    final ordered = <DownloadSource>[
+      for (final probe in ranked) probe.source,
+      for (final source in candidates)
+        if (!ranked.any((probe) => probe.source.url == source.url)) source,
+    ];
+
+    // 2) 依次尝试，失败自动换源；每个源都从 .part 当前位置续传。
+    Object? lastError;
+    var reportedSource = '';
+    for (final source in ordered) {
+      if (isCancelled?.call() ?? false) {
+        throw const UpdateCheckException('已取消下载');
+      }
+      if (reportedSource != source.label) {
+        reportedSource = source.label;
+        onSource?.call(source);
+      }
+      var received = await part.exists() ? await part.length() : 0;
+      if (expected > 0 && received > expected) {
+        // 残留的半成品比目标还大，说明是别的版本，重下。
+        await part.delete();
+        received = 0;
+      }
+      if (expected > 0 && received == expected) break; // 已经下完了
+      onProgress?.call(received, expected > 0 ? expected : null);
+      try {
+        await _downloadFrom(
+          source,
+          part,
+          start: received,
+          expected: expected,
+          onProgress: (got, total) {
+            onProgress?.call(got, expected > 0 ? expected : total);
+          },
+          onSpeed: onSpeed,
+          isCancelled: isCancelled,
+        );
+        final length = await part.length();
+        if (expected > 0 && length < expected) {
+          throw UpdateCheckException(
+            '${source.label} 连接中断（/ 字节）',
+          );
+        }
+        if (length > 0) {
+          lastError = null;
+          break;
+        }
+      } on UpdateCheckException catch (e) {
+        if (e.message == '已取消下载') rethrow;
+        lastError = e;
+      } catch (e) {
+        lastError = UpdateCheckException('${source.label} 下载失败：$e');
+      }
+    }
+
+    if (isCancelled?.call() ?? false) {
+      throw const UpdateCheckException('已取消下载');
+    }
+    if (!await part.exists()) {
+      throw UpdateCheckException(
+        lastError == null ? '下载失败，稍后再试' : '下载失败：${_messageOf(lastError)}',
+      );
+    }
+    final downloaded = await part.length();
+    if (downloaded == 0) {
+      throw const UpdateCheckException('下载到的文件是空的，稍后再试');
+    }
+    if (expected > 0 && downloaded < expected) {
+      throw UpdateCheckException(
+        '下载不完整（/ 字节），已下载的部分会保留，重试会接着下',
+      );
+    }
+    if (lastError != null) {
+      throw UpdateCheckException('下载失败：${_messageOf(lastError)}');
+    }
+    if (await target.exists()) await target.delete();
+    return part.rename(target.path);
+  }
+
+  /// 从 [source] 把数据追加到 [part]（[start] > 0 时用 Range 续传）。
+  Future<void> _downloadFrom(
+    DownloadSource source,
+    File part, {
+    required int start,
+    required int expected,
+    required void Function(int received, int? total) onProgress,
+    void Function(double bytesPerSecond)? onSpeed,
+    bool Function()? isCancelled,
+  }) async {
+    final request = http.Request('GET', Uri.parse(source.url))
       ..headers['User-Agent'] = 'LiteTavern';
+    if (start > 0) request.headers['Range'] = 'bytes=$start-';
 
     http.StreamedResponse response;
     try {
-      response = await _client.send(request).timeout(const Duration(seconds: 30));
+      response = await _client.send(request).timeout(const Duration(seconds: 20));
     } on TimeoutException {
-      throw const UpdateCheckException('下载超时，请检查网络后重试');
-    } catch (e) {
-      throw UpdateCheckException('下载失败：$e');
+      throw const UpdateCheckException('连接超时');
     }
 
     if (response.statusCode != 200 && response.statusCode != 206) {
-      throw UpdateCheckException('下载失败（HTTP ${response.statusCode}）');
+      throw UpdateCheckException('HTTP ${response.statusCode}');
     }
+    // 服务器不认 Range、直接回整包：丢掉半成品，从头写。
+    final restart = response.statusCode == 200 && start > 0;
 
     final declared = response.contentLength;
-    final total = declared != null && declared > 0
-        ? declared
-        : (info.apkSize > 0 ? info.apkSize : null);
-    if (total != null && total > maxApkBytes) {
-      throw const UpdateCheckException('安装包太大，已中止下载');
-    }
+    final total = expected > 0 ? expected : declared;
 
-    final sink = target.openWrite();
-    var received = 0;
+    final sink = part.openWrite(mode: restart ? FileMode.write : FileMode.append);
+    var received = restart ? 0 : start;
     var lastReported = -1;
+    final stopwatch = Stopwatch()..start();
+    var speedWindowBytes = 0;
+    var speedWindowStart = stopwatch.elapsedMicroseconds;
     var cancelled = false;
+
     try {
-      onProgress?.call(0, total);
+      onProgress(received, total);
       await for (final chunk in response.stream) {
         if (isCancelled?.call() ?? false) {
           cancelled = true;
@@ -271,32 +458,80 @@ class UpdateService {
           throw const UpdateCheckException('安装包太大，已中止下载');
         }
         sink.add(chunk);
-        // 每 2% 或 256KB 上报一次，避免刷屏
+
+        speedWindowBytes += chunk.length;
+        final windowMicros = stopwatch.elapsedMicroseconds - speedWindowStart;
+        if (windowMicros >= 400 * 1000) {
+          final bytesPerSecond = speedWindowBytes / (windowMicros / 1000000);
+          onSpeed?.call(bytesPerSecond);
+          speedWindowBytes = 0;
+          speedWindowStart = stopwatch.elapsedMicroseconds;
+        }
+
         final step = total == null || total <= 0
             ? 256 * 1024
             : (total / 50).clamp(64 * 1024, 2 * 1024 * 1024);
         if (received - lastReported >= step || received == total) {
           lastReported = received;
-          onProgress?.call(received, total);
+          onProgress(received, total);
         }
       }
       await sink.flush();
+    } on UpdateCheckException {
+      rethrow;
+    } catch (e) {
+      throw UpdateCheckException('传输中断：$e');
     } finally {
       await sink.close();
     }
 
-    if (cancelled) {
-      await target.delete().catchError((_) => target);
-      throw const UpdateCheckException('已取消下载');
+    if (cancelled) throw const UpdateCheckException('已取消下载');
+  }
+
+  /// 只读每个源开头的一小段，估算速度；失败的源返回 null。
+  Future<_Probe?> _probe(
+    DownloadSource source, {
+    bool Function()? isCancelled,
+  }) async {
+    final request = http.Request('GET', Uri.parse(source.url))
+      ..headers['User-Agent'] = 'LiteTavern'
+      ..headers['Range'] = 'bytes=0-65535';
+    final stopwatch = Stopwatch()..start();
+    try {
+      final response = await _client.send(request).timeout(const Duration(seconds: 5));
+      if (response.statusCode != 200 && response.statusCode != 206) return null;
+      var got = 0;
+      await for (final chunk in response.stream) {
+        got += chunk.length;
+        if (got >= 32 * 1024) break;
+        if (stopwatch.elapsed > const Duration(seconds: 6)) break;
+        if (isCancelled?.call() ?? false) break;
+      }
+      stopwatch.stop();
+      final micros = stopwatch.elapsedMicroseconds;
+      if (got <= 0 || micros <= 0) return null;
+      return _Probe(source, got / (micros / 1000000));
+    } catch (_) {
+      return null;
     }
-    if (received == 0) {
-      await target.delete().catchError((_) => target);
-      throw const UpdateCheckException('下载到的文件是空的，稍后再试');
-    }
-    return target;
+  }
+
+  static String _messageOf(Object? error) {
+    if (error is UpdateCheckException) return error.message;
+    return '$error';
   }
 
   void dispose() {
     if (_ownsClient) _client.close();
   }
 }
+
+/// 测速结果：某个源在前几十 KB 上的吞吐。
+class _Probe {
+  const _Probe(this.source, this.bytesPerSecond);
+
+  final DownloadSource source;
+  final double bytesPerSecond;
+}
+
+
