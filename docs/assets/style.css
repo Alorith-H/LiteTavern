@@ -69,6 +69,7 @@ a:hover { color: var(--accent); }
   height: 64px;
 }
 .mark { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.mark picture { display: block; flex: none; line-height: 0; }
 .mark-logo {
   width: 30px; height: 30px;
   display: block;
