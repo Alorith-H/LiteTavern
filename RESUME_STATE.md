@@ -214,3 +214,13 @@ python build\mock_llm.py    # 监听 127.0.0.1:8765，模拟器用 http://10.0.2
   - 聊天菜单一级只有六组与概括、无标题（`build/v401_menu1.png`）；
   - 点「生成」进二级（`build/v401_menu2.png`）后按**系统返回** → 回到一级（六组仍在，`build/v401_afterback.png`）；
   - 二级点空白 → 回一级；一级点空白 → 菜单关闭（断言：level2→level1 groups=3，再点 groups=0 且输入栏可见）。
+
+### 本次运行记录（v0.42.0）
+| 项目 | 结果 |
+| --- | --- |
+| lutter analyze | No issues found!（8.2s） |
+| lutter test | **+587 All tests passed!**（23s，含新增 15 例 v42） |
+| lutter build apk --release | 61.2MB（64,220,775 字节），versionCode 46 / 0.42.0 |
+| 装机 | db -s 192.168.0.102:37433 install -r → Success（0.42.0 / code 46，数据保留） |
+| 真机冒烟 | 启动正常、打开原有长会话正常（截图 uild/v420_home.png / 420_chat.png），logcat -b crash 无记录 |
+| 提交 / 发布 | commit 55fa18f · tag v0.42.0 · Release id 461261819（APK asset 803000802） |
