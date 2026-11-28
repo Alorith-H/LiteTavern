@@ -2,15 +2,15 @@
    风格：纸质暖调 + 编辑部排版；不用渐变光斑、不用玻璃拟态卡片阵。 */
 
 :root {
-  --paper: #f6f1ea;
-  --paper-2: #ece3d7;
-  --ink: #221c19;
-  --ink-2: #554941;
-  --ink-3: #8a7a70;
-  --line: #d9cbbd;
-  --accent: #95402c;
-  --accent-2: #c98b6f;
-  --white: #fffdf9;
+  --paper: #f5efe4;
+  --paper-2: #ebe1d0;
+  --ink: #1b2b26;
+  --ink-2: #46564d;
+  --ink-3: #7c887e;
+  --line: #d7cab3;
+  --accent: #1f5d52;
+  --accent-2: #e0a15e;
+  --white: #fffaf1;
   --serif: "Songti SC", "Noto Serif SC", "Source Han Serif SC", Georgia, "Times New Roman", serif;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Noto Sans SC", "Microsoft YaHei", sans-serif;
@@ -19,15 +19,15 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #17130f;
-    --paper-2: #1f1915;
-    --ink: #f2e9df;
-    --ink-2: #c3b3a6;
-    --ink-3: #8d7c70;
-    --line: #352a22;
-    --accent: #e08a6d;
-    --accent-2: #a96a52;
-    --white: #241d18;
+    --paper: #10201c;
+    --paper-2: #162824;
+    --ink: #f0e8d8;
+    --ink-2: #c2b8a3;
+    --ink-3: #8a8270;
+    --line: #2b3e37;
+    --accent: #7fb8a4;
+    --accent-2: #c9884a;
+    --white: #1b2f29;
   }
 }
 
@@ -216,7 +216,7 @@ a:hover { color: var(--accent); }
 }
 .bubble.me {
   background: var(--accent-2);
-  color: #221c19;
+  color: #241a10;
   border-bottom-right-radius: 4px;
   align-self: flex-end;
 }
