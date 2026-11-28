@@ -69,14 +69,12 @@ a:hover { color: var(--accent); }
   height: 64px;
 }
 .mark { display: flex; align-items: center; gap: 10px; font-weight: 600; }
-.mark-glyph {
+.mark-logo {
   width: 30px; height: 30px;
-  display: grid; place-items: center;
+  display: block;
+  flex: none;
   border-radius: 8px;
-  background: var(--accent);
-  color: var(--paper);
-  font-family: var(--serif);
-  font-size: 16px;
+  box-shadow: 0 0 0 1px rgba(27, 43, 38, .10);
 }
 .mark-text { letter-spacing: 2px; }
 .topnav { display: flex; gap: 22px; margin-left: auto; font-size: 14px; color: var(--ink-2); }
