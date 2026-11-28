@@ -1,3 +1,19 @@
+## 本轮 v0.43.1（关于页入口 / 文案再顺 / 官网重做）
+
+- **关于弹窗**（`settings_screen._showAbout`）重写：新增「官网」「源代码」两行（`_aboutLink` 用 `openExternalLink`，点开跳浏览器），介绍改成正常句子，底部「作者 Alorith · MIT License」。
+- **文案**：市场来源说明改成「角色卡来自 Chub.ai。现在只显示全年龄内容…」，NSFW 开着时改为「成人向内容也显示，觉得不合适就去 设置 → 角色卡市场 关掉」；`test/card_market_screen_test.dart` 两处断言同步。
+- **更新说明**：`whats_new.dart` 增加 0.43.1 条目（3 条）。
+- **官网重做**（`docs/index.html` + `docs/assets/style.css`，页面 13.6KB / 样式 12KB）：编辑部式排版（大标题 + 交替行 + 时间线）、纯 CSS 手机与对话气泡示意、三种界面预览（气泡/小说/两级菜单）、六条问答、深色模式、`prefers-reduced-motion` 适配、滚动浮现、窄屏重排；下载按钮与版本号从 Releases API 读取。
+
+### 本次运行记录（v0.43.1）
+| 项目 | 结果 |
+| --- | --- |
+| `flutter analyze` | No issues found!（5.3s） |
+| `flutter test` | **+593 All tests passed!**（17s） |
+| `flutter build apk --release` | 61.3MB（64,237,435 字节），versionCode 48 / 0.43.1 |
+| 装机 | 真机 192.168.0.102:37433 → Success（0.43.1 / code 48） |
+| 官网 | Pages built 到 a9c128f；首页 200、`assets/style.css` 200，新设计关键字「把故事」「门没锁」命中；无头 Chrome 截图 `build/site_home.png`（1440×2400） |
+| 提交 / 发布 | commit a9c128f · tag v0.43.1 · Release id 461274320（APK asset 803069120） |
 ## 本轮 v0.43.0（文案 / 引导 / 更新提示 / 官网）
 
 - **文案去 AI 味**：设置页 14 条说明改写为口语；主页空态与导入弹层 5 条改写；去掉了说明里的版本号。
