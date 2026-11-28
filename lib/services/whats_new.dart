@@ -17,6 +17,14 @@ class WhatsNewEntry {
 /// 最近几次更新的说明。只保留用户能感知的变化，不写内部实现。
 const List<WhatsNewEntry> kWhatsNew = <WhatsNewEntry>[
   WhatsNewEntry(
+    version: '0.43.1',
+    title: '关于页和官网都换了样子',
+    bullets: <String>[
+      '设置 → 帮助与关于 → 关于：现在能直接点开官网和源码。',
+      '官网重新做了一版，手机上看着更舒服。',
+      '市场、备份这些地方的说明文字又顺了一遍。',
+    ],
+  ),  WhatsNewEntry(
     version: '0.43.0',
     title: '这一版更顺手了',
     bullets: <String>[

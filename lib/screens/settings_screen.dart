@@ -1645,44 +1645,100 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _showAbout() {
     showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('关于 LiteTavern'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('版本 v$kAppVersion'),
-            const SizedBox(height: 10),
-            const Text('简洁明了的 AI 角色扮演聊天 App，兼容 SillyTavern 角色卡与世界书。'),
-            const SizedBox(height: 10),
-            Text(
-              '作者：Alorith',
-              style: TextStyle(
-                fontSize: AppType.body,
-                color: Theme.of(ctx).colorScheme.onSurface,
+      builder: (ctx) {
+        final scheme = Theme.of(ctx).colorScheme;
+        return AlertDialog(
+          icon: Icon(Icons.local_bar_outlined, color: scheme.primary),
+          title: const Text('LiteTavern'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('版本 vkAppVersion',
+                  style: const TextStyle(fontSize: AppType.body)),
+              const SizedBox(height: 8),
+              Text(
+                '一个装在自己手机里的角色扮演聊天应用。角色、对话和设置都留在本机，不经过任何服务器。',
+                style: const TextStyle(fontSize: AppType.body, height: 1.5),
               ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'https://github.com/Alorith-H/LiteTavern',
-              style: TextStyle(
-                fontSize: AppType.caption,
-                color: Theme.of(ctx).colorScheme.primary,
+              const SizedBox(height: 12),
+              _aboutLink(
+                ctx,
+                icon: Icons.public_outlined,
+                label: '官网',
+                detail: 'alorith-h.github.io/LiteTavern',
+                url: 'https://alorith-h.github.io/LiteTavern/',
               ),
+              _aboutLink(
+                ctx,
+                icon: Icons.code_outlined,
+                label: '源代码',
+                detail: 'github.com/Alorith-H/LiteTavern',
+                url: 'https://github.com/Alorith-H/LiteTavern',
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '作者 Alorith · MIT License',
+                style: TextStyle(
+                  fontSize: AppType.caption,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('关掉'),
             ),
           ],
+        );
+      },
+    );
+  }
+
+  Widget _aboutLink(
+    BuildContext dialogContext, {
+    required IconData icon,
+    required String label,
+    required String detail,
+    required String url,
+  }) {
+    final scheme = Theme.of(dialogContext).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () {
+        Navigator.pop(dialogContext);
+        openExternalLink(context, url, title: label);
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: const TextStyle(fontSize: AppType.body)),
+                  Text(
+                    detail,
+                    style: TextStyle(
+                      fontSize: AppType.meta,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.open_in_new, size: 16, color: scheme.onSurfaceVariant),
+          ],
         ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('好的'),
-          ),
-        ],
       ),
     );
   }
 }
-
 /// 次要说明行（13sp 次要色）。
 class _SubLine extends StatelessWidget {
   final String text;

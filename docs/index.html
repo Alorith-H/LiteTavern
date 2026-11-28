@@ -3,134 +3,300 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>轻酒馆 LiteTavern · 在自己的手机上，和喜欢的角色聊天</title>
-<meta name="description" content="轻酒馆 LiteTavern 是一个开源的安卓角色扮演聊天应用：导入角色卡、自备模型 API、聊天记录只存在本机。">
+<title>轻酒馆 LiteTavern — 把故事留在自己的手机上</title>
+<meta name="description" content="轻酒馆是一个开源的安卓角色扮演聊天应用。导入角色卡，接上自己的模型，故事只存在本机。">
 <meta property="og:title" content="轻酒馆 LiteTavern">
-<meta property="og:description" content="导入角色卡，自备模型 API，聊天记录只存在本机。">
+<meta property="og:description" content="导入角色卡，接上自己的模型，故事只存在本机。">
 <meta property="og:type" content="website">
 <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
-<header class="site-header">
-  <a class="brand" href="./">
-    <span class="brand-mark">酒</span>
-    <span class="brand-name">轻酒馆 LiteTavern</span>
-  </a>
-  <nav class="site-nav">
-    <a href="#features">功能</a>
-    <a href="#start">开始用</a>
-    <a href="#faq">常见问题</a>
-    <a class="nav-cta" href="https://github.com/Alorith-H/LiteTavern" target="_blank" rel="noopener">GitHub</a>
-  </nav>
+
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <a class="mark" href="./">
+      <span class="mark-glyph">酒</span>
+      <span class="mark-text">轻酒馆</span>
+    </a>
+    <nav class="topnav">
+      <a href="#what">它是什么</a>
+      <a href="#how">怎么开始</a>
+      <a href="#look">界面</a>
+      <a href="#questions">问题</a>
+    </nav>
+    <a class="pill" id="nav-download" href="https://github.com/Alorith-H/LiteTavern/releases/latest">下载 <span class="pill-arrow">↓</span></a>
+  </div>
 </header>
 
 <main>
+
   <section class="hero">
-    <div class="hero-copy">
-      <p class="eyebrow">安卓 · 开源 · 本地存储</p>
-      <h1>在自己的手机上<br>和喜欢的角色聊天</h1>
-      <p class="lede">导入一张角色卡，挑一个模型，故事就开始了。角色、对话和设置都只留在你的手机上。</p>
-      <div class="hero-actions">
-        <a class="btn btn-primary" id="download-btn" href="https://github.com/Alorith-H/LiteTavern/releases/latest">下载安装包</a>
-        <a class="btn btn-ghost" href="https://github.com/Alorith-H/LiteTavern" target="_blank" rel="noopener">查看源码</a>
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <p class="kicker">安卓 · 开源 · 本地存储</p>
+        <h1>把故事<br>留在自己的<br><em>手机上</em></h1>
+        <p class="standfirst">
+          轻酒馆不是一个社交平台，也没有账号。它只是一间你自己的酒馆：
+          导入一张角色卡，接上你挑的模型，然后把门关上。
+        </p>
+        <div class="cta-row">
+          <a class="btn btn-solid" id="download-btn" href="https://github.com/Alorith-H/LiteTavern/releases/latest">下载安装包</a>
+          <a class="btn btn-line" href="https://github.com/Alorith-H/LiteTavern" target="_blank" rel="noopener">读源码</a>
+        </div>
+        <p class="fineprint" id="release-meta">正在读取最新版本…</p>
       </div>
-      <p class="meta" id="release-meta">正在读取最新版本…</p>
-    </div>
-    <div class="hero-card" aria-hidden="true">
-      <div class="chat-line them">（把杯子往你这边推了推）外面下雨了，今晚就别走了吧。</div>
-      <div class="chat-line me">那我睡沙发。</div>
-      <div class="chat-line them">……沙发在储藏室里，很潮。</div>
-      <div class="chat-hint">↑ 只是示意，真正的对话在你的手机里</div>
+
+      <figure class="device" aria-label="应用界面示意">
+        <div class="device-notch"></div>
+        <div class="device-screen">
+          <div class="app-bar">
+            <span class="app-back">←</span>
+            <span class="app-title">沈砚</span>
+            <span class="app-more">⋮</span>
+          </div>
+          <div class="app-thread">
+            <p class="bubble them">（把窗子推开一点，雨声涌进来）你来得比约的早。</p>
+            <p class="bubble me">路上没堵车。</p>
+            <p class="bubble them">那正好，我还以为要一个人把这壶茶喝完。</p>
+            <p class="bubble-hidden">
+              <span class="eye">◌</span> 对模型隐藏
+            </p>
+            <p class="bubble them">坐吧，靠里那个位置不冷。</p>
+          </div>
+          <div class="app-input">
+            <span class="app-input-text">说点什么…</span>
+            <span class="app-send">↑</span>
+          </div>
+          <div class="app-foot">上下文 2.8%</div>
+        </div>
+        <figcaption>角色、对话、设置，都在这块屏幕里。</figcaption>
+      </figure>
     </div>
   </section>
 
-  <section id="features" class="section">
-    <h2>它做什么</h2>
-    <div class="grid">
-      <article class="card">
-        <h3>角色卡市场</h3>
-        <p>直接在应用里逛公开角色卡，按热门、最新、标签、语言、长度筛选，看到喜欢的点下载就导入。非中文的卡可以先翻译，再决定用不用。</p>
-      </article>
-      <article class="card">
-        <h3>自己的模型</h3>
-        <p>DeepSeek、智谱、Kimi、小米 MiMo、Ollama，或任何 OpenAI 兼容接口。填自己的 API Key，按量付费，不经手中转。</p>
-      </article>
-      <article class="card">
-        <h3>长得像聊天软件</h3>
-        <p>气泡或小说排版随你挑；长对话自动摘要、建议回复、替你说一句、消息变体横滑切换，都是为「一直聊下去」准备的。</p>
-      </article>
-      <article class="card">
-        <h3>不止一段故事</h3>
-        <p>同一个角色可以开多段聊天，任意一条消息都能分出新分支；书签、搜索、导出长图和 EPUB 都在。</p>
-      </article>
-      <article class="card">
-        <h3>角色卡生态</h3>
-        <p>兼容 SillyTavern 角色卡、世界书和预设：导入 .png / .json / .charx，世界书按全局、人设、角色、聊天分别绑定。</p>
-      </article>
-      <article class="card">
-        <h3>数据在你手里</h3>
-        <p>没有账号、没有云同步。角色、聊天、设置都存本机，可以打成一个 zip 备份，换手机再还原。</p>
-      </article>
+  <section class="section" id="what">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="kicker">它是什么</p>
+        <h2>一个聊天工具，<br>而不是一个内容平台。</h2>
+      </header>
+
+      <div class="rows">
+        <article class="row">
+          <span class="row-num">01</span>
+          <h3>角色卡市场，只在应用里</h3>
+          <div class="row-body">
+            <p>逛 Chub.ai 上的公开角色卡，按热门、最新、标签、语言、长度挑。非中文的卡可以先看译文，再决定要不要下载——下载完直接进库，不用来回传文件。</p>
+            <p class="aside">成人向内容默认不显示，需要自己去设置里打开。</p>
+          </div>
+        </article>
+
+        <article class="row">
+          <span class="row-num">02</span>
+          <h3>模型自己选，钱付给服务商</h3>
+          <div class="row-body">
+            <p>DeepSeek、智谱、Kimi、小米 MiMo、本地 Ollama，或者任何 OpenAI 兼容接口。上下文窗口按模型自动判断，也能手动改。没有中间层，也没有我们替你转发。</p>
+            <p class="aside">应用免费；聊天的费用由你选的模型服务商按用量收。</p>
+          </div>
+        </article>
+
+        <article class="row">
+          <span class="row-num">03</span>
+          <h3>一段对话可以很长的样子</h3>
+          <div class="row-body">
+            <p>早期内容自动压成摘要、长会话增量保存、先渲染最近 200 条往上翻、搜索和统计有索引。聊到几百条也不会一卡一顿。</p>
+            <p class="aside">觉得哪句不该发给模型，就把它对模型隐藏——本机还留着，只是不带进上下文。</p>
+          </div>
+        </article>
+
+        <article class="row">
+          <span class="row-num">04</span>
+          <h3>不止一条时间线</h3>
+          <div class="row-body">
+            <p>同一个角色能开多段聊天；任意一条消息都能岔出分支；书签、搜索、导出长图和 EPUB 都在菜单里。走岔了可以回头，不必重开一局。</p>
+          </div>
+        </article>
+
+        <article class="row">
+          <span class="row-num">05</span>
+          <h3>酒馆生态的东西也能带进来</h3>
+          <div class="row-body">
+            <p>SillyTavern 的 V2/V3 角色卡、世界书、显示正则、预设和 .jsonl 聊天记录都能导入。世界书可以按全局、人设、角色、某段聊天分开绑定。</p>
+            <p class="aside">导入前会给你一份体检报告：哪些能用、哪些只能保留、哪些不会执行。</p>
+          </div>
+        </article>
+
+        <article class="row">
+          <span class="row-num">06</span>
+          <h3>没有账号，也没有云</h3>
+          <div class="row-body">
+            <p>数据就在应用目录里。要换手机，导出一个 zip，在新机器上恢复，还能挑只恢复角色卡或只恢复设置。</p>
+            <p class="aside">备份里含 API Key，注意别随手发出去。</p>
+          </div>
+        </article>
+      </div>
     </div>
   </section>
 
-  <section id="start" class="section section-alt">
-    <h2>开始用，三步</h2>
-    <ol class="steps">
-      <li><strong>装应用</strong><span>下载 APK 安装。第一次安装需要允许「安装未知来源应用」。</span></li>
-      <li><strong>配模型</strong><span>跟着引导挑一家服务商，去官网拿 API Key，粘贴回来点「测试连接」。</span></li>
-      <li><strong>导入角色</strong><span>从角色卡市场挑一张，或者用本地的 .png / .json 文件导入。</span></li>
-    </ol>
-    <p class="note">轻酒馆本身不带 AI 模型，聊天由你配置的模型服务完成，费用由服务商按用量收取。</p>
-  </section>
-
-  <section id="faq" class="section">
-    <h2>常见问题</h2>
-    <div class="faq">
-      <details>
-        <summary>需要付费吗？</summary>
-        <p>应用本身免费、开源（MIT）。聊天要调用模型，模型服务商按 token 收费；部分服务商有免费额度，本地 Ollama 完全不花钱。</p>
-      </details>
-      <details>
-        <summary>聊天记录会被上传吗？</summary>
-        <p>不会传到我们这里——这个项目没有服务器。只有你发出的对话内容会按需发给所选的模型服务商。</p>
-      </details>
-      <details>
-        <summary>能导入 SillyTavern 的角色卡吗？</summary>
-        <p>可以。V2/V3 角色卡（.png、.json、.charx）、世界书、显示正则、预设都能导入，预设里的提示词顺序也支持在兼容模式里生效。</p>
-      </details>
-      <details>
-        <summary>换手机怎么迁移？</summary>
-        <p>在「设置 → 帮助与关于 → 备份与恢复」里导出 zip，把文件传到新手机再恢复；可以选择只恢复角色卡或只恢复设置。</p>
-      </details>
-      <details>
-        <summary>支持哪些安卓版本？</summary>
-        <p>Android 7.0 及以上（minSdk 24），arm64 手机。</p>
-      </details>
+  <section class="section section-tint" id="how">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="kicker">怎么开始</p>
+        <h2>三步，大约两分钟。</h2>
+      </header>
+      <ol class="timeline">
+        <li>
+          <span class="step-no">1</span>
+          <div>
+            <h3>装上</h3>
+            <p>下载 APK 安装。第一次装需要允许「安装未知来源应用」；之后有新版本，应用里会提示更新。</p>
+          </div>
+        </li>
+        <li>
+          <span class="step-no">2</span>
+          <div>
+            <h3>接一个模型</h3>
+            <p>跟着引导挑服务商，去官网拿 API Key，粘回来点「测试连接」。填错了会告诉你大概是哪一步的问题。</p>
+          </div>
+        </li>
+        <li>
+          <span class="step-no">3</span>
+          <div>
+            <h3>请一个角色进来</h3>
+            <p>从市场挑一张，或者导入手机里的 .png / .json / .charx。点开角色，说第一句话。</p>
+          </div>
+        </li>
+      </ol>
+      <p class="fineprint">不想按顺序来也没关系，跳过引导，进设置里慢慢配。</p>
     </div>
   </section>
+
+  <section class="section" id="look">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="kicker">界面</p>
+        <h2>两种排版，一个脾气。</h2>
+      </header>
+      <div class="shots">
+        <figure class="shot">
+          <div class="mini">
+            <div class="mini-bar">聊天</div>
+            <p class="bubble them">今晚的雨，像有人在窗外小声说话。</p>
+            <p class="bubble me">那你听得懂吗。</p>
+            <p class="bubble them">大概懂。它在说别急着走。</p>
+          </div>
+          <figcaption>气泡：像平常的聊天软件</figcaption>
+        </figure>
+        <figure class="shot">
+          <div class="mini mini-novel">
+            <div class="mini-bar">小说</div>
+            <p class="para"><b>沈砚</b>　今晚的雨，像有人在窗外小声说话。</p>
+            <p class="para"><b>你</b>　那你听得懂吗。</p>
+            <p class="para"><b>沈砚</b>　大概懂。它在说别急着走。</p>
+          </div>
+          <figcaption>小说：整段阅读，不分栏</figcaption>
+        </figure>
+        <figure class="shot">
+          <div class="mini">
+            <div class="mini-bar">菜单</div>
+            <p class="menu-line">生成 <span>›</span></p>
+            <p class="menu-line">这段聊天 <span>›</span></p>
+            <p class="menu-line">提示词与统计 <span>›</span></p>
+            <p class="menu-line">导入与导出 <span>›</span></p>
+          </div>
+          <figcaption>菜单分两级，不塞满一屏</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-tint" id="questions">
+    <div class="wrap narrow">
+      <header class="section-head">
+        <p class="kicker">问题</p>
+        <h2>你可能想先知道这些。</h2>
+      </header>
+      <div class="qa">
+        <details>
+          <summary>要花钱吗？</summary>
+          <p>应用本身免费、开源，MIT 协议。聊天要调用模型，费用由模型服务商按 token 收；有些服务商有免费额度，本地跑 Ollama 则完全不用钱。</p>
+        </details>
+        <details>
+          <summary>聊天记录会被谁看到？</summary>
+          <p>这个项目没有服务器，也没有账号。记录存在手机里。你发出去的对话内容会按需发送给你选择的模型服务商——仅此而已。</p>
+        </details>
+        <details>
+          <summary>能直接导入 SillyTavern 的角色卡吗？</summary>
+          <p>可以。V2/V3 角色卡（.png、.json、.charx）、世界书、显示正则、预设、.jsonl 聊天记录都支持；预设里的提示词顺序可以在「兼容模式」里真正生效。</p>
+        </details>
+        <details>
+          <summary>换手机怎么办？</summary>
+          <p>设置 → 帮助与关于 → 备份与恢复，导出 zip。新手机上选「从备份恢复」，可以只恢复角色卡、只恢复聊天，或者只恢复设置。</p>
+        </details>
+        <details>
+          <summary>支持哪些手机？</summary>
+          <p>Android 7.0 及以上（minSdk 24）的 arm64 设备。平板能装，但界面是按手机排的。</p>
+        </details>
+        <details>
+          <summary>为什么商店里搜不到？</summary>
+          <p>因为它不上架应用商店：没有账号体系、没有内容审核，也不适合商店的分发规则。安装包直接放在 GitHub Releases。</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <section class="closing">
+    <div class="wrap closing-inner">
+      <h2>门没锁，自己进来。</h2>
+      <div class="cta-row">
+        <a class="btn btn-solid" id="download-btn-2" href="https://github.com/Alorith-H/LiteTavern/releases/latest">下载最新版</a>
+        <a class="btn btn-line" href="https://github.com/Alorith-H/LiteTavern/releases" target="_blank" rel="noopener">所有版本</a>
+      </div>
+    </div>
+  </section>
+
 </main>
 
-<footer class="site-footer">
-  <p>轻酒馆 LiteTavern · 作者 <a href="https://github.com/Alorith-H" target="_blank" rel="noopener">Alorith</a> · MIT License</p>
-  <p class="fine">角色卡与图片版权归原作者所有；请遵守你所在地区的规定，合理使用。</p>
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <p>轻酒馆 LiteTavern · 作者 <a href="https://github.com/Alorith-H" target="_blank" rel="noopener">Alorith</a> · MIT</p>
+    <p class="fineprint">角色卡与图片版权归原作者所有。请按你所在地区的规定使用。</p>
+  </div>
 </footer>
 
 <script>
 (function () {
   var meta = document.getElementById('release-meta');
-  var btn = document.getElementById('download-btn');
+  var buttons = [
+    document.getElementById('download-btn'),
+    document.getElementById('download-btn-2'),
+    document.getElementById('nav-download')
+  ];
   fetch('https://api.github.com/repos/Alorith-H/LiteTavern/releases/latest')
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (data) {
-      if (!data || !data.tag_name) { meta.textContent = '最新版本见 GitHub Releases'; return; }
+      if (!data || !data.tag_name) { meta.textContent = '最新版本在 GitHub Releases 里'; return; }
       var apk = (data.assets || []).filter(function (a) { return /\.apk$/.test(a.name); })[0];
       var size = apk ? (apk.size / 1048576).toFixed(1) + ' MB' : '';
-      meta.textContent = '最新版 ' + data.tag_name + (size ? ' · ' + size : '');
-      if (apk) { btn.href = apk.browser_download_url; }
+      meta.textContent = data.tag_name + (size ? ' · ' + size : '') + ' · Android 7.0+';
+      if (apk) { buttons.forEach(function (b) { if (b) b.href = apk.browser_download_url; }); }
     })
-    .catch(function () { meta.textContent = '最新版本见 GitHub Releases'; });
+    .catch(function () { meta.textContent = '最新版本在 GitHub Releases 里'; });
+
+  // 滚动浮现：尊重「减少动态效果」设置
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!reduce && 'IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, { threshold: 0.15 });
+    document.querySelectorAll('.row, .timeline li, .shot, details').forEach(function (el) {
+      el.classList.add('reveal');
+      io.observe(el);
+    });
+  }
 })();
 </script>
 </body>

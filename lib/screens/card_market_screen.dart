@@ -360,10 +360,10 @@ class _CardMarketScreenState extends State<CardMarketScreen> {
                 Expanded(
                   child: Text(
                     AppSettings.showNsfw
-                        ? '数据来自 ${_client.source.name} · 已显示 NSFW 内容，'
-                              '可在 设置 → 角色卡市场 关闭'
-                        : '数据来自 ${_client.source.name} · 仅显示全年龄（SFW）内容，'
-                              '可在 设置 → 角色卡市场 打开 NSFW',
+                        ? '角色卡来自 ${_client.source.name}。成人向内容也显示，'
+                              '觉得不合适就去 设置 → 角色卡市场 关掉'
+                        : '角色卡来自 ${_client.source.name}。现在只显示全年龄内容，'
+                              '想看更多可以去 设置 → 角色卡市场 打开',
                     style: TextStyle(
                       fontSize: AppType.meta,
                       color: scheme.onSurfaceVariant,

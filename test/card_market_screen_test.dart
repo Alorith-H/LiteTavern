@@ -112,7 +112,7 @@ void main() {
 
     expect(AppSettings.showNsfw, isFalse);
     expect(source.showNsfwFlags.last, isFalse);
-    expect(find.textContaining('仅显示全年龄'), findsOneWidget);
+    expect(find.textContaining('现在只显示全年龄内容'), findsOneWidget);
 
     // 打开开关后重新进入市场页，应请求 nsfw=true 并更新说明文案
     AppSettings.showNsfw = true;
@@ -120,7 +120,7 @@ void main() {
     await _pumpScreen(tester, source);
 
     expect(source.showNsfwFlags.last, isTrue);
-    expect(find.textContaining('已显示 NSFW'), findsOneWidget);
+    expect(find.textContaining('成人向内容也显示'), findsOneWidget);
   });
 }
 
