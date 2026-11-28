@@ -17,6 +17,14 @@ class WhatsNewEntry {
 /// 最近几次更新的说明。只保留用户能感知的变化，不写内部实现。
 const List<WhatsNewEntry> kWhatsNew = <WhatsNewEntry>[
   WhatsNewEntry(
+    version: '0.44.1',
+    title: '收尾页和导入弹窗又顺了一点',
+    bullets: <String>[
+      '新手引导最后一页重新排了：完成标识居中，要点分成两组，不再一条条平铺。',
+      '导入角色卡的弹窗去掉了分组标题，四个入口直接列出来，先点哪个更清楚。',
+    ],
+  ),
+  WhatsNewEntry(
     version: '0.44.0',
     title: '国内网络下更新更快了',
     bullets: <String>[

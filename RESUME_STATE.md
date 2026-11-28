@@ -1,3 +1,25 @@
+## 本轮 v0.44.1 —— 引导收尾页排版 + 导入弹窗去分组（用户需求：「优化新手教程最后一页的排版，导入角色卡界面不要在线获取/从文件导入/自己创建的分栏」）
+
+- **引导收尾页**（`lib/screens/onboarding_screen.dart` `_buildDone`）：顶部改成整页唯一的居中块（primary 12% 底的圆形 ✓ + 居中标题 + 一句说明），下方新增两个分组：
+  - `_sectionLabel`（小标题，caption + w700 + 字距 0.6）；
+  - `_groupCard`（surface 底 + 1px 描边 + 圆角 12，条目间 `Divider(height:1, thickness:0.6, outline)`）；
+  - `_stepRow(number,title,desc)`：24×24 primary 12% 圆角方块序号 + 标题/说明；
+  - `_noteRow(icon,title,desc)`：18px primary 图标 + 标题/说明。
+  内容拆为「进去之后」（01 点个角色进聊天 / 02 输入框左边的按钮 / 03 想改什么去设置）与「它会替你处理」（长对话自动摘要 / 更新后告诉你改了什么），再接原来的「数据都在你手机里」强调块与「重看新手引导」脚注；文案顺带收紧（设置那条从三行长句压成一行）。
+  - 02 文案按当前 `AssistMode` 走：`AssistMode.off` 时显示「现在是关闭的。想要时去 设置 → 聊天 → 输入栏辅助按钮 打开。」，其余用 `_assistMode.summary`——默认就是闭合状态，避免让人去输入栏找一个不存在的按钮。
+  - 删除不再使用的 `_featureRow`（analyze 报 unused_element）。
+- **导入角色卡弹窗**（`lib/screens/home_screen.dart` `_showImportSheet`）：删掉 `SheetMenuSection('在线获取')`、`SheetMenuSection('从手机或链接')`、`SheetMenuSection('自己创建')` 三个分组标题，四个 `SheetMenuItem` 平铺；市场仍带「推荐」徽章，标题下的说明与底部格式说明保留。
+- **测试**：`test/onboarding_screen_test.dart` 第 6 步用例改为断言「进去之后 / 它会替你处理 / 01 02 03」与新文案（含 `重看新手引导`），共 **+605 全过**。
+- **版本**：`pubspec.yaml` `0.44.1+50`、`kAppVersion='0.44.1'`；`whats_new.dart` 新增 0.44.1 条目（2 条）；CHANGELOG 新增 v0.44.1 段。
+
+### 本次运行记录（v0.44.1）
+| 项目 | 结果 |
+| --- | --- |
+| `flutter analyze` | No issues found!（9.0s） |
+| `flutter test` | **+605 All tests passed!**（19s） |
+| `flutter build apk --release` | 61.4MB（64,335,803 字节），versionCode 50 / 0.44.1 |
+| 装机 / 截图 | 模拟器 emulator-5556：`pm clear` 后走完 6 步引导 → 收尾页两张截图 `build/v441_onboarding_done.png`（首屏）/`build/v441_onboarding_done_scroll.png`（下滑后两张卡 + 数据块）；收尾页「进入 LiteTavern」→ 主页 → 右下角「导入」→ 弹窗截图 `build/import_sheet.png`（四个入口平铺、无分组标题） |
+
 ## 本轮 v0.44.0 —— 更新下载多源测速 + 断点续传（用户需求：国内下载很慢甚至无法更新）
 
 - **多源下载**（`lib/services/updater.dart`）：新增 `DownloadSource{label,url}`、`UpdateSourceMode{auto,githubOnly,custom}`（枚举与文案放在 storage 层，避免 updater ↔ storage 循环依赖）、`UpdateService.downloadSourcesFor()`；`mirrorPrefixes` 只留实测可用的 4 个：ghfast、gh-proxy、ghproxy.imciel、ghproxy.net（`hub.gitmirror.com` 域名解析失败、`github.moeyy.xyz` 连接超时，已去掉）。

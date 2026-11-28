@@ -155,15 +155,24 @@ void main() {
     expect(find.textContaining('主页右下角「导入」'), findsOneWidget);
   });
 
-  testWidgets('第 6 步：使用说明 + 自动摘要 + 本地数据说明', (tester) async {
+  testWidgets('第 6 步：分组排版 + 使用说明 + 自动摘要 + 本地数据说明', (tester) async {
     await _pump(tester);
     await _goToStep(tester, 6);
 
-    expect(find.text('点角色进聊天'), findsOneWidget);
-    expect(find.textContaining('左侧那个帮手按钮'), findsOneWidget);
-    expect(find.textContaining('想改设置就去「设置」'), findsOneWidget);
-    expect(find.textContaining('长对话会自动摘要'), findsOneWidget);
+    // 两个分组标题 + 步骤序号，避免整页一条条平铺
+    expect(find.text('进去之后'), findsOneWidget);
+    expect(find.text('它会替你处理'), findsOneWidget);
+    expect(find.text('01'), findsOneWidget);
+    expect(find.text('02'), findsOneWidget);
+    expect(find.text('03'), findsOneWidget);
+
+    expect(find.text('点个角色，进聊天'), findsOneWidget);
+    expect(find.textContaining('输入框左边的按钮'), findsOneWidget);
+    expect(find.textContaining('想改什么，去「设置」'), findsOneWidget);
+    expect(find.textContaining('长对话自动摘要'), findsOneWidget);
+    expect(find.textContaining('更新后告诉你改了什么'), findsOneWidget);
     expect(find.text('数据都在你手机里'), findsOneWidget);
+    expect(find.textContaining('重看新手引导'), findsOneWidget);
   });
 
   testWidgets('第 4 步：三种辅助方式只能选一种，点选即落盘', (tester) async {

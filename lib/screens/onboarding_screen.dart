@@ -584,48 +584,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  /// 带描边图标的使用要点行。
-  Widget _featureRow(IconData icon, String title, String desc) {
-    final scheme = _scheme;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Icon(icon, size: 19, color: scheme.primary),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 14.5,
-                    fontWeight: FontWeight.w600,
-                    height: 1.35,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  desc,
-                  style: TextStyle(
-                    fontSize: AppType.caption,
-                    height: 1.45,
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _badge(String text) {
     final scheme = _scheme;
     return Container(
@@ -1366,49 +1324,233 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   // --------------------------------------- 第 6 步：完成，开始聊天 --
 
+  /// 收尾页的小标题：把整页拆成两三个块，避免一条一条平铺、看不出层次。
+  Widget _sectionLabel(String text) {
+    final scheme = _scheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: AppType.caption,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.6,
+          color: scheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+
+  /// 分组卡片：同底描边，条目之间 1px 分隔线——比一堆散装行更整齐。
+  Widget _groupCard(List<Widget> rows) {
+    final scheme = _scheme;
+    final children = <Widget>[];
+    for (var i = 0; i < rows.length; i++) {
+      if (i > 0) {
+        children.add(
+          Divider(height: 1, thickness: 0.6, color: scheme.outline),
+        );
+      }
+      children.add(rows[i]);
+    }
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.outline),
+      ),
+      child: Column(children: children),
+    );
+  }
+
+  /// 带序号的步骤行（收尾页「进去之后」）。
+  Widget _stepRow(String number, String title, String desc) {
+    final scheme = _scheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 24,
+            height: 24,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: scheme.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(7),
+            ),
+            child: Text(
+              number,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                color: scheme.primary,
+              ),
+            ),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w600,
+                    height: 1.35,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  desc,
+                  style: TextStyle(
+                    fontSize: AppType.caption,
+                    height: 1.45,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 带小图标的说明行（收尾页「它会替你处理」）。
+  Widget _noteRow(IconData icon, String title, String desc) {
+    final scheme = _scheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: Icon(icon, size: 18, color: scheme.primary),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w600,
+                    height: 1.35,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  desc,
+                  style: TextStyle(
+                    fontSize: AppType.caption,
+                    height: 1.45,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDone() {
     final scheme = _scheme;
     return _pageScroll([
-      Icon(Icons.chat_bubble_outline, size: 44, color: scheme.primary),
-      const SizedBox(height: 14),
-      _title('好了，开始聊天'),
-      _lead('配置和角色卡都准备好了。进去之后可以这样用：'),
+      // 唯一的居中块：让「已经结束、可以走了」一眼可见。
+      SizedBox(
+        width: double.infinity,
+        child: Column(
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: scheme.primary.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.check_rounded,
+                size: 34,
+                color: scheme.primary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              '好了，开始聊天',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: AppType.hero,
+                fontWeight: FontWeight.w700,
+                height: 1.25,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '配置和角色卡都准备好了。剩下的边聊边熟悉就行。',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: AppType.body,
+                height: 1.5,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 24),
+      _sectionLabel('进去之后'),
+      _groupCard([
+        _stepRow(
+          '01',
+          '点个角色，进聊天',
+          '在主页点角色 → 进聊天页 → 底部输入框发消息，点发送或回车。',
+        ),
+        _stepRow(
+          '02',
+          '输入框左边的按钮',
+          // 默认是关着的；关着的时候提示怎么打开，别让人去输入栏找一个不存在的按钮。
+          _assistMode == AssistMode.off
+              ? '现在是关闭的。想要时去 设置 → 聊天 → 输入栏辅助按钮 打开。'
+              : _assistMode.summary,
+        ),
+        _stepRow(
+          '03',
+          '想改什么，去「设置」',
+          '生成参数、上下文窗口、字号主题、模型服务都在设置里，随时能换。',
+        ),
+      ]),
       const SizedBox(height: 18),
-      _featureRow(
-        Icons.person_outline,
-        '点角色进聊天',
-        '在主页点一个角色 → 进入聊天页 → 在底部输入框发消息，点发送或回车。',
-      ),
-      _featureRow(
-        Icons.auto_awesome_outlined,
-        '左侧那个帮手按钮',
-        _assistMode.summary,
-      ),
-      _featureRow(
-        Icons.tune_outlined,
-        '想改设置就去「设置」',
-        '生成参数（温度、长度）、上下文窗口、聊天字号、主题色都在那里改；'
-            '聊天辅助方式在 设置 → 聊天 → 输入栏辅助按钮，模型服务也能随时换一家。',
-      ),
-      _featureRow(
-        Icons.memory_outlined,
-        '长对话会自动摘要',
-        '剧情很长时，App 会后台把最早的对话压成摘要再发给模型（不弹提示）。'
-            '这一步会多花一点 token，想省就在 设置 → 聊天 里关掉「长对话自动摘要」。',
-      ),
+      _sectionLabel('它会替你处理'),
+      _groupCard([
+        _noteRow(
+          Icons.memory_outlined,
+          '长对话自动摘要',
+          '剧情很长时，后台把最早的对话压成摘要再发给模型（不弹提示）。'
+              '会多花一点 token，想省就在 设置 → 聊天 里关掉。',
+        ),
+        _noteRow(
+          Icons.campaign_outlined,
+          '更新后告诉你改了什么',
+          '装上新版本第一次打开时会说明；以后想看，去 设置 → 帮助与关于 → 更新说明。',
+        ),
+      ]),
+      const SizedBox(height: 18),
       _highlightPanel(
         icon: Icons.lock_outline,
         title: '数据都在你手机里',
         body: '角色、对话和设置只存在本机，不上传到任何服务器（除了发给模型服务商的聊天内容）。'
-            '卸载 App 会一起删掉，重要对话记得先复制出来。',
+            '卸载 App 会一起删掉，重要对话记得先导出。',
       ),
-      _featureRow(
-        Icons.campaign_outlined,
-        '更新后会告诉你改了什么',
-        '装上新版本第一次打开时，会弹一页说明；以后想看，去 设置 → 帮助与关于 → 更新说明。',
-      ),
-      const SizedBox(height: 12),
-      _small('想再看一遍这段引导：设置 → 帮助与关于 → 重看新手引导。'),
+      const SizedBox(height: 14),
+      _small('想再看一遍：设置 → 帮助与关于 → 重看新手引导。'),
     ]);
   }
 }

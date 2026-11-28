@@ -313,7 +313,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// FAB / 空态按钮：底部弹窗四选
   /// "角色卡市场 / 从文件导入 / 从链接下载 / AI 创建角色卡"。
-  // v0.39.0：按来源分三组，市场带「推荐」徽章，避免四个入口平铺时看不出先点哪个。
+  // v0.44.1：去掉「在线获取 / 从手机或链接 / 自己创建」的分组标题，
+  // 四个入口平铺；市场带「推荐」徽章，仍然一眼能看出先点哪个。
   void _showImportSheet() {
     final scheme = Theme.of(context).colorScheme;
     showSheetMenu<void>(
@@ -323,7 +324,6 @@ class _HomeScreenState extends State<HomeScreen> {
           title: '导入角色卡',
           subtitle: '第一次用？直接从「角色卡市场」挑一张，点下载就导入完成。',
         ),
-        const SheetMenuSection('在线获取'),
         SheetMenuItem(
           icon: Icons.storefront_outlined,
           title: '角色卡市场',
@@ -344,7 +344,6 @@ class _HomeScreenState extends State<HomeScreen> {
             _openMarket();
           },
         ),
-        const SheetMenuSection('从手机或链接'),
         SheetMenuItem(
           icon: Icons.description_outlined,
           title: '从文件导入',
@@ -363,7 +362,6 @@ class _HomeScreenState extends State<HomeScreen> {
             _showDownloadDialog();
           },
         ),
-        const SheetMenuSection('自己创建'),
         SheetMenuItem(
           icon: Icons.auto_awesome_outlined,
           title: 'AI 创建角色卡',
