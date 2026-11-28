@@ -1,3 +1,17 @@
+## 本轮 v0.45.1 —— 长按菜单精简（用户需求：取消「编辑 / 危险操作」分组与角色名标题，只留按钮）
+
+- **角色操作弹层**：`lib/screens/home_screen.dart` 的 `_showActions` 改为调用新文件 `lib/widgets/character_actions_sheet.dart` 的 `showCharacterActionsSheet(context, card:, onEdit:, onDelete:)`。弹层只剩「编辑角色」「删除角色」两个按钮（删除仍为危险色，副标题说明会连聊天记录与书签一起删），不再显示角色名、「角色操作」标题和「编辑 / 危险操作」分组。
+- **测试**：新增 `test/character_actions_sheet_test.dart` 3 例（只有两个按钮且无标题/分组；点编辑回调并关闭；点删除回调并关闭）。
+- **版本**：`pubspec.yaml` `0.45.1+53`、`kAppVersion='0.45.1'`；CHANGELOG 新增 v0.45.1 一条；`whats_new` 新增 0.45.1 一条；`docs/index.html` 静态版本同步 v0.45.1。
+
+### 本次运行记录（v0.45.1）
+| 项目 | 结果 |
+| --- | --- |
+| `flutter analyze` | No issues found! |
+| `flutter test` | **+665 All tests passed!** |
+| `flutter build apk --release` | 61.6MB（64,581,751 字节），versionCode 53 / 0.45.1 |
+| 装机 / 截图 | 模拟器 emulator-5556：安装成功（versionName 0.45.1）；启动弹「长按菜单精简 · 版本 0.45.1」一条说明 |
+
 ## 本轮 v0.45.0 —— 角色卡市场免责声明 + AI 创建引导 + 编辑页 AI 修改（用户需求：市场第三方说明、AI 逐步引导与变量适配、头像点击编辑、编辑页 AI 修改、导入弹窗顺序）
 
 - **免责声明**（`lib/services/market_disclaimer.dart`、`lib/widgets/disclaimer_sheet.dart`）：`MarketDisclaimer` 用 `market_disclaimer_ack`（版本号）/`market_disclaimer_ack_at` 记确认状态，`currentVersion = 1`。首次进入角色卡市场先弹整页说明（不可点空白关闭，系统返回视为不同意）：内容来自第三方用户、与本软件及作者无关、不存储不审核不担保、可改用 AI 生成或本地导入；「我了解并继续」写入 ack 后加载市场，「不同意」直接退出（市场页 `maybePop(false)`，引导第 4 步据此留在引导页）。设置 → 角色卡市场与翻译 新增只读入口，可查看确认状态并「重新确认」清除 ack。

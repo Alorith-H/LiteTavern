@@ -15,6 +15,7 @@ import '../services/import_report.dart';
 import '../services/storage.dart';
 import '../widgets/whats_new_dialog.dart';
 import '../widgets/common.dart';
+import '../widgets/character_actions_sheet.dart';
 import '../widgets/sheet_menu.dart';
 import '../widgets/import_report_dialog.dart';
 import '../widgets/segmented_toggle.dart';
@@ -269,33 +270,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showActions(CharacterCard card) {
-    // v0.39.0：长按角色的菜单也统一成「标题 + 分组 + 危险项」。
-    showSheetMenu<void>(
-      context: context,
-      children: [
-        SheetMenuTitle(title: card.name, subtitle: '角色操作'),
-        const SheetMenuSection('编辑'),
-        SheetMenuItem(
-          icon: Icons.edit_outlined,
-          title: '编辑角色',
-          subtitle: '设定、开场白、世界书挂载',
-          onTap: () {
-            Navigator.pop(context);
-            _editCharacter(card);
-          },
-        ),
-        const SheetMenuSection('危险操作'),
-        SheetMenuItem(
-          icon: Icons.delete_outline,
-          title: '删除角色',
-          subtitle: '会一起删掉它的聊天记录与书签，不可恢复',
-          danger: true,
-          onTap: () {
-            Navigator.pop(context);
-            _deleteCharacter(card);
-          },
-        ),
-      ],
+    // v0.45.1：长按只留两个按钮，不再显示角色名/「角色操作」标题与分组。
+    showCharacterActionsSheet(
+      context,
+      card: card,
+      onEdit: () => _editCharacter(card),
+      onDelete: () => _deleteCharacter(card),
     );
   }
 

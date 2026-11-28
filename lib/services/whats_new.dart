@@ -17,6 +17,13 @@ class WhatsNewEntry {
 /// 最近几次更新的说明。只保留用户能感知的变化，不写内部实现。
 const List<WhatsNewEntry> kWhatsNew = <WhatsNewEntry>[
   WhatsNewEntry(
+    version: '0.45.1',
+    title: '长按菜单精简',
+    bullets: <String>[
+      '长按角色卡只显示「编辑角色」和「删除角色」两个按钮，不再显示角色名与分组标题。',
+    ],
+  ),
+  WhatsNewEntry(
     version: '0.45.0',
     title: '角色卡与创建流程更新',
     bullets: <String>[
