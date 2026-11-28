@@ -1,3 +1,25 @@
+## 本轮 v0.44.0 —— 更新下载多源测速 + 断点续传（用户需求：国内下载很慢甚至无法更新）
+
+- **多源下载**（`lib/services/updater.dart`）：新增 `DownloadSource{label,url}`、`UpdateSourceMode{auto,githubOnly,custom}`（枚举与文案放在 storage 层，避免 updater ↔ storage 循环依赖）、`UpdateService.downloadSourcesFor()`；`mirrorPrefixes` 只留实测可用的 4 个：ghfast、gh-proxy、ghproxy.imciel、ghproxy.net（`hub.gitmirror.com` 域名解析失败、`github.moeyy.xyz` 连接超时，已去掉）。
+- **测速与换源**：`downloadApk` 先对候选源并行 `_probe`（Range 0–65535、5 秒超时、按 bytesPerSecond 排序），按速度依次下载；某个源失败/中断自动换下一个；服务器忽略 Range 回 200 时从头重写，不把文件写坏。
+- **断点续传**：`.part` 保留、带 `Range: bytes=<已下载>-` 续传，取消下载不删 `.part`；新增「已下完就直接复用」——目标 APK 或满长的 `.part` 存在时不再请求网络（对应「卡在允许安装」后重试的场景）。
+- **安装权限引导**：安装前 `canRequestPackageInstalls()` 检查；未允许时弹「还差一步：允许安装应用」，按钮「去打开设置」直接跳到本应用的「安装未知应用」页；`MainActivity.kt` 新增通道方法 `canInstallApk` / `openInstallSettings`，`installApk` 未授权时返回 `need_permission`；`apk_installer.dart` 增 `ApkInstallPermissionException`、`canInstall()`、`openInstallSettings()`。
+- **UI**：`update_flow.dart` 下载中显示「已下 / 总量（%）」、实时速度与来源、取消后说明；设置 → 帮助与关于新增「更新下载源」（自动 / 只走 GitHub / 自定义加速前缀 + 内置镜像说明）。
+- **设置项**：`AppSettings.updateSourceMode`（键 `update_source_mode`，默认 auto）、`updateCustomMirror`（键 `update_custom_mirror`）。
+- **测试**：新增 `test/update_sources_test.dart` 12 例（候选源顺序/三种模式/斜杠归一、断点续传、自动换源、取消保留、忽略 Range、全失败不留成品、已下完复用、半成品补名）。
+
+### 本次运行记录（v0.44.0）
+| 项目 | 结果 |
+| --- | --- |
+| `flutter analyze` | No issues found!（18.7s） |
+| `flutter test` | **+605 All tests passed!**（19s） |
+| `flutter build apk --release` | 61.4MB（64,335,739 字节），versionCode 49 / 0.44.0 |
+| 镜像实测 | ghfast ≈ 600KB/s、gh-proxy ≈ 143KB/s、ghproxy.imciel ≈ 202KB/s、ghproxy.net 可用但慢；GitHub 直连 814KB/s |
+| 装机 / 端到端 | 模拟器 emulator-5556：装 0.43.1 → 启动检测到 v0.44.0 → 下载走「加速镜像·ghfast」1.2MB/s → 弹「还差一步：允许安装应用」→ 打开系统开关 → 回来复用已下好的包 → 系统安装器 Update → **0.44.0 / code 49** → 更新说明弹窗四条 + 设置里「更新下载源 · 自动（推荐）」 |
+| 提交 / 发布 | commit 5ef9012 · tag v0.44.0 · Release id 461289905（APK asset 803224713） |
+
+> 教训：GitHub Releases 创建/上传用 `Invoke-RestMethod` 会报 `Received an unexpected EOF or 0 bytes from the transport stream`，改用 `curl.exe --ssl-no-revoke --http1.1 --data-binary @file` 稳定；上传地址用 `https://uploads.github.com/repos/<owner>/<repo>/releases/<id>/assets?name=app-release.apk`。
+
 ## 本轮 v0.43.1（关于页入口 / 文案再顺 / 官网重做）
 
 - **关于弹窗**（`settings_screen._showAbout`）重写：新增「官网」「源代码」两行（`_aboutLink` 用 `openExternalLink`，点开跳浏览器），介绍改成正常句子，底部「作者 Alorith · MIT License」。
