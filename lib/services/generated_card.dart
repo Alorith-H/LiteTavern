@@ -96,8 +96,35 @@ CharacterCard? _cardFromJson(Object? decoded) {
         : const [],
     tags: const [],
     creator: '',
+    extensions: _parseExtensions(m['extensions']),
     characterBook: _parseBook(m['character_book'], name),
   );
+}
+
+/// 解析模型给的 `extensions`（v0.45.0 变量适配）。
+///
+/// 只认识 MVU 的初始变量：`{"mvu": {"initialVariables": {...}}}`（也兼容
+/// `initial_variables`）。值只保留数字 / 字符串 / 布尔，其余（嵌套对象、
+/// 脚本、未知扩展）一律丢掉 —— 本软件不执行卡内脚本，存进来只用于
+/// 「变量与状态」页只读展示。
+Map<String, dynamic> _parseExtensions(Object? v) {
+  if (v is! Map) return const <String, dynamic>{};
+  final mvu = v['mvu'];
+  if (mvu is! Map) return const <String, dynamic>{};
+  final raw = mvu['initialVariables'] ?? mvu['initial_variables'];
+  if (raw is! Map) return const <String, dynamic>{};
+  final vars = <String, Object>{};
+  raw.forEach((key, value) {
+    final name = key.toString().trim();
+    if (name.isEmpty || name.length > 40) return;
+    if (value is num || value is String || value is bool) {
+      vars[name] = value as Object;
+    }
+  });
+  if (vars.isEmpty) return const <String, dynamic>{};
+  return <String, dynamic>{
+    'mvu': <String, dynamic>{'initialVariables': vars},
+  };
 }
 
 /// 解析卡内嵌世界书（v0.8.0 创建器要求 AI 输出 character_book）。

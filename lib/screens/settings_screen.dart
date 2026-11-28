@@ -17,6 +17,7 @@ import '../services/whats_new.dart';
 import '../services/user_personas.dart';
 import '../widgets/common.dart';
 import '../widgets/backup_sheet.dart';
+import '../widgets/disclaimer_sheet.dart';
 import '../widgets/whats_new_dialog.dart';
 import '../widgets/update_flow.dart';
 import 'advanced_settings_screen.dart';
@@ -1003,6 +1004,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   List<Widget> _marketChildren(ColorScheme scheme) {
     return [
       const SectionHeader('角色卡市场'),
+      _actionRow(
+        leading: Icons.description_outlined,
+        title: '角色卡市场免责声明',
+        subtitle: '市场里的角色卡来自 Chub.ai 等第三方平台，由第三方用户上传',
+        trailing: _chevron(scheme),
+        onTap: () => showMarketDisclaimer(context, readOnly: true),
+      ),
+      const Divider(height: 1),
       if (AppSettings.nsfwUnlocked)
         _switchRow(
           title: '显示全部内容',

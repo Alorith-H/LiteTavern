@@ -8,6 +8,7 @@ import 'package:litetavern/models/card_translation.dart';
 import 'package:litetavern/screens/card_market_screen.dart';
 import 'package:litetavern/services/card_downloader.dart';
 import 'package:litetavern/services/card_market.dart';
+import 'package:litetavern/services/market_disclaimer.dart';
 import 'package:litetavern/services/storage.dart';
 import 'package:litetavern/services/translation_store.dart';
 import 'package:litetavern/services/translator.dart';
@@ -24,6 +25,10 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     await AppSettings.init();
     TranslationStore.resetForTest();
+    // v0.45.0：市场首次进入会先弹第三方内容说明；这些用例测的是列表本身，
+    // 直接标记为已确认，避免被弹层挡住。
+    MarketDisclaimer.resetForTest();
+    await MarketDisclaimer.accept();
   });
 
   testWidgets('加载后以单列列表显示角色卡（不再是网格）', (tester) async {

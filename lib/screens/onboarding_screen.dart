@@ -301,11 +301,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   /// 从角色卡市场导入：进去挑卡，回来（不管有没有导入）就算完成引导。
+  ///
+  /// v0.45.0：市场首次进入会弹第三方内容说明，用户点「不同意」时市场页
+  /// 会带 false 退出——这时留在引导页，不强行结束。
   Future<void> _openMarket() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const CardMarketScreen()),
+    final accepted = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(builder: (_) => const CardMarketScreen()),
     );
     if (!mounted) return;
+    if (accepted == false) return;
     _finish();
   }
 
@@ -657,8 +661,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       ),
       const SizedBox(height: 8),
       const SectionHeader('三步就能开始'),
-      _bulletRow(1, '配置模型服务', '挑一家服务商，拿到 API Key 填进来（第 2、3 步教）'),
-      _bulletRow(2, '导入角色卡', '从角色卡市场挑一张，或用文件导入自己存的卡'),
+      _bulletRow(1, '配置模型服务', '挑一家服务商，拿到 API Key 填进来（第 2、3 步）'),
+      _bulletRow(2, '导入角色卡', '让 AI 陪你写一张，或从市场、文件导入'),
       _bulletRow(3, '开始聊天', '点角色进聊天页，在输入框发第一句话'),
       _small('别担心，每一步要做什么、去哪里点，都写在后面几页里。'),
     ]);

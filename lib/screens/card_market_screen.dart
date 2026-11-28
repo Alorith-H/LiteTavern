@@ -9,11 +9,13 @@ import '../services/card_downloader.dart';
 import '../services/card_importer.dart';
 import '../services/card_localizer.dart';
 import '../services/card_market.dart';
+import '../services/market_disclaimer.dart';
 import '../services/market_translation.dart';
 import '../services/storage.dart';
 import '../services/token_estimate.dart';
 import '../services/translator.dart';
 import '../widgets/common.dart';
+import '../widgets/disclaimer_sheet.dart';
 
 /// 角色卡市场（v0.11.x）：搜索公开角色卡库、看图文详情、一键下载入库。
 ///
@@ -91,6 +93,25 @@ class _CardMarketScreenState extends State<CardMarketScreen> {
     super.initState();
     _scrollCtrl.addListener(_onScroll);
     _searchCtrl.addListener(_onQueryChanged);
+    // 首次进入市场先看第三方内容说明（v0.45.0）：同意后才开始加载数据。
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkDisclaimer());
+  }
+
+  /// 没确认过免责声明就先弹说明；不同意直接退出市场页。
+  Future<void> _checkDisclaimer() async {
+    final acceptedAlready = await MarketDisclaimer.hasAccepted();
+    if (!mounted) return;
+    if (acceptedAlready) {
+      _reload();
+      return;
+    }
+    final accepted = await showMarketDisclaimer(context);
+    if (!mounted) return;
+    if (!accepted) {
+      // 带 false 退出：调用方（如新手引导）据此判断用户没同意，不要当作已进入市场。
+      Navigator.of(context).maybePop(false);
+      return;
+    }
     _reload();
   }
 

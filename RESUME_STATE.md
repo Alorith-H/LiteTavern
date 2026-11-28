@@ -1,3 +1,23 @@
+## 本轮 v0.45.0 —— 角色卡市场免责声明 + AI 创建引导 + 编辑页 AI 修改（用户需求：市场第三方说明、AI 逐步引导与变量适配、头像点击编辑、编辑页 AI 修改、导入弹窗顺序）
+
+- **免责声明**（`lib/services/market_disclaimer.dart`、`lib/widgets/disclaimer_sheet.dart`）：`MarketDisclaimer` 用 `market_disclaimer_ack`（版本号）/`market_disclaimer_ack_at` 记确认状态，`currentVersion = 1`。首次进入角色卡市场先弹整页说明（不可点空白关闭，系统返回视为不同意）：内容来自第三方用户、与本软件及作者无关、不存储不审核不担保、可改用 AI 生成或本地导入；「我了解并继续」写入 ack 后加载市场，「不同意」直接退出（市场页 `maybePop(false)`，引导第 4 步据此留在引导页）。设置 → 角色卡市场与翻译 新增只读入口，可查看确认状态并「重新确认」清除 ack。
+- **AI 创建角色卡逐步引导**（`lib/services/card_creator_flow.dart`、`lib/screens/card_creator_screen.dart`）：六步（名字与题材 / 性格与说话方式 / 外貌与背景 / 场景与开场白 / 变量与状态 / 世界书要点），每步一个固定问题 + 四组快速选项 + 上一步 / 跳过这步，顶部进度条显示「第 N/6 步 · 标题」；采访时 system 提示由 `creatorInterviewSystem(flow)` 生成（带已确认摘要），说完一步后追加 `creatorStepTransitionHint`；空态文案改为「一步一步来，一次只聊一件事。」
+- **变量适配**：`_kCardJsonSystem` 输出新增 `extensions.mvu.initialVariables`；`lib/services/generated_card.dart` 的 `_parseExtensions` 只接受 `mvu.initialVariables` / `initial_variables` 里的数字、字符串、布尔（键 1–40 字），生成后可在「变量与状态」页看到。
+- **编辑页 AI 修改**（`lib/services/card_ai_edit.dart`、`lib/screens/character_edit_screen.dart`）：AppBar 新增「AI 修改」（在翻译按钮之前）。四个范围（只改性格 / 只改开场白 / 只改背景 / 整体润色），输入一句要求 → 只把范围内字段送去模型（范围外截 160 字作参考并注明不改）→ 解析只含改动字段的 JSON（兼容 ``` 围栏与 `{"fields":{…}}` 包裹）→ 弹「AI 修改预览」逐字段勾选、原文/新文对照 → 确认后写进输入框，仍需点「保存」才落库。未配置模型时提示先去设置。
+- **头像点击编辑**（`lib/screens/chat_screen.dart`）：单聊标题栏头像、群聊气泡头像都可点，打开对应角色的 `CharacterEditScreen`；群聊保存返回后替换 `_members` 里同一 id 的角色。
+- **导入弹窗顺序**（`lib/screens/home_screen.dart`）：AI 创建角色卡排第一并带「推荐」，角色卡市场排第二且不再标推荐；副标题改为「支持 .png、.json、.charx，也可以让 AI 陪你写一张。」
+- **引导文案**：「配置模型服务」一条去掉「教」字（按要求不写进更新日志）。
+- **测试**：新增 `test/market_disclaimer_test.dart` 12 例、`test/card_creator_test.dart` 18 例、`test/character_edit_ai_test.dart` 16 例、`test/character_edit_sheet_test.dart` 3 例；同步 `test/card_market_screen_test.dart`、`test/onboarding_screen_test.dart`。
+- **版本**：`pubspec.yaml` `0.45.0+52`、`kAppVersion='0.45.0'`；CHANGELOG 新增 v0.45.0 七条；`whats_new` 新增 0.45.0 五条；`docs/index.html` 静态版本同步 v0.45.0。
+
+### 本次运行记录（v0.45.0）
+| 项目 | 结果 |
+| --- | --- |
+| `flutter analyze` | No issues found! |
+| `flutter test` | **+662 All tests passed!** |
+| `flutter build apk --release` | 61.6MB（64,581,751 字节），versionCode 52 / 0.45.0 |
+| 装机 / 截图 | 模拟器 emulator-5556：启动弹 0.45.0 更新说明；导入弹窗 AI 创建在前带推荐、市场第二；首次进市场弹整页第三方说明，同意后加载、顶部显示「已显示全部内容」；AI 创建页显示「第 1/6 步 · 名字与题材」、进度条与四组快速选项 |
+
 ## 本轮 v0.44.2 —— 内容开关默认隐藏 + 文案统一（用户需求：默认隐藏成人内容开关、隐藏入口、文案更简洁官方）
 
 - **隐藏入口**：新增 `lib/services/tap_unlock.dart`（`TapUnlock`：3 秒窗口内累计 5 次，可注入时钟便于测试）。设置 → 帮助与关于 页脚新增可点文本「LiteTavern v0.44.2」，连点 5 次解锁并提示「已解锁。」；解锁状态存 `nsfw_unlocked`（默认关）。

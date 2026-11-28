@@ -312,9 +312,8 @@ class _HomeScreenState extends State<HomeScreen> {
       });
 
   /// FAB / 空态按钮：底部弹窗四选
-  /// "角色卡市场 / 从文件导入 / 从链接下载 / AI 创建角色卡"。
-  // v0.44.1：去掉「在线获取 / 从手机或链接 / 自己创建」的分组标题，
-  // 四个入口平铺；市场带「推荐」徽章，仍然一眼能看出先点哪个。
+  /// "AI 创建角色卡 / 角色卡市场 / 从文件导入 / 从链接下载"。
+  // v0.45.0：AI 创建排第一并带「推荐」；角色卡市场退到第二、不再标推荐。
   void _showImportSheet() {
     final scheme = Theme.of(context).colorScheme;
     showSheetMenu<void>(
@@ -322,12 +321,12 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         const SheetMenuTitle(
           title: '导入角色卡',
-          subtitle: '支持 .png、.json、.charx，也可从角色卡市场获取。',
+          subtitle: '支持 .png、.json、.charx，也可以让 AI 陪你写一张。',
         ),
         SheetMenuItem(
-          icon: Icons.storefront_outlined,
-          title: '角色卡市场',
-          subtitle: '浏览公开角色卡，下载后自动导入',
+          icon: Icons.auto_awesome_outlined,
+          title: 'AI 创建角色卡',
+          subtitle: '说一句想要的设定，AI 引导你逐步补全',
           trailing: Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
             decoration: BoxDecoration(
@@ -339,6 +338,15 @@ class _HomeScreenState extends State<HomeScreen> {
               style: TextStyle(fontSize: AppType.meta, color: scheme.primary),
             ),
           ),
+          onTap: () {
+            Navigator.pop(context);
+            _openCardCreator();
+          },
+        ),
+        SheetMenuItem(
+          icon: Icons.storefront_outlined,
+          title: '角色卡市场',
+          subtitle: '浏览公开角色卡，下载后自动导入',
           onTap: () {
             Navigator.pop(context);
             _openMarket();
@@ -360,15 +368,6 @@ class _HomeScreenState extends State<HomeScreen> {
           onTap: () {
             Navigator.pop(context);
             _showDownloadDialog();
-          },
-        ),
-        SheetMenuItem(
-          icon: Icons.auto_awesome_outlined,
-          title: 'AI 创建角色卡',
-          subtitle: '通过对话生成角色卡',
-          onTap: () {
-            Navigator.pop(context);
-            _openCardCreator();
           },
         ),
         Padding(

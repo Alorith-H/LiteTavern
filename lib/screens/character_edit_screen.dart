@@ -9,10 +9,13 @@ import 'package:share_plus/share_plus.dart';
 
 import '../models/character_card.dart';
 import '../models/world_info.dart';
+import '../services/api_client.dart';
+import '../services/card_ai_edit.dart';
 import '../services/card_export.dart';
 import '../services/storage.dart';
 import '../widgets/card_translation_sheet.dart';
 import '../widgets/common.dart';
+import 'settings_screen.dart';
 import 'world_book_entries_screen.dart';
 
 /// 角色编辑页：编辑名字/简介/性格/场景/开场白，管理世界书挂载。
@@ -60,6 +63,10 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
   late final TextEditingController _personalityCtrl;
   late final TextEditingController _scenarioCtrl;
   late final TextEditingController _firstMesCtrl;
+
+  /// v0.45.0：AI 修改请求进行中（按钮置灰 + 转圈）
+  bool _aiEditing = false;
+  final ApiClient _api = ApiClient();
 
   @override
   void initState() {
@@ -140,6 +147,313 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
     }
     if (!mounted) return;
     Navigator.of(context).pop(true);
+  }
+
+  // --------------------------------------------------------- AI 修改 --
+  // v0.45.0：用当前激活的模型按一句话要求改写角色字段。模型只输出
+  // 要改的字段 JSON，先给「原文 → 新文」对比，用户确认后才写回输入框
+  // （不自动保存，仍然要点右上角「保存」）。
+
+  Future<void> _aiEditCard() async {
+    final card = _card;
+    if (card == null || _aiEditing) return;
+    if (!AppSettings.apiConfigured) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('还没配置模型，先去设置里填一个 API Key'),
+          action: SnackBarAction(
+            label: '去设置',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const SettingsScreen()),
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+    final plan = await _showAiEditSheet();
+    if (plan == null || !mounted) return;
+    await _runAiEdit(plan.$1, plan.$2);
+  }
+
+  /// 底部弹层：一句话要求 + 修改范围。返回 (要求, 范围)。
+  Future<(String, CardAiEditScope)?> _showAiEditSheet() {
+    final ctrl = TextEditingController();
+    var scope = CardAiEditScope.polishAll;
+    return showModalBottomSheet<(String, CardAiEditScope)>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (ctx) {
+        final scheme = Theme.of(ctx).colorScheme;
+        return StatefulBuilder(
+          builder: (ctx, setSheet) {
+            final canRun = ctrl.text.trim().isNotEmpty;
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                18,
+                20,
+                20 + MediaQuery.viewInsetsOf(ctx).bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'AI 修改角色',
+                    style: TextStyle(
+                      fontSize: AppType.page,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '说一句想怎么改，改完先给你看对比，确认后才写进输入框。',
+                    style: TextStyle(
+                      fontSize: AppType.caption,
+                      color: scheme.onSurfaceVariant,
+                      height: 1.45,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final s in CardAiEditScope.values)
+                        ChoiceChip(
+                          label: Text(s.label),
+                          selected: scope == s,
+                          onSelected: (_) => setSheet(() => scope = s),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: ctrl,
+                    autofocus: true,
+                    minLines: 1,
+                    maxLines: 4,
+                    onChanged: (_) => setSheet(() {}),
+                    decoration: InputDecoration(
+                      hintText: scope.hint,
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('取消'),
+                      ),
+                      const Spacer(),
+                      FilledButton(
+                        onPressed: canRun
+                            ? () => Navigator.pop(
+                                ctx, (ctrl.text.trim(), scope))
+                            : null,
+                        child: const Text('开始修改'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    ).whenComplete(ctrl.dispose);
+  }
+
+  Future<void> _runAiEdit(String instruction, CardAiEditScope scope) async {
+    final card = _card;
+    if (card == null) return;
+    setState(() => _aiEditing = true);
+    try {
+      final input = CardAiEditInput.fromCard(
+        card: card,
+        scope: scope,
+        instruction: instruction,
+        name: _nameCtrl.text,
+        description: _descCtrl.text,
+        personality: _personalityCtrl.text,
+        scenario: _scenarioCtrl.text,
+        firstMes: _firstMesCtrl.text,
+      );
+      final raw = await _api
+          .summarize(
+            baseUrl: AppSettings.baseUrl,
+            apiKey: AppSettings.apiKey,
+            model: AppSettings.model,
+            system: kCardAiEditSystem,
+            user: buildCardAiEditUserPrompt(input),
+            temperature: 0.7,
+            topP: 1.0,
+            maxTokens: 2048,
+            sampling: AppSettings.activePreset.sampling,
+          )
+          .timeout(const Duration(seconds: 120));
+      if (!mounted) return;
+      final changes = parseCardAiEditResult(raw);
+      if (changes.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('这次没改出内容，换个说法再试一次')),
+        );
+        return;
+      }
+      final accepted = await _showAiEditPreview(changes);
+      if (accepted == true && mounted) _applyAiEdit(changes);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('修改失败：$e')),
+      );
+    } finally {
+      if (mounted) setState(() => _aiEditing = false);
+    }
+  }
+
+  /// 对比弹窗：逐字段「原文 → 新文」，默认全选，确认后写回。
+  Future<bool?> _showAiEditPreview(Map<String, String> changes) {
+    final selected = <String>{...changes.keys};
+    final scheme = Theme.of(context).colorScheme;
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        final keys = changes.keys.toList();
+        return StatefulBuilder(
+          builder: (ctx, setDlg) => AlertDialog(
+            title: const Text('AI 修改预览'),
+            content: SizedBox(
+              width: 520,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final key in keys) ...[
+                      CheckboxListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        value: selected.contains(key),
+                        title: Text(
+                          kCardEditFieldLabels[key] ?? key,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        onChanged: (v) => setDlg(() {
+                          if (v == true) {
+                            selected.add(key);
+                          } else {
+                            selected.remove(key);
+                          }
+                        }),
+                      ),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: scheme.surfaceContainerHigh,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '原文',
+                              style: TextStyle(
+                                fontSize: AppType.meta,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _currentTextOf(key).isEmpty
+                                  ? '（空）'
+                                  : _currentTextOf(key),
+                              style: TextStyle(
+                                fontSize: AppType.caption,
+                                height: 1.45,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '新文',
+                              style: TextStyle(
+                                fontSize: AppType.meta,
+                                color: scheme.primary,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              changes[key]!,
+                              style: TextStyle(
+                                fontSize: AppType.caption,
+                                height: 1.45,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: selected.isEmpty
+                    ? null
+                    : () => Navigator.pop(ctx, true),
+                child: Text('应用到 ${selected.length} 项'),
+              ),
+            ],
+          ),
+        );
+      },
+    ).then((ok) {
+      if (ok == true) changes.removeWhere((k, _) => !selected.contains(k));
+      return ok;
+    });
+  }
+
+  String _currentTextOf(String key) => switch (key) {
+        'name' => _nameCtrl.text,
+        'description' => _descCtrl.text,
+        'personality' => _personalityCtrl.text,
+        'scenario' => _scenarioCtrl.text,
+        'firstMes' => _firstMesCtrl.text,
+        _ => '',
+      };
+
+  void _applyAiEdit(Map<String, String> changes) {
+    setState(() {
+      for (final e in changes.entries) {
+        switch (e.key) {
+          case 'name':
+            _nameCtrl.text = e.value;
+          case 'description':
+            _descCtrl.text = e.value;
+          case 'personality':
+            _personalityCtrl.text = e.value;
+          case 'scenario':
+            _scenarioCtrl.text = e.value;
+          case 'firstMes':
+            _firstMesCtrl.text = e.value;
+        }
+      }
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已写进输入框，确认后点右上角「保存」')),
+    );
   }
 
   /// 点头像 → 选一张图片做头像（仅暂存，随「保存」入库）。
@@ -491,6 +805,17 @@ class _CharacterEditScreenState extends State<CharacterEditScreen> {
       appBar: AppBar(
         title: const Text('编辑角色'),
         actions: [
+          IconButton(
+            icon: _aiEditing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.auto_fix_high_outlined),
+            tooltip: 'AI 修改',
+            onPressed: _aiEditing ? null : _aiEditCard,
+          ),
           IconButton(
             icon: const Icon(Icons.translate),
             tooltip: '翻译',

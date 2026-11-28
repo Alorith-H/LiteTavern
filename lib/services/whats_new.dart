@@ -17,6 +17,17 @@ class WhatsNewEntry {
 /// 最近几次更新的说明。只保留用户能感知的变化，不写内部实现。
 const List<WhatsNewEntry> kWhatsNew = <WhatsNewEntry>[
   WhatsNewEntry(
+    version: '0.45.0',
+    title: '角色卡与创建流程更新',
+    bullets: <String>[
+      '首次进入角色卡市场会先显示第三方内容说明，之后可在设置里回看。',
+      'AI 创建角色卡改为六步引导，一次只聊一件事，也可以点快速选项。',
+      '生成的角色卡可以带初始变量，在「变量与状态」里查看。',
+      '编辑角色页新增「AI 修改」：说一句想怎么改，确认后再写回输入框。',
+      '点击对话里的头像可直接进入角色编辑。',
+    ],
+  ),
+  WhatsNewEntry(
     version: '0.44.2',
     title: '小幅更新',
     bullets: <String>[

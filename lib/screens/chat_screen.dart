@@ -1917,6 +1917,21 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  /// v0.45.0：群聊里点某个成员的头像 → 编辑这个角色的卡。
+  Future<void> _editGroupMember(String id) async {
+    if (id.isEmpty) return;
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => CharacterEditScreen(charId: id)),
+    );
+    if (changed != true || !mounted) return;
+    final fresh = await Storage.loadCharacter(id);
+    if (fresh == null || !mounted) return;
+    setState(() {
+      final i = _members.indexWhere((m) => m.id == id);
+      if (i >= 0) _members[i] = fresh;
+    });
+  }
+
   Future<void> _clearConversation() async {
     if (!_isGroup && _card == null) return;
     final ok = await showDialog<bool>(
@@ -3030,7 +3045,16 @@ class _ChatScreenState extends State<ChatScreen> {
               const Icon(Icons.groups_outlined, size: 26),
               const SizedBox(width: 10),
             ] else ...[
-              CharacterAvatar(id: card!.id, name: card.name, size: 34),
+              // v0.45.0：点标题栏头像直接进编辑页
+              GestureDetector(
+                onTap: _editCharacter,
+                behavior: HitTestBehavior.opaque,
+                child: CharacterAvatar(
+                  id: card!.id,
+                  name: card.name,
+                  size: 34,
+                ),
+              ),
               const SizedBox(width: 10),
             ],
             Expanded(
@@ -3315,10 +3339,14 @@ class _ChatScreenState extends State<ChatScreen> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CharacterAvatar(
-            id: m.senderId ?? '',
-            name: (m.senderName ?? '').trim(),
-            size: 36,
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _editGroupMember(m.senderId ?? ''),
+            child: CharacterAvatar(
+              id: m.senderId ?? '',
+              name: (m.senderName ?? '').trim(),
+              size: 36,
+            ),
           ),
           const SizedBox(width: 8),
           Flexible(child: bubble),
