@@ -278,13 +278,13 @@
   fetch('https://api.github.com/repos/Alorith-H/LiteTavern/releases/latest')
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (data) {
-      if (!data || !data.tag_name) { meta.textContent = '最新版本在 GitHub Releases 里 · Android 7.0+'; return; }
+      if (!data || !data.tag_name) { return; }
       var apk = (data.assets || []).filter(function (a) { return /\.apk$/.test(a.name); })[0];
       var size = apk ? (apk.size / 1048576).toFixed(1) + ' MB' : '';
       meta.textContent = data.tag_name + (size ? ' · ' + size : '') + ' · Android 7.0+';
       if (apk) { buttons.forEach(function (b) { if (b) b.href = apk.browser_download_url; }); }
     })
-    .catch(function () { meta.textContent = '最新版本在 GitHub Releases 里'; });
+    .catch(function () { /* 读取失败就保留页面上写死的版本 */ });
 
   // 滚动浮现：尊重「减少动态效果」设置
   var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
