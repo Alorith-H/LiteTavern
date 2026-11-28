@@ -686,7 +686,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       _title('欢迎使用 LiteTavern'),
       _lead(
         '这是一个本地运行的角色扮演聊天 App：导入一张角色卡，就能和角色一对一聊天，'
-        '也可以把几个角色拉进同一个群聊。角色、对话和设置都只存在你手机上。',
+        '也可以把几个角色拉进同一个群聊。角色、对话和设置都只存在你手机上。'
+        '整个过程大概 2 分钟，中途想跳过也随时可以。',
       ),
       const SizedBox(height: 18),
       _highlightPanel(
@@ -1401,8 +1402,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         body: '角色、对话和设置只存在本机，不上传到任何服务器（除了发给模型服务商的聊天内容）。'
             '卸载 App 会一起删掉，重要对话记得先复制出来。',
       ),
+      _featureRow(
+        Icons.campaign_outlined,
+        '更新后会告诉你改了什么',
+        '装上新版本第一次打开时，会弹一页说明；以后想看，去 设置 → 帮助与关于 → 更新说明。',
+      ),
       const SizedBox(height: 12),
-      _small('想再看一遍这段引导：设置 → 帮助 → 重看新手引导。'),
+      _small('想再看一遍这段引导：设置 → 帮助与关于 → 重看新手引导。'),
     ]);
   }
 }

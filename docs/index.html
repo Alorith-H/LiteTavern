@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>轻酒馆 LiteTavern · 在自己的手机上，和喜欢的角色聊天</title>
+<meta name="description" content="轻酒馆 LiteTavern 是一个开源的安卓角色扮演聊天应用：导入角色卡、自备模型 API、聊天记录只存在本机。">
+<meta property="og:title" content="轻酒馆 LiteTavern">
+<meta property="og:description" content="导入角色卡，自备模型 API，聊天记录只存在本机。">
+<meta property="og:type" content="website">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="./">
+    <span class="brand-mark">酒</span>
+    <span class="brand-name">轻酒馆 LiteTavern</span>
+  </a>
+  <nav class="site-nav">
+    <a href="#features">功能</a>
+    <a href="#start">开始用</a>
+    <a href="#faq">常见问题</a>
+    <a class="nav-cta" href="https://github.com/Alorith-H/LiteTavern" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">安卓 · 开源 · 本地存储</p>
+      <h1>在自己的手机上<br>和喜欢的角色聊天</h1>
+      <p class="lede">导入一张角色卡，挑一个模型，故事就开始了。角色、对话和设置都只留在你的手机上。</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" id="download-btn" href="https://github.com/Alorith-H/LiteTavern/releases/latest">下载安装包</a>
+        <a class="btn btn-ghost" href="https://github.com/Alorith-H/LiteTavern" target="_blank" rel="noopener">查看源码</a>
+      </div>
+      <p class="meta" id="release-meta">正在读取最新版本…</p>
+    </div>
+    <div class="hero-card" aria-hidden="true">
+      <div class="chat-line them">（把杯子往你这边推了推）外面下雨了，今晚就别走了吧。</div>
+      <div class="chat-line me">那我睡沙发。</div>
+      <div class="chat-line them">……沙发在储藏室里，很潮。</div>
+      <div class="chat-hint">↑ 只是示意，真正的对话在你的手机里</div>
+    </div>
+  </section>
+
+  <section id="features" class="section">
+    <h2>它做什么</h2>
+    <div class="grid">
+      <article class="card">
+        <h3>角色卡市场</h3>
+        <p>直接在应用里逛公开角色卡，按热门、最新、标签、语言、长度筛选，看到喜欢的点下载就导入。非中文的卡可以先翻译，再决定用不用。</p>
+      </article>
+      <article class="card">
+        <h3>自己的模型</h3>
+        <p>DeepSeek、智谱、Kimi、小米 MiMo、Ollama，或任何 OpenAI 兼容接口。填自己的 API Key，按量付费，不经手中转。</p>
+      </article>
+      <article class="card">
+        <h3>长得像聊天软件</h3>
+        <p>气泡或小说排版随你挑；长对话自动摘要、建议回复、替你说一句、消息变体横滑切换，都是为「一直聊下去」准备的。</p>
+      </article>
+      <article class="card">
+        <h3>不止一段故事</h3>
+        <p>同一个角色可以开多段聊天，任意一条消息都能分出新分支；书签、搜索、导出长图和 EPUB 都在。</p>
+      </article>
+      <article class="card">
+        <h3>角色卡生态</h3>
+        <p>兼容 SillyTavern 角色卡、世界书和预设：导入 .png / .json / .charx，世界书按全局、人设、角色、聊天分别绑定。</p>
+      </article>
+      <article class="card">
+        <h3>数据在你手里</h3>
+        <p>没有账号、没有云同步。角色、聊天、设置都存本机，可以打成一个 zip 备份，换手机再还原。</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="start" class="section section-alt">
+    <h2>开始用，三步</h2>
+    <ol class="steps">
+      <li><strong>装应用</strong><span>下载 APK 安装。第一次安装需要允许「安装未知来源应用」。</span></li>
+      <li><strong>配模型</strong><span>跟着引导挑一家服务商，去官网拿 API Key，粘贴回来点「测试连接」。</span></li>
+      <li><strong>导入角色</strong><span>从角色卡市场挑一张，或者用本地的 .png / .json 文件导入。</span></li>
+    </ol>
+    <p class="note">轻酒馆本身不带 AI 模型，聊天由你配置的模型服务完成，费用由服务商按用量收取。</p>
+  </section>
+
+  <section id="faq" class="section">
+    <h2>常见问题</h2>
+    <div class="faq">
+      <details>
+        <summary>需要付费吗？</summary>
+        <p>应用本身免费、开源（MIT）。聊天要调用模型，模型服务商按 token 收费；部分服务商有免费额度，本地 Ollama 完全不花钱。</p>
+      </details>
+      <details>
+        <summary>聊天记录会被上传吗？</summary>
+        <p>不会传到我们这里——这个项目没有服务器。只有你发出的对话内容会按需发给所选的模型服务商。</p>
+      </details>
+      <details>
+        <summary>能导入 SillyTavern 的角色卡吗？</summary>
+        <p>可以。V2/V3 角色卡（.png、.json、.charx）、世界书、显示正则、预设都能导入，预设里的提示词顺序也支持在兼容模式里生效。</p>
+      </details>
+      <details>
+        <summary>换手机怎么迁移？</summary>
+        <p>在「设置 → 帮助与关于 → 备份与恢复」里导出 zip，把文件传到新手机再恢复；可以选择只恢复角色卡或只恢复设置。</p>
+      </details>
+      <details>
+        <summary>支持哪些安卓版本？</summary>
+        <p>Android 7.0 及以上（minSdk 24），arm64 手机。</p>
+      </details>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <p>轻酒馆 LiteTavern · 作者 <a href="https://github.com/Alorith-H" target="_blank" rel="noopener">Alorith</a> · MIT License</p>
+  <p class="fine">角色卡与图片版权归原作者所有；请遵守你所在地区的规定，合理使用。</p>
+</footer>
+
+<script>
+(function () {
+  var meta = document.getElementById('release-meta');
+  var btn = document.getElementById('download-btn');
+  fetch('https://api.github.com/repos/Alorith-H/LiteTavern/releases/latest')
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (data) {
+      if (!data || !data.tag_name) { meta.textContent = '最新版本见 GitHub Releases'; return; }
+      var apk = (data.assets || []).filter(function (a) { return /\.apk$/.test(a.name); })[0];
+      var size = apk ? (apk.size / 1048576).toFixed(1) + ' MB' : '';
+      meta.textContent = '最新版 ' + data.tag_name + (size ? ' · ' + size : '');
+      if (apk) { btn.href = apk.browser_download_url; }
+    })
+    .catch(function () { meta.textContent = '最新版本见 GitHub Releases'; });
+})();
+</script>
+</body>
+</html>

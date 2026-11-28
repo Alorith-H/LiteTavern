@@ -12,9 +12,11 @@ import '../services/api_presets.dart';
 import '../services/chat_layout.dart';
 import '../services/external_links.dart';
 import '../services/storage.dart';
+import '../services/whats_new.dart';
 import '../services/user_personas.dart';
 import '../widgets/common.dart';
 import '../widgets/backup_sheet.dart';
+import '../widgets/whats_new_dialog.dart';
 import '../widgets/update_flow.dart';
 import 'advanced_settings_screen.dart';
 import 'api_config_screen.dart';
@@ -685,7 +687,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // SillyTavern 预设兼容（v0.30.0）：导入并查看采样参数与提示词顺序
       _actionRow(
         title: 'SillyTavern 预设',
-        subtitle: '导入 ST 预设 JSON：看采样参数与提示词顺序，采样可一键套用（v0.30.0）',
+        subtitle: '从酒馆导入预设，看看它的采样和提示词顺序，采样还能一键套用',
         trailing: _chevron(scheme),
         onTap: _openStPreset,
       ),
@@ -753,7 +755,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       const Divider(height: 1),
       _stepperRow(
         title: '自动继续次数',
-        subtitle: '回复达到长度上限时代写续接的次数，0 = 关闭',
+        subtitle: '回复被长度上限截断时，自动接着写几次；0 是不接',
         value: _autoContinue,
         onChanged: (v) {
           setState(() => _autoContinue = v);
@@ -763,7 +765,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       const Divider(height: 1),
       _switchRow(
         title: '流式传输',
-        subtitle: '关掉则整段生成完一次性显示',
+        subtitle: '关掉就等整段生成完，再一次性显示',
         value: _streaming,
         onChanged: (v) {
           setState(() => _streaming = v);
@@ -823,7 +825,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       const Divider(height: 1),
       _switchRow(
         title: '长对话自动摘要',
-        subtitle: '对话太长时把早期内容压成摘要，后台静默执行'
+        subtitle: '聊得太长时，自动把前面的内容压成一小段摘要'
             '（会额外调用一次模型、消耗 token）',
         value: _autoSummarize,
         onChanged: (v) {
@@ -834,7 +836,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       const Divider(height: 1),
       _actionRow(
         title: '自动摘要怎么工作',
-        subtitle: '什么时候触发、会不会多花 token、怎么关掉',
+        subtitle: '什么时候会触发、要不要多花 token、怎么关',
         trailing: _chevron(scheme),
         onTap: _showSummaryExplain,
       ),
@@ -996,7 +998,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       const SectionHeader('角色卡市场'),
       _switchRow(
         title: '显示 NSFW 内容',
-        subtitle: '默认关闭：市场只显示全年龄内容；打开后包含成人向角色卡',
+        subtitle: '默认关闭：市场只显示全年龄内容。打开后会包含成人向角色卡',
         value: _showNsfw,
         onChanged: (v) {
           setState(() => _showNsfw = v);
@@ -1070,12 +1072,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       const SectionHeader('世界书'),
       _actionRow(
         title: '导入世界书',
-        subtitle: 'SillyTavern 格式，聊天时按关键词自动注入',
+        subtitle: '酒馆格式的世界书，聊到关键词时自动带进去',
         onTap: _importWorldBook,
       ),
       _actionRow(
         title: '世界书绑定',
-        subtitle: '全局 / 人设 / 角色 / 这段聊天，分别绑定（v0.27.0）',
+        subtitle: '按全局、人设、角色或某段聊天分开绑定',
         onTap: _openWorldBookBindings,
       ),
       for (final (id, book) in _worldBooks) ...[
@@ -1170,7 +1172,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       const Divider(height: 1),
       _switchRow(
         title: '显示快捷回复',
-        subtitle: '在输入框上方显示一排点按即发的短语',
+        subtitle: '在输入框上方放一排常用短语，点一下就发',
         value: _showQuickReplies,
         onChanged: (v) {
           setState(() => _showQuickReplies = v);
@@ -1193,7 +1195,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       const Divider(height: 1),
       _actionRow(
         title: '显示正则',
-        subtitle: '只改看到的内容：导入 ST 正则、开关、替换前后对比（v0.29.0）',
+        subtitle: '只改显示、不动原文：导入酒馆正则、逐条开关、对比效果',
         trailing: _chevron(scheme),
         onTap: () async {
           await Navigator.of(context).push(
@@ -1263,7 +1265,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       const Divider(height: 1),
       _switchRow(
         title: '启动时自动检查更新',
-        subtitle: '每天最多查一次；只在有新版本时提示，不会打断你',
+        subtitle: '一天最多查一次，只有新版本才会提醒',
         value: _autoCheckUpdates,
         onChanged: (v) {
           setState(() => _autoCheckUpdates = v);
@@ -1273,14 +1275,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
       const Divider(height: 1),
       _actionRow(
         title: '备份与恢复',
-        subtitle: '打包角色卡 / 聊天 / 世界书 / 设置成 .zip，换手机可还原',
+        subtitle: '把角色卡、聊天、世界书和设置打成一个包，换手机能还原',
         trailing: _chevron(scheme),
         onTap: () => showBackupSheet(context),
       ),
       const Divider(height: 1),
       _actionRow(
+        title: '更新说明',
+        subtitle: '这一版改了什么，随时回看',
+        trailing: _chevron(scheme),
+        onTap: () {
+          final entry = whatsNewFor(kAppVersion);
+          if (entry == null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('这一版没有单独写更新说明。')),
+            );
+            return;
+          }
+          showWhatsNewDialog(context, entry: entry, markSeen: false);
+        },
+      ),
+      const Divider(height: 1),
+      _actionRow(
         title: '重看新手引导',
-        subtitle: '从零开始再过一遍：拿 Key、配模型、导入角色',
+        subtitle: '再走一遍：拿 Key、配模型、导入角色',
         trailing: _chevron(scheme),
         onTap: () {
           Navigator.of(context).push(
@@ -1291,7 +1309,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       const Divider(height: 1),
       _actionRow(
         title: '诊断日志',
-        subtitle: '崩溃或报错时看这里，最近 150 条记录可复制',
+        subtitle: '出问题时先看这里：最近 150 条记录，可以复制发给我',
         trailing: _chevron(scheme),
         onTap: () {
           Navigator.of(context).push(

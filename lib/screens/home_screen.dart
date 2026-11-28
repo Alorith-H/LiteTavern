@@ -13,6 +13,7 @@ import '../services/chat_index.dart';
 import '../services/file_pick.dart';
 import '../services/import_report.dart';
 import '../services/storage.dart';
+import '../widgets/whats_new_dialog.dart';
 import '../widgets/common.dart';
 import '../widgets/sheet_menu.dart';
 import '../widgets/import_report_dialog.dart';
@@ -55,6 +56,8 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       maybeAutoCheckUpdates(context);
+      // 更新后第一次打开：先说这次改了什么（v0.43.0）。
+      maybeShowWhatsNew(context);
     });
   }
 
@@ -324,7 +327,7 @@ class _HomeScreenState extends State<HomeScreen> {
         SheetMenuItem(
           icon: Icons.storefront_outlined,
           title: '角色卡市场',
-          subtitle: '在线浏览公开角色卡，点一下就下载导入',
+          subtitle: '逛一逛公开角色卡，点下载就直接导进手机',
           trailing: Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
             decoration: BoxDecoration(
@@ -345,7 +348,7 @@ class _HomeScreenState extends State<HomeScreen> {
         SheetMenuItem(
           icon: Icons.description_outlined,
           title: '从文件导入',
-          subtitle: '选择手机里的 .png / .json / .charx 角色卡',
+          subtitle: '手机里的 .png、.json、.charx 都行',
           onTap: () {
             Navigator.pop(context);
             _import();
@@ -354,7 +357,7 @@ class _HomeScreenState extends State<HomeScreen> {
         SheetMenuItem(
           icon: Icons.link_outlined,
           title: '从链接下载',
-          subtitle: '粘贴角色卡直链，下载后自动导入',
+          subtitle: '有直链的话粘过来，下载完自动导入',
           onTap: () {
             Navigator.pop(context);
             _showDownloadDialog();
@@ -364,7 +367,7 @@ class _HomeScreenState extends State<HomeScreen> {
         SheetMenuItem(
           icon: Icons.auto_awesome_outlined,
           title: 'AI 创建角色卡',
-          subtitle: '和 AI 聊几句，生成角色卡再微调',
+          subtitle: '聊几句，让 AI 帮你写一张卡，再改改',
           onTap: () {
             Navigator.pop(context);
             _openCardCreator();
@@ -747,7 +750,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 20),
             Text(
-              '还没有角色，点右下角导入角色卡',
+              '还没有角色。点右下角「导入角色卡」，挑一张就能开始。',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 14,

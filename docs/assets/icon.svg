@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="LiteTavern">
+  <rect width="64" height="64" rx="16" fill="#9C4632"/>
+  <path d="M20 17h13v30H20a4 4 0 0 1-4-4V21a4 4 0 0 1 4-4zm11 0h13a4 4 0 0 1 4 4v22a4 4 0 0 1-4 4H31z" fill="#F7F2EC" opacity="0.92"/>
+  <path d="M32 17v30" stroke="#9C4632" stroke-width="2.5"/>
+  <circle cx="46" cy="21" r="4" fill="#E7D5CB"/>
+</svg>

@@ -1442,6 +1442,18 @@ class AppSettings {
       _sp.setDouble(_kPriceCached, v);
 
   static const _kPriceCached = 'price_cached_per_million';
+  /// 上次看过「更新说明」的版本（v0.43.0）。用于更新后只提示一次。
+  static const _kLastSeenVersion = 'last_seen_version';
+
+  static String? get lastSeenVersion => _sp.getString(_kLastSeenVersion);
+
+  static Future<void> setLastSeenVersion(String version) async {
+    if (version.isEmpty) {
+      await _sp.remove(_kLastSeenVersion);
+    } else {
+      await _sp.setString(_kLastSeenVersion, version);
+    }
+  }
 
   /// 显示正则库（JSON 数组，v0.29.0）；null = 空库。
   static String? get displayRegexesJson => _sp.getString(_kDisplayRegexes);
