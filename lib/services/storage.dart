@@ -1317,11 +1317,24 @@ class AppSettings {
       assistMode = AssistMode.fromLegacy(v);
   static const _kAutoReplyCandidates = 'auto_reply_candidates';
 
-  /// 角色卡市场是否显示 NSFW 内容（v0.15.1）：默认**关**，
+  /// 角色卡市场是否显示全部内容（v0.15.1）：默认**关**，
   /// 关掉时向市场请求 `nsfw=false`，只返回全年龄（SFW）内容。
-  static bool get showNsfw => _sp.getBool(_kShowNsfw) ?? false;
+  ///
+  /// v0.44.2 起还要求 [nsfwUnlocked] 为真：开关默认不在设置里显示，
+  /// 未解锁时即使旧数据里存过 `true` 也按关闭处理。
+  static bool get showNsfw =>
+      nsfwUnlocked && (_sp.getBool(_kShowNsfw) ?? false);
   static set showNsfw(bool v) => _sp.setBool(_kShowNsfw, v);
   static const _kShowNsfw = 'show_nsfw';
+
+  /// 内容开关是否已解锁（v0.44.2 隐藏功能）：默认 false。
+  ///
+  /// 解锁方式：设置 → 帮助与关于，连续点「LiteTavern v…」5 下。
+  /// 解锁状态持久化，之后开关出现在「角色卡市场」里。
+  static bool get nsfwUnlocked => _sp.getBool(_kNsfwUnlocked) ?? false;
+  static set nsfwUnlocked(bool v) => _sp.setBool(_kNsfwUnlocked, v);
+  static const _kNsfwUnlocked = 'nsfw_unlocked';
+
 
   // ------------------------------------------------------ 自动更新 --
 

@@ -1,3 +1,20 @@
+## 本轮 v0.44.2 —— 内容开关默认隐藏 + 文案统一（用户需求：默认隐藏成人内容开关、隐藏入口、文案更简洁官方）
+
+- **隐藏入口**：新增 `lib/services/tap_unlock.dart`（`TapUnlock`：3 秒窗口内累计 5 次，可注入时钟便于测试）。设置 → 帮助与关于 页脚新增可点文本「LiteTavern v0.44.2」，连点 5 次解锁并提示「已解锁。」；解锁状态存 `nsfw_unlocked`（默认关）。
+- **门控**：`AppSettings.showNsfw` 改为 `nsfwUnlocked && stored`，未解锁时恒为 false。「角色卡市场与翻译」页未解锁只显示「内容过滤：仅显示全年龄角色卡。」；解锁后才出现「显示全部内容」开关；设置首页摘要同步为「仅全年龄 / 全部内容」。
+- **修复**：`_showAbout()` 的版本行原为 `Text('版本 vkAppVersion')`（少了 `$`，显示字面量），已修正。
+- **文案**：引导第 5 步「导入第一张角色卡」与收尾页、导入弹窗页脚、角色卡市场来源说明、`whats_new` 0.44.0–0.44.2、CHANGELOG 全部改为更简洁的官方表述，去除口语化与感叹。
+- **测试**：新增 `test/nsfw_gate_test.dart` 9 例（存储门控、`TapUnlock`、设置页三态）；同步 `test/onboarding_screen_test.dart`、`test/v16_test.dart`、`test/card_market_screen_test.dart`。
+- **版本**：`pubspec.yaml` `0.44.2+51`、`kAppVersion='0.44.2'`；CHANGELOG 仅记「小幅修复与优化。」；`docs/index.html` 静态版本同步 v0.44.2。
+
+### 本次运行记录（v0.44.2）
+| 项目 | 结果 |
+| --- | --- |
+| `flutter analyze` | No issues found! |
+| `flutter test` | **+614 All tests passed!** |
+| `flutter build apk --release` | 61.4MB（64,335,803 字节），versionCode 51 / 0.44.2 |
+| 装机 / 截图 | 模拟器 emulator-5556：设置页未见开关 → 帮助与关于页脚连点 5 次 → 「已解锁。」→ 市场页出现「显示全部内容」并拨到开 → 摘要变「全部内容」；关于弹窗显示「版本 v0.44.2」；市场页顶部「已显示全部内容」；导入弹窗四入口平铺 |
+
 ## 本轮 v0.44.1 —— 引导收尾页排版 + 导入弹窗去分组（用户需求：「优化新手教程最后一页的排版，导入角色卡界面不要在线获取/从文件导入/自己创建的分栏」）
 
 - **引导收尾页**（`lib/screens/onboarding_screen.dart` `_buildDone`）：顶部改成整页唯一的居中块（primary 12% 底的圆形 ✓ + 居中标题 + 一句说明），下方新增两个分组：

@@ -1213,36 +1213,35 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Widget _buildImport() {
     return _pageScroll([
-      _title('导入第一个角色卡'),
+      _title('导入第一张角色卡'),
       _lead(
-        '角色卡就是一张图片（或一个文件），里面藏着角色的名字、性格、说话方式和开场白。'
-        '常见格式是 .png——设定藏在图片的元数据里——也可能是 .json，'
-        '兼容 SillyTavern / chara_card V2。',
+        '角色卡包含角色的设定与开场白。常见格式为 .png（设定内嵌在图片元数据中）、'
+        '.json 或 .charx，兼容 SillyTavern / character card V2。',
       ),
       const SizedBox(height: 18),
       _choiceCard(
         icon: Icons.storefront_outlined,
         badge: '推荐',
         title: '从角色卡市场导入',
-        subtitle: '在线浏览 Chub.ai 上的公开角色卡，看到喜欢的点下载就自动入库',
+        subtitle: '浏览公开角色卡，下载后自动导入',
         onTap: _openMarket,
       ),
       const SizedBox(height: 10),
       _choiceCard(
         icon: Icons.file_upload_outlined,
         title: '从本地文件导入',
-        subtitle: '已经下载好 .png / .json 角色卡，直接从文件里选',
+        subtitle: '从手机中选择 .png、.json、.charx 文件',
         onTap: _importCharacter,
       ),
       const SizedBox(height: 10),
       _choiceCard(
         icon: Icons.explore_outlined,
-        title: '先跳过，进去自己逛',
-        subtitle: '进去之后也能随时添加，不着急',
+        title: '稍后添加',
+        subtitle: '可随时在主页右下角「导入」中添加',
         onTap: _finish,
       ),
       const SizedBox(height: 6),
-      _small('也可以以后在主页右下角「导入」里再添加。'),
+      _small('导入后可在主页编辑或删除。'),
     ]);
   }
 
@@ -1484,7 +1483,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ),
             const SizedBox(height: 16),
             const Text(
-              '好了，开始聊天',
+              '设置完成',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: AppType.hero,
@@ -1494,7 +1493,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              '配置和角色卡都准备好了。剩下的边聊边熟悉就行。',
+              '模型与角色已就绪，可以开始聊天。',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: AppType.body,
@@ -1506,51 +1505,51 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         ),
       ),
       const SizedBox(height: 24),
-      _sectionLabel('进去之后'),
+      _sectionLabel('基本操作'),
       _groupCard([
         _stepRow(
           '01',
-          '点个角色，进聊天',
-          '在主页点角色 → 进聊天页 → 底部输入框发消息，点发送或回车。',
+          '进入聊天',
+          '在主页选择角色，进入聊天页，在输入框发送消息。',
         ),
         _stepRow(
           '02',
-          '输入框左边的按钮',
+          '输入栏辅助按钮',
           // 默认是关着的；关着的时候提示怎么打开，别让人去输入栏找一个不存在的按钮。
           _assistMode == AssistMode.off
-              ? '现在是关闭的。想要时去 设置 → 聊天 → 输入栏辅助按钮 打开。'
+              ? '当前为关闭状态，可在 设置 → 聊天 → 输入栏辅助按钮 中开启。'
               : _assistMode.summary,
         ),
         _stepRow(
           '03',
-          '想改什么，去「设置」',
-          '生成参数、上下文窗口、字号主题、模型服务都在设置里，随时能换。',
+          '设置',
+          '生成参数、上下文长度、界面与模型服务均可在设置中调整。',
         ),
       ]),
       const SizedBox(height: 18),
-      _sectionLabel('它会替你处理'),
+      _sectionLabel('自动处理'),
       _groupCard([
         _noteRow(
           Icons.memory_outlined,
           '长对话自动摘要',
-          '剧情很长时，后台把最早的对话压成摘要再发给模型（不弹提示）。'
-              '会多花一点 token，想省就在 设置 → 聊天 里关掉。',
+          '对话较长时，较早的内容会自动压缩为摘要，不显示提示。'
+              '会额外消耗少量 token，可在 设置 → 聊天 中关闭。',
         ),
         _noteRow(
           Icons.campaign_outlined,
-          '更新后告诉你改了什么',
-          '装上新版本第一次打开时会说明；以后想看，去 设置 → 帮助与关于 → 更新说明。',
+          '更新说明',
+          '安装新版本后首次启动会显示更新说明；之后可在 设置 → 帮助与关于 → 更新说明 查看。',
         ),
       ]),
       const SizedBox(height: 18),
       _highlightPanel(
         icon: Icons.lock_outline,
-        title: '数据都在你手机里',
-        body: '角色、对话和设置只存在本机，不上传到任何服务器（除了发给模型服务商的聊天内容）。'
-            '卸载 App 会一起删掉，重要对话记得先导出。',
+        title: '数据存储',
+        body: '角色、对话与设置均保存在本机，不上传服务器（发送给模型服务商的内容除外）。'
+            '卸载应用会删除这些数据，重要对话请先导出。',
       ),
       const SizedBox(height: 14),
-      _small('想再看一遍：设置 → 帮助与关于 → 重看新手引导。'),
+      _small('重新查看引导：设置 → 帮助与关于 → 重看新手引导。'),
     ]);
   }
 }

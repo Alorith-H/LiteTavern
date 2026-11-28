@@ -106,21 +106,27 @@ void main() {
     expect(find.text('没有找到角色卡'), findsOneWidget);
   });
 
-  testWidgets('默认只请求 SFW（showNsfw=false），打开设置后请求 NSFW', (tester) async {
+  testWidgets('默认只请求 SFW；解锁并打开后请求 NSFW（v0.44.2 门控）', (tester) async {
     final source = _FakeSource();
     await _pumpScreen(tester, source);
 
+    expect(AppSettings.nsfwUnlocked, isFalse);
     expect(AppSettings.showNsfw, isFalse);
     expect(source.showNsfwFlags.last, isFalse);
-    expect(find.textContaining('现在只显示全年龄内容'), findsOneWidget);
+    expect(find.textContaining('当前仅显示全年龄内容'), findsOneWidget);
 
-    // 打开开关后重新进入市场页，应请求 nsfw=true 并更新说明文案
+    // 未解锁时即使旧数据里存了 true 也仍然按关闭处理
     AppSettings.showNsfw = true;
+    expect(AppSettings.showNsfw, isFalse);
+
+    // 解锁后重新进入市场页，应请求 nsfw=true 并更新说明文案
+    AppSettings.nsfwUnlocked = true;
+    expect(AppSettings.showNsfw, isTrue);
     await tester.pumpWidget(const SizedBox());
     await _pumpScreen(tester, source);
 
     expect(source.showNsfwFlags.last, isTrue);
-    expect(find.textContaining('成人向内容也显示'), findsOneWidget);
+    expect(find.textContaining('已显示全部内容'), findsOneWidget);
   });
 }
 

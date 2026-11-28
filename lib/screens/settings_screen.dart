@@ -12,6 +12,7 @@ import '../services/api_presets.dart';
 import '../services/chat_layout.dart';
 import '../services/external_links.dart';
 import '../services/storage.dart';
+import '../services/tap_unlock.dart';
 import '../services/whats_new.dart';
 import '../services/user_personas.dart';
 import '../widgets/common.dart';
@@ -93,6 +94,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late AssistMode _assistMode;
   late bool _showNsfw;
   late bool _autoCheckUpdates;
+
+  /// 隐藏入口（v0.44.2）：帮助与关于里连点版本号 5 下解锁内容开关。
+  final TapUnlock _unlockGate = TapUnlock();
 
   /// 当前主题色 seed 与自定义 HEX 输入
   late int _seed;
@@ -556,10 +560,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   String _marketSummary() {
-    final nsfw = AppSettings.showNsfw ? '显示' : '不显示';
+    // 未解锁时不必暴露开关的存在（v0.44.2）。
+    final filter = AppSettings.nsfwUnlocked
+        ? (AppSettings.showNsfw ? '全部内容' : '仅全年龄')
+        : '仅全年龄';
     final azure =
         AppSettings.azureTranslatorKey.trim().isEmpty ? '免费源顺序' : '必应（Azure）';
-    return 'NSFW $nsfw · 翻译 $azure';
+    return '$filter · 翻译 $azure';
   }
 
   String _worldBookSummary() {
@@ -996,15 +1003,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
   List<Widget> _marketChildren(ColorScheme scheme) {
     return [
       const SectionHeader('角色卡市场'),
-      _switchRow(
-        title: '显示 NSFW 内容',
-        subtitle: '默认关闭：市场只显示全年龄内容。打开后会包含成人向角色卡',
-        value: _showNsfw,
-        onChanged: (v) {
-          setState(() => _showNsfw = v);
-          AppSettings.showNsfw = v;
-        },
-      ),
+      if (AppSettings.nsfwUnlocked)
+        _switchRow(
+          title: '显示全部内容',
+          subtitle: '关闭时市场只显示全年龄内容；打开后会包含成人向角色卡',
+          value: _showNsfw,
+          onChanged: (v) {
+            setState(() => _showNsfw = v);
+            AppSettings.showNsfw = v;
+          },
+        )
+      else
+        const _SubLine('内容过滤：仅显示全年龄角色卡。'),
       const SectionHeader('翻译'),
       _SubLine(
         '角色卡和市场里的「译」按钮会用免费翻译。默认顺序：'
@@ -1404,7 +1414,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
       const SizedBox(height: 10),
       const _SubLine('聊天记录、角色卡、配置都只存在这台手机里，卸载应用会一起删除。'),
+      // 版本号本身也是隐藏入口（v0.44.2）：连续点 5 下解锁内容开关，
+      // 平时看起来只是页脚的一行小字。
+      Center(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _onVersionTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+            child: Text(
+              'LiteTavern v$kAppVersion',
+              style: TextStyle(
+                fontSize: AppType.meta,
+                color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
+                letterSpacing: 0.2,
+              ),
+            ),
+          ),
+        ),
+      ),
     ];
+  }
+
+  /// 隐藏入口（v0.44.2）：3 秒内连点版本号 5 下，解锁「角色卡市场」的内容开关。
+  void _onVersionTap() {
+    if (!_unlockGate.tap()) return;
+    if (AppSettings.nsfwUnlocked) return;
+    setState(() {
+      AppSettings.nsfwUnlocked = true;
+      _showNsfw = AppSettings.showNsfw;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已解锁。')),
+    );
   }
 
   /// 滑条上方标签行：名称 + 右侧数值（accent）。
@@ -1732,7 +1774,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('版本 vkAppVersion',
+              Text('版本 v$kAppVersion',
                   style: const TextStyle(fontSize: AppType.body)),
               const SizedBox(height: 8),
               Text(

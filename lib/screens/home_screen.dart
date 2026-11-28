@@ -322,12 +322,12 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         const SheetMenuTitle(
           title: '导入角色卡',
-          subtitle: '第一次用？直接从「角色卡市场」挑一张，点下载就导入完成。',
+          subtitle: '支持 .png、.json、.charx，也可从角色卡市场获取。',
         ),
         SheetMenuItem(
           icon: Icons.storefront_outlined,
           title: '角色卡市场',
-          subtitle: '逛一逛公开角色卡，点下载就直接导进手机',
+          subtitle: '浏览公开角色卡，下载后自动导入',
           trailing: Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
             decoration: BoxDecoration(
@@ -347,7 +347,7 @@ class _HomeScreenState extends State<HomeScreen> {
         SheetMenuItem(
           icon: Icons.description_outlined,
           title: '从文件导入',
-          subtitle: '手机里的 .png、.json、.charx 都行',
+          subtitle: '从手机中选择 .png、.json、.charx 文件',
           onTap: () {
             Navigator.pop(context);
             _import();
@@ -356,7 +356,7 @@ class _HomeScreenState extends State<HomeScreen> {
         SheetMenuItem(
           icon: Icons.link_outlined,
           title: '从链接下载',
-          subtitle: '有直链的话粘过来，下载完自动导入',
+          subtitle: '粘贴直链，下载后自动导入',
           onTap: () {
             Navigator.pop(context);
             _showDownloadDialog();
@@ -365,7 +365,7 @@ class _HomeScreenState extends State<HomeScreen> {
         SheetMenuItem(
           icon: Icons.auto_awesome_outlined,
           title: 'AI 创建角色卡',
-          subtitle: '聊几句，让 AI 帮你写一张卡，再改改',
+          subtitle: '通过对话生成角色卡',
           onTap: () {
             Navigator.pop(context);
             _openCardCreator();
@@ -374,8 +374,7 @@ class _HomeScreenState extends State<HomeScreen> {
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
           child: Text(
-            '角色卡是 SillyTavern 格式的文件：.png 图片里内嵌了角色设定，也可以是 .json，或压缩的 .charx。'
-            '导入后立刻出现在主页列表，随时可以编辑或删除。',
+            '导入后可在主页编辑或删除，也能随时导出或备份。',
             style: TextStyle(
               fontSize: AppType.meta,
               height: 1.5,

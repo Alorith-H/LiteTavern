@@ -54,11 +54,11 @@ void main() {
     await _tapPrimary(tester, '下一步：导入角色');
     await _clearSnackBar(tester);
     expect(find.text('第 5 / 6 步'), findsOneWidget);
-    expect(find.text('导入第一个角色卡'), findsOneWidget);
+    expect(find.text('导入第一张角色卡'), findsOneWidget);
 
     await _tapPrimary(tester, '下一步');
     expect(find.text('第 6 / 6 步'), findsOneWidget);
-    expect(find.text('好了，开始聊天'), findsOneWidget);
+    expect(find.text('设置完成'), findsOneWidget);
     expect(find.text('进入 LiteTavern'), findsOneWidget);
   });
 
@@ -150,7 +150,7 @@ void main() {
 
     expect(find.text('从角色卡市场导入'), findsOneWidget);
     expect(find.text('从本地文件导入'), findsOneWidget);
-    expect(find.text('先跳过，进去自己逛'), findsOneWidget);
+    expect(find.text('稍后添加'), findsOneWidget);
     expect(find.text('推荐'), findsOneWidget);
     expect(find.textContaining('主页右下角「导入」'), findsOneWidget);
   });
@@ -160,18 +160,18 @@ void main() {
     await _goToStep(tester, 6);
 
     // 两个分组标题 + 步骤序号，避免整页一条条平铺
-    expect(find.text('进去之后'), findsOneWidget);
-    expect(find.text('它会替你处理'), findsOneWidget);
+    expect(find.text('基本操作'), findsOneWidget);
+    expect(find.text('自动处理'), findsOneWidget);
     expect(find.text('01'), findsOneWidget);
     expect(find.text('02'), findsOneWidget);
     expect(find.text('03'), findsOneWidget);
 
-    expect(find.text('点个角色，进聊天'), findsOneWidget);
-    expect(find.textContaining('输入框左边的按钮'), findsOneWidget);
-    expect(find.textContaining('想改什么，去「设置」'), findsOneWidget);
+    expect(find.text('进入聊天'), findsOneWidget);
+    expect(find.text('输入栏辅助按钮'), findsOneWidget);
+    expect(find.textContaining('均可在设置中调整'), findsOneWidget);
     expect(find.textContaining('长对话自动摘要'), findsOneWidget);
-    expect(find.textContaining('更新后告诉你改了什么'), findsOneWidget);
-    expect(find.text('数据都在你手机里'), findsOneWidget);
+    expect(find.textContaining('安装新版本后首次启动会显示更新说明'), findsOneWidget);
+    expect(find.text('数据存储'), findsOneWidget);
     expect(find.textContaining('重看新手引导'), findsOneWidget);
   });
 
