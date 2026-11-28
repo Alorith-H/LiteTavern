@@ -26,17 +26,37 @@ import 'st_preset_screen.dart';
 import 'world_book_bindings_screen.dart';
 import 'world_book_entries_screen.dart';
 
-/// 设置页的二级分组（v0.21.0）。
-enum SettingsSection { generation, chat, market, worldBooks, appearance, help }
+/// 设置页的二级分组（v0.21.0；v0.40.1 重新分组）。
+///
+/// v0.40.1：把「模型服务」和「生成参数」并成一组；显示相关（对话排版 /
+/// 字号 / 时间戳 / 快捷回复 / 显示正则）统一收进「外观与显示」。
+enum SettingsSection {
+  model,
+  chat,
+  appearance,
+  market,
+  worldBooks,
+  help,
+}
 
 extension SettingsSectionTitle on SettingsSection {
   String get title => switch (this) {
-        SettingsSection.generation => '生成参数',
+        SettingsSection.model => '模型与生成',
         SettingsSection.chat => '聊天与上下文',
+        SettingsSection.appearance => '外观与显示',
         SettingsSection.market => '角色卡市场与翻译',
         SettingsSection.worldBooks => '世界书',
-        SettingsSection.appearance => '外观',
         SettingsSection.help => '帮助与关于',
+      };
+
+  /// 首页入口图标（v0.40.1 由各分组自己提供，避免首页 switch 里重复）。
+  IconData get icon => switch (this) {
+        SettingsSection.model => Icons.memory_outlined,
+        SettingsSection.chat => Icons.forum_outlined,
+        SettingsSection.appearance => Icons.palette_outlined,
+        SettingsSection.market => Icons.storefront_outlined,
+        SettingsSection.worldBooks => Icons.menu_book_outlined,
+        SettingsSection.help => Icons.help_outline,
       };
 }
 
@@ -441,61 +461,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
         children: [
-          // ---------------------------------------- 当前模型（直达） --
-          const SectionHeader('模型服务'),
-          _actionRow(
-            title: AppSettings.activeApiConfig.name,
-            subtitle: AppSettings.activeApiConfig.model.trim().isEmpty
-                ? '未填写模型名 · 点此管理配置'
-                : AppSettings.activeApiConfig.model.trim(),
-            trailing: Icon(
-              Icons.swap_horiz_outlined,
-              size: 22,
-              color: scheme.onSurfaceVariant,
-            ),
-            onTap: _openApiConfigs,
-          ),
-
-          // ---------------------------------------------- 二级菜单 --
+          // ------------------------------------------ 二级菜单（v0.40.1） --
           const SectionHeader('设置'),
           _actionRow(
-            leading: Icons.tune,
-            title: '生成参数',
-            subtitle: _generationSummary(),
+            leading: SettingsSection.model.icon,
+            title: SettingsSection.model.title,
+            subtitle: _modelSummary(),
             trailing: _chevron(scheme),
-            onTap: () => _openSection(SettingsSection.generation),
+            onTap: () => _openSection(SettingsSection.model),
           ),
           const Divider(height: 1),
           _actionRow(
-            leading: Icons.forum_outlined,
-            title: '聊天与上下文',
+            leading: SettingsSection.chat.icon,
+            title: SettingsSection.chat.title,
             subtitle: _chatSummary(),
             trailing: _chevron(scheme),
             onTap: () => _openSection(SettingsSection.chat),
           ),
           const Divider(height: 1),
           _actionRow(
-            leading: Icons.storefront_outlined,
-            title: '角色卡市场与翻译',
+            leading: SettingsSection.appearance.icon,
+            title: SettingsSection.appearance.title,
+            subtitle: _appearanceSummary(),
+            trailing: _chevron(scheme),
+            onTap: () => _openSection(SettingsSection.appearance),
+          ),
+          const Divider(height: 1),
+          _actionRow(
+            leading: SettingsSection.market.icon,
+            title: SettingsSection.market.title,
             subtitle: _marketSummary(),
             trailing: _chevron(scheme),
             onTap: () => _openSection(SettingsSection.market),
           ),
           const Divider(height: 1),
           _actionRow(
-            leading: Icons.menu_book_outlined,
-            title: '世界书',
+            leading: SettingsSection.worldBooks.icon,
+            title: SettingsSection.worldBooks.title,
             subtitle: _worldBookSummary(),
             trailing: _chevron(scheme),
             onTap: () => _openSection(SettingsSection.worldBooks),
-          ),
-          const Divider(height: 1),
-          _actionRow(
-            leading: Icons.palette_outlined,
-            title: '外观',
-            subtitle: _appearanceSummary(),
-            trailing: _chevron(scheme),
-            onTap: () => _openSection(SettingsSection.appearance),
           ),
 
           // -------------------------------------------------- 帮助 --
@@ -528,11 +533,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) setState(() {});
   }
 
-  String _generationSummary() {
+  /// 首页「模型与生成」入口的摘要（v0.40.1）。
+  String _modelSummary() {
+    final cfg = AppSettings.activeApiConfig;
+    final model = cfg.model.trim().isEmpty ? '未填写模型名' : cfg.model.trim();
     final p = AppSettings.activePreset;
-    final limit = p.maxTokens > 0 ? ' · 上限 ${p.maxTokens}' : '';
-    return '预设 · ${p.name} · t${p.temperature.toStringAsFixed(1)}'
-        ' · p${p.topP.toStringAsFixed(1)}$limit';
+    return '${cfg.name} · $model'
+        ' · t${p.temperature.toStringAsFixed(1)}'
+        ' · p${p.topP.toStringAsFixed(1)}';
   }
 
   String _chatSummary() {
@@ -565,14 +573,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
       'dark' => '深色',
       _ => '跟随系统',
     };
-    return '$mode · 主题色 ${_seedToHex(_seed)}'
+    return '${AppSettings.chatLayout.label}排版 · $mode'
+        ' · 主题色 ${_seedToHex(_seed)}'
         ' · 字号 ${AppSettings.chatFontSize.round()}sp';
   }
 
   List<Widget> _sectionChildren(ColorScheme scheme, SettingsSection section) {
     switch (section) {
-      case SettingsSection.generation:
-        return _generationChildren(scheme);
+      case SettingsSection.model:
+        return _modelChildren(scheme);
       case SettingsSection.chat:
         return _chatChildren(scheme);
       case SettingsSection.market:
@@ -584,6 +593,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
       case SettingsSection.help:
         return _helpChildren(scheme);
     }
+  }
+
+  // ------------------------------------------------ 模型与生成（二级） --
+
+  /// 模型与生成（v0.40.1）：模型服务配置 + 生成参数合成一页。
+  List<Widget> _modelChildren(ColorScheme scheme) {
+    return [
+      const SectionHeader('模型服务'),
+      _actionRow(
+        title: AppSettings.activeApiConfig.name,
+        subtitle: AppSettings.activeApiConfig.model.trim().isEmpty
+            ? '未填写模型名 · 点此管理配置'
+            : '${AppSettings.activeApiConfig.model.trim()} · '
+                '上下文 ${formatContextWindow(AppSettings.contextWindow)}',
+        trailing: Icon(
+          Icons.swap_horiz_outlined,
+          size: 22,
+          color: scheme.onSurfaceVariant,
+        ),
+        onTap: _openApiConfigs,
+      ),
+      const SizedBox(height: 8),
+      ..._generationChildren(scheme),
+    ];
   }
 
   // ------------------------------------------------ 生成参数（二级） --
@@ -812,67 +845,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         onTap: _showPriceDialog,
       ),
 
-      // -------------------------------------------------- 显示 --
-      const SizedBox(height: 8),
-      const SectionHeader('显示'),
-      _actionRow(
-        title: '对话排版',
-        subtitle:
-            '当前 ${AppSettings.chatLayout.label}：${AppSettings.chatLayout.description}',
-        trailing: _chevron(scheme),
-        onTap: _openChatLayout,
-      ),
-      const Divider(height: 1),
-      _actionRow(
-        title: '聊天气泡字号',
-        subtitle: '当前 ${AppSettings.chatFontSize.round()}sp · 点按可调',
-        trailing: _chevron(scheme),
-        onTap: _openFontSize,
-      ),
-      const Divider(height: 1),
-      _switchRow(
-        title: '消息时间戳',
-        value: _showTimestamps,
-        onChanged: (v) {
-          setState(() => _showTimestamps = v);
-          AppSettings.showTimestamps = v;
-        },
-      ),
-      const Divider(height: 1),
-      _switchRow(
-        title: '显示快捷回复',
-        subtitle: '在输入框上方显示一排点按即发的短语',
-        value: _showQuickReplies,
-        onChanged: (v) {
-          setState(() => _showQuickReplies = v);
-          AppSettings.showQuickReplies = v;
-        },
-      ),
-      const Divider(height: 1),
-      _actionRow(
-        title: '快捷回复管理',
-        subtitle: '${AppSettings.quickReplies.length} 条 · 常驻入口，可先配置再打开上面的开关',
-        trailing: _chevron(scheme),
-        onTap: () async {
-          await Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const QuickRepliesScreen()),
-          );
-          // 返回后刷新条数（页面内自行持久化）
-          if (mounted) setState(() {});
-        },
-      ),
-      const Divider(height: 1),
-      _actionRow(
-        title: '显示正则',
-        subtitle: '只改看到的内容：导入 ST 正则、开关、替换前后对比（v0.29.0）',
-        trailing: _chevron(scheme),
-        onTap: () async {
-          await Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const DisplayRegexScreen()),
-          );
-          if (mounted) setState(() {});
-        },
-      ),
     ];
   }
 
@@ -1168,7 +1140,70 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   List<Widget> _appearanceChildren(ColorScheme scheme) {
     return [
-      const SectionHeader('外观'),
+      // -------------------------------------------- 排版与显示（v0.40.1） --
+      // v0.40.1：原来在「聊天与上下文」里的显示项，统一收进外观。
+      const SectionHeader('排版与显示'),
+      _actionRow(
+        title: '对话排版',
+        subtitle:
+            '当前 ${AppSettings.chatLayout.label}：${AppSettings.chatLayout.description}',
+        trailing: _chevron(scheme),
+        onTap: _openChatLayout,
+      ),
+      const Divider(height: 1),
+      _actionRow(
+        title: '聊天气泡字号',
+        subtitle: '当前 ${AppSettings.chatFontSize.round()}sp · 点按可调',
+        trailing: _chevron(scheme),
+        onTap: _openFontSize,
+      ),
+      const Divider(height: 1),
+      _switchRow(
+        title: '消息时间戳',
+        value: _showTimestamps,
+        onChanged: (v) {
+          setState(() => _showTimestamps = v);
+          AppSettings.showTimestamps = v;
+        },
+      ),
+      const Divider(height: 1),
+      _switchRow(
+        title: '显示快捷回复',
+        subtitle: '在输入框上方显示一排点按即发的短语',
+        value: _showQuickReplies,
+        onChanged: (v) {
+          setState(() => _showQuickReplies = v);
+          AppSettings.showQuickReplies = v;
+        },
+      ),
+      const Divider(height: 1),
+      _actionRow(
+        title: '快捷回复管理',
+        subtitle: '${AppSettings.quickReplies.length} 条 · 常驻入口，可先配置再打开上面的开关',
+        trailing: _chevron(scheme),
+        onTap: () async {
+          await Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const QuickRepliesScreen()),
+          );
+          // 返回后刷新条数（页面内自行持久化）
+          if (mounted) setState(() {});
+        },
+      ),
+      const Divider(height: 1),
+      _actionRow(
+        title: '显示正则',
+        subtitle: '只改看到的内容：导入 ST 正则、开关、替换前后对比（v0.29.0）',
+        trailing: _chevron(scheme),
+        onTap: () async {
+          await Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const DisplayRegexScreen()),
+          );
+          if (mounted) setState(() {});
+        },
+      ),
+      const SizedBox(height: 8),
+      const Divider(height: 1),
+      const SectionHeader('主题'),
       Row(
         children: [
           for (final (i, mode, label) in const [

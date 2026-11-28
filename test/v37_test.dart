@@ -104,11 +104,11 @@ void main() {
     });
   });
 
-  group('设置页（聊天与上下文 → 显示）', () {
+  group('设置页（外观与显示 → 排版与显示，v0.40.1 起）', () {
     testWidgets('显示对话排版当前值，切换成小说后落盘', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
-          home: SettingsScreen(section: SettingsSection.chat),
+          home: SettingsScreen(section: SettingsSection.appearance),
         ),
       );
       await tester.pumpAndSettle();

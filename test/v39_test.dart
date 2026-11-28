@@ -145,17 +145,17 @@ void main() {
     });
   });
 
-  group('设置首页图标（v0.39.0）', () {
+  group('设置首页图标（v0.39.0；v0.40.1 分组调整）', () {
     testWidgets('六个分组入口都带图标', (tester) async {
       await tester.pumpWidget(host(const SettingsScreen()));
       await tester.pumpAndSettle();
 
       for (final icon in <IconData>[
-        Icons.tune,
+        Icons.memory_outlined,
         Icons.forum_outlined,
+        Icons.palette_outlined,
         Icons.storefront_outlined,
         Icons.menu_book_outlined,
-        Icons.palette_outlined,
         Icons.help_outline,
       ]) {
         expect(find.byIcon(icon), findsOneWidget, reason: '缺图标 $icon');

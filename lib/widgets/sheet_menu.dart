@@ -187,37 +187,181 @@ Future<T?> showSheetMenu<T>({
 
 /// 二级菜单：先只列组（图标 + 组名 + 一句概括 + 右侧箭头），点一组再弹这一组的条目。
 /// 一级不显示大标题，避免「聊天菜单 / 当前：xxx」这种占地方的块（v0.40.0）。
+
+/// 二级菜单：一级只列组，点开一组进二级；**返回键与点空白处都返回上一级**
+/// （一级再返回才关闭），这样误触不会把整个菜单关掉（v0.40.1）。
 Future<void> showGroupedSheetMenu(
   BuildContext context, {
   required List<SheetMenuGroup> groups,
   double maxHeightFactor = 0.78,
-}) async {
-  final picked = await showSheetMenu<SheetMenuGroup>(
+}) {
+  return showGeneralDialog<void>(
     context: context,
-    maxHeightFactor: maxHeightFactor,
-    children: [
-      const SizedBox(height: 6),
-      for (final group in groups)
-        SheetMenuItem(
-          icon: group.icon,
-          title: group.label,
-          subtitle: group.description,
-          danger: group.danger,
-          trailing: const Icon(Icons.chevron_right, size: 20),
-          onTap: () => Navigator.of(context).pop(group),
+    barrierDismissible: false,
+    barrierLabel: '菜单',
+    barrierColor: Colors.black.withValues(alpha: 0.32),
+    transitionDuration: const Duration(milliseconds: 200),
+    pageBuilder: (dialogContext, _, _) => _GroupedSheetMenu(
+      groups: groups,
+      maxHeightFactor: maxHeightFactor,
+    ),
+    transitionBuilder: (context, animation, secondary, child) {
+      final t = Curves.easeOutCubic.transform(animation.value);
+      return Opacity(
+        opacity: t,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.08),
+            end: Offset.zero,
+          ).animate(animation),
+          child: child,
         ),
-      const SizedBox(height: 8),
-    ],
+      );
+    },
   );
-  if (picked == null) return;
-  if (!context.mounted) return;
-  await showSheetMenu<void>(
-    context: context,
-    maxHeightFactor: maxHeightFactor,
-    children: [
-      SheetMenuTitle(title: picked.label),
-      ...picked.children,
-      const SizedBox(height: 8),
-    ],
-  );
+}
+
+class _GroupedSheetMenu extends StatefulWidget {
+  const _GroupedSheetMenu({required this.groups, required this.maxHeightFactor});
+
+  final List<SheetMenuGroup> groups;
+  final double maxHeightFactor;
+
+  @override
+  State<_GroupedSheetMenu> createState() => _GroupedSheetMenuState();
+}
+
+class _GroupedSheetMenuState extends State<_GroupedSheetMenu> {
+  SheetMenuGroup? _active;
+
+  /// 返回上一级；已经在一级就关掉菜单。
+  void _back() {
+    if (_active != null) {
+      setState(() => _active = null);
+    } else {
+      Navigator.of(context).pop();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final size = MediaQuery.sizeOf(context);
+    final active = _active;
+    return PopScope(
+      canPop: active == null,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) setState(() => _active = null);
+      },
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _back,
+              child: const SizedBox.expand(),
+            ),
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Material(
+              color: scheme.surface,
+              shape: const RoundedRectangleBorder(
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: SafeArea(
+                top: false,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: size.height * widget.maxHeightFactor,
+                  ),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const _SheetDragHandle(),
+                        if (active == null)
+                          for (final group in widget.groups)
+                            SheetMenuItem(
+                              icon: group.icon,
+                              title: group.label,
+                              subtitle: group.description,
+                              danger: group.danger,
+                              trailing: const Icon(Icons.chevron_right, size: 20),
+                              onTap: () => setState(() => _active = group),
+                            )
+                        else ...[
+                          _SheetGroupHeader(
+                            title: active.label,
+                            onBack: () => setState(() => _active = null),
+                          ),
+                          ...active.children,
+                        ],
+                        const SizedBox(height: 8),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SheetDragHandle extends StatelessWidget {
+  const _SheetDragHandle();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 10, bottom: 6),
+      child: Container(
+        width: 32,
+        height: 4,
+        decoration: BoxDecoration(
+          color: scheme.onSurfaceVariant.withValues(alpha: 0.4),
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetGroupHeader extends StatelessWidget {
+  const _SheetGroupHeader({required this.title, required this.onBack});
+
+  final String title;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 0, 20, 4),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_back, size: 20),
+            tooltip: '返回上一级',
+            onPressed: onBack,
+          ),
+          Expanded(
+            child: Text(
+              title,
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+                color: scheme.onSurface,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

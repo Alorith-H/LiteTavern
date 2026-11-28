@@ -1,4 +1,4 @@
-# 交接状态：v0.40.0 聊天菜单改为二级（2026-11-28 更新）
+# 交接状态：v0.40.1 二级菜单返回上一级 + 设置页重新分组（2026-11-28 更新）
 
 > 历史：v0.9.0（两级设置 + 真实采样参数 + 胶囊按钮）、v0.10.0（后台生成不中断）、
 > v0.11.0（角色卡市场）、v0.12.x（市场筛选、用户侧建议回复）、
@@ -29,60 +29,53 @@
 > v0.37.0（对话排版：气泡 / 小说）、
 > v0.38.0（备份恢复可选内容）、
 > v0.39.0（菜单布局重做：统一零件、分组、图标）、
-> v0.40.0（聊天菜单改为二级：一级只列六组，点开一组再看条目；去掉占位标题）。
+> v0.40.0（聊天菜单改为二级：一级只列六组）、
+> v0.40.1（二级菜单返回上一级 + 设置页重新分组）。
 >
-> **本轮 v0.40.0 —— 聊天菜单改二级**：
-> 1. 一级只列六组（生成 / 这段聊天 / 提示词与统计 / 导入与导出 / 角色 / 危险操作），
->    每组带图标与一句「组里有什么」的概括，右侧箭头；不再显示「聊天菜单 · 当前：<会话名>」标题块。
-> 2. 点一组才弹这一组（二级），顶部只有组名；条目行为与原菜单完全一致。
-> 3. 实现：`lib/widgets/sheet_menu.dart` 新增 `SheetMenuGroup` + `showGroupedSheetMenu`；
->    `chat_screen._showMenu` 改为按组建菜单。
-> **v0.39.0 —— 菜单布局重做**：
-> 1. **统一零件**：新增 `lib/widgets/sheet_menu.dart`，提供 `SheetMenuTitle` /
->    `SheetMenuSection` / `SheetMenuItem`（支持 danger、禁用、trailing）/ `showSheetMenu`。
->    以后所有底部菜单都用这一套：标题 + 分组 + 图标 + 一行副标题。
-> 2. **聊天菜单重做**：原来 20 项平铺 → 六组：生成 / 这段聊天 / 提示词与统计 /
->    导入与导出 / 角色 / 危险操作。菜单顶部显示「聊天菜单 · 当前：<会话名>」。
-> 3. **消息长按菜单重做**：12 项平铺 → 四组：查看与修改 / 剧情 / 给模型 / 危险操作
->    （删除类用 error 色，生成或摘要进行中时禁用删除）。
-> 4. **主页两处菜单**：角色长按加标题与「编辑 / 危险操作」分组；
->    导入弹层改「在线获取 / 从手机或链接 / 自己创建」三组，市场带「推荐」徽章，底部格式说明。
-> 5. **设置首页**：六个二级入口加图标（tune / forum / storefront / menu_book / palette / help），
->    `_actionRow` 支持 leading 图标。
+> **本轮 v0.40.1 —— 菜单层级与设置分组**：
+> 1. **二级菜单返回上一级**：`showGroupedSheetMenu` 改为自绘 `showGeneralDialog` + `PopScope`；
+>    二级里按系统返回键、或点菜单外的空白处，都先回到一级（不关闭），一级再返回/点空白才关。
+> 2. **设置页重新分组**：`SettingsSection` 改为
+>    `model / chat / appearance / market / worldBooks / help`，标题为
+>    **模型与生成 / 聊天与上下文 / 外观与显示 / 角色卡市场与翻译 / 世界书 / 帮助与关于**；
+>    首页入口顺序与图标随分组走（`SettingsSection.icon`）。
+> 3. **模型与生成**：原首页「模型服务」配置行 + 「生成参数」子页合成一页（`_modelChildren`），
+>    首页只留一个入口，副标题为「配置名 · 模型 · t/p」（`_modelSummary()`）。
+> 4. **显示项归入外观**：对话排版 / 聊天气泡字号 / 消息时间戳 / 显示快捷回复 / 快捷回复管理 /
+>    显示正则，从「聊天与上下文」移到「外观与显示」顶部「排版与显示」；
+>    其后是主题模式、主题色、自定义颜色。
+> 5. **版本号规则**：只有布局与交互调整 → 版本记 **0.40.1**（补丁号 +1）。
 
 ## 仓库状态
 
-- 分支 `dev`，版本 `pubspec.yaml` = **0.40.0+41**，`lib/app_info.dart` `kAppVersion = '0.40.0'`。
+- 分支 `dev`，版本 `pubspec.yaml` = **0.40.1+42**，`lib/app_info.dart` `kAppVersion = '0.40.1'`。
 - 本轮新增 / 修改：
-  - `lib/widgets/sheet_menu.dart`（新）：菜单统一零件（标题 / 分组小标题 / 条目 / 弹层）。
-  - `lib/screens/chat_screen.dart`：`_showMenu` 与 `_showMessageActions` 全量重写为分组菜单。
-  - `lib/screens/home_screen.dart`：`_showActions` 与 `_showImportSheet` 重写为分组菜单。
-  - `lib/screens/settings_screen.dart`：`_actionRow` 增 `leading` 图标参数；首页六个入口加图标。
-  - `test/v39_test.dart`（新，7 例）：零件渲染 / 禁用 / danger 配色 / 弹层开合 / 设置首页图标。
-  - `CHANGELOG.md`（v0.39.0 段）、`docs/FEATURE_AUDIT.md`（本轮变更记录）、本文件。
+  - `lib/widgets/sheet_menu.dart`：`showGroupedSheetMenu` 改为自绘对话框 + `PopScope`；
+    新增 `_SheetGroupHeader`（返回箭头 + 组名）、`_SheetDragHandle`；`_back()` 负责逐级返回。
+  - `lib/screens/settings_screen.dart`：枚举 / 标题 / 图标重排；新增 `_modelChildren`、
+    `_modelSummary()`；删除无用的 `_generationSummary()`；显示项移入 `_appearanceChildren`；
+    `_appearanceSummary()` 带上排版名。
+  - `test/v40_test.dart`：改为 5 例（返回箭头回一级 / 点空白回一级 / 系统返回先回一级等）。
+  - `test/v21_test.dart`、`test/v37_test.dart`、`test/v39_test.dart`：同步新分组与图标。
+  - `CHANGELOG.md`（v0.40.1 段）、`docs/FEATURE_AUDIT.md`（第 7 节本轮变更记录）、本文件。
 
 ## 验证表（本轮）
 
 | 项目 | 结果 |
 | --- | --- |
-| `flutter analyze` | No issues found!（3.7s） |
-| `flutter test` | **+556 All tests passed!**（18s，含新增 2 例二级菜单用例） |
-| `flutter build apk --release` | **61.1MB**，versionCode **41** / versionName **0.40.0** |
-| 装机 | `adb -s 192.168.0.102:37433 install -r` → Success（真机 code 41 / 0.40.0，数据保留） |
-| 导入弹层点验 | dump 确认「导入角色卡 / 在线获取 / 角色卡市场·推荐 / 从手机或链接 / 从文件导入 / 从链接下载 / 自己创建 / AI 创建角色卡」（截图 `build/v390_import.png`） |
-| 设置首页点验 | 六行二级入口带图标 + 「帮助与关于 · 版本 v0.39.0」（截图 `build/v390_settings.png`） |
-| 二级菜单点验（真机） | 一级只显示六组与概括、无标题（`build/v400_menu1.png`）；点「生成」进入二级显示「重新生成 / 继续生成 / 换开场白」（`build/v400_menu2.png`，dump 核对） |
-| 对话排版切换 | 设置 → 聊天与上下文 → 显示 → 对话排版 → 气泡（由小说切回），气泡恢复左右分栏（`build/v390_layout_sheet.png`） |
-| 回归 | 单人 / 群聊、导出、世界书、ST 兼容、备份等原有测试全绿 |
+| `flutter analyze` | No issues found!（3.8s） |
+| `flutter test` | **+559 All tests passed!**（12s） |
+| `flutter build apk --release` | 见下方「本次运行记录」 |
+| 回归 | 单人 / 群聊、导出、世界书、ST 兼容、备份、排版等原有测试全绿 |
 
 ## 已知边界
 
-- 消息长按菜单在**模拟器**上无法用 `adb shell input` 注入长按（swipe 零位移、motionevent 分段都无效，
-  真机 v0.24 时可验证）；该菜单内容改动由 `test/v39_test.dart` 与静态检查覆盖。
-- 菜单仍是底部弹层（不用抽屉 / 全屏页），条目多时依赖滚动；分组标题不吸顶。
-- 其它沿用 v0.38.0 的边界（恢复是覆盖、设置项整类、需重启；排版只管显示；
-  发言名单按群保存；接着说不计命中率；费用是估算；每聊天覆盖只 6 键；
-  ST 兼容模式是叠加不是替换；变量只读；卡内脚本不执行）。
+- 二级菜单是自绘 `showGeneralDialog`（不是 `showModalBottomSheet`），因此不能再用
+  `showModalBottomSheet` 的 `showDragHandle`；拖动条由内部 `_SheetDragHandle` 画（仅装饰、不可拖）。
+- 设置首页六个入口的副标题里，模型与生成只显示「配置名 · 模型 · t/p」，不显示上下文窗口；
+  上下文窗口在子页与模型配置里。
+- 其它沿用 v0.40.0 / v0.39.0 的边界（消息长按菜单在模拟器上无法注入长按；
+  底部弹层条目多时依赖滚动；恢复是覆盖；费用是估算；ST 兼容是叠加；变量只读；卡内脚本不执行）。
 
 ## 环境与常用命令
 
@@ -93,14 +86,15 @@ $env:FLUTTER_STORAGE_BASE_URL="https://storage.flutter-io.cn"
 & C:\flutter\bin\flutter.bat test
 & C:\flutter\bin\flutter.bat build apk --release
 
+# 真机（无线调试，端口每次可能变化）
+& C:\Users\28351\Android\Sdk\platform-tools\adb.exe devices
+& C:\Users\28351\Android\Sdk\platform-tools\adb.exe connect <ip:port>
+& C:\Users\28351\Android\Sdk\platform-tools\adb.exe -s <ip:port> install -r build\app\outputs\flutter-apk\app-release.apk
+
 # 模拟器（真机不在手边时；AVD 已建好）
 C:\Users\28351\Android\Sdk\emulator\emulator.exe -avd litetavern_test -no-window -no-audio `
   -no-boot-anim -gpu swiftshader_indirect -no-snapshot -port 5556
 adb -s emulator-5556 install -r build\app\outputs\flutter-apk\app-release.apk
-
-# 模拟器是 google_apis（可 root）：核对应用私有目录
-adb -s emulator-5556 root
-adb -s emulator-5556 shell "ls -R /data/data/com.alorith.litetavern/app_flutter"
 
 # mock 模型服务（写 build\mock_last.json 便于核对请求体）
 python build\mock_llm.py    # 监听 127.0.0.1:8765，模拟器用 http://10.0.2.2:8765/v1
@@ -115,12 +109,17 @@ python build\mock_llm.py    # 监听 127.0.0.1:8765，模拟器用 http://10.0.2
 （卡内脚本执行沙箱、HTML 整页画布、TTS / 语音输入、图像生成、向量记忆、Web 搜索、Live2D、STscript）。
 
 后续可做的小项：聊天统计按模型拆分、自动更新忽略版本、恢复前自动快照、
-其余底部弹层（聊天列表 / 书签 / 导出格式 / 市场筛选 / 模型列表）也换成 `sheet_menu` 零件。
+其余底部弹层（聊天列表 / 书签 / 导出格式 / 市场筛选 / 模型列表）也换成 `sheet_menu` 零件、
+把「设置首页」也改成二级菜单风格（目前是长列表 + 分节标题）。
 
-## 本次运行记录（2026-11-28，v0.40.0）
+## 本次运行记录（2026-11-28，v0.40.1）
 
-- `flutter analyze` → No issues found!（3.7s）
-- `flutter test` → +556 All tests passed!（18s）
-- `flutter build apk --release` → 61.1MB，versionCode 41 / 0.40.0
-- 真机 `adb -s 192.168.0.102:37433 install -r` → Success（code 41 / 0.40.0，数据保留）
-- 真机点验：聊天菜单一级只有六组与概括、无标题块；点「生成」进入二级显示三项；截图 `build/v400_menu1.png`、`build/v400_menu2.png`
+- `flutter analyze` → No issues found!（3.8s）
+- `flutter test` → +559 All tests passed!（12s）
+- `flutter build apk --release` → **61.1MB（64,056,935 字节）**，versionCode **42** / versionName **0.40.1**（Gradle 52.1s）
+- 真机 `adb -s 192.168.0.102:37433 install -r` → **Success**（dumpsys：versionCode 42 / 0.40.1 / lastUpdateTime 2026-11-28 09:52:27，数据保留）
+- 真机点验：
+  - 设置首页 dump 确认新分组：模型与生成（`Deepseek · deepseek-flash · t0.8 · p1.0`）/ 聊天与上下文 / 外观与显示（`气泡排版 · 跟随系统 · 主题色 #9C27B0 · 字号 15sp`）/ 角色卡市场与翻译 / 世界书 / 帮助与关于（`版本 v0.40.1`），截图 `build/v401_settings.png`；
+  - 聊天菜单一级只有六组与概括、无标题（`build/v401_menu1.png`）；
+  - 点「生成」进二级（`build/v401_menu2.png`）后按**系统返回** → 回到一级（六组仍在，`build/v401_afterback.png`）；
+  - 二级点空白 → 回一级；一级点空白 → 菜单关闭（断言：level2→level1 groups=3，再点 groups=0 且输入栏可见）。

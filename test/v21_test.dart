@@ -155,27 +155,29 @@ void main() {
     });
   });
 
-  group('设置页二级菜单（v0.21.0）', () {
-    testWidgets('首页列出各分组，点进「生成参数」进入子页', (tester) async {
+  group('设置页二级菜单（v0.21.0，v0.40.1 重新分组）', () {
+    testWidgets('首页列出各分组，点进「模型与生成」进入子页', (tester) async {
       await tester.pumpWidget(_host(const SettingsScreen()));
       await tester.pumpAndSettle();
 
+      // v0.40.1：模型服务与生成参数合并为「模型与生成」；显示项移入「外观与显示」。
       for (final title in const <String>[
-        '生成参数',
+        '模型与生成',
         '聊天与上下文',
+        '外观与显示',
         '角色卡市场与翻译',
         '世界书',
-        '外观',
         '帮助与关于',
       ]) {
         expect(find.text(title), findsWidgets, reason: '首页应有「$title」入口');
       }
 
-      await tester.ensureVisible(find.text('生成参数').first);
+      await tester.ensureVisible(find.text('模型与生成').first);
       await tester.pumpAndSettle();
-      await tester.tap(find.text('生成参数').first);
+      await tester.tap(find.text('模型与生成').first);
       await tester.pumpAndSettle();
 
+      expect(find.text('模型服务'), findsWidgets);
       expect(find.text('随机度'), findsOneWidget);
       expect(find.text('采样范围'), findsOneWidget);
       expect(find.text('单次回复长度上限'), findsOneWidget);

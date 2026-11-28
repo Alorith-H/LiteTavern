@@ -155,3 +155,17 @@
 - `lib/screens/chat_screen.dart`：`_showMenu` 改为二级菜单，六组（生成 / 这段聊天 / 提示词与统计 / 导入与导出 / 角色 / 危险操作），
   删掉「聊天菜单 · 当前：<会话名>」标题块。
 - 测试：`test/v40_test.dart` 2 例（一级只列组且无标题、点组进二级、点条目回调并关闭、点遮罩关闭不进二级）；全量 **556 全过**。
+
+## 7. 本轮变更记录（v0.40.1）
+
+- `lib/widgets/sheet_menu.dart`：`showGroupedSheetMenu` 改为自绘 `showGeneralDialog` + `PopScope`，二级里
+  **系统返回键**与**点空白处**都先回一级（`_active = null`），一级再返回/点空白才关闭；新增 `_SheetGroupHeader`
+  返回按钮与 `_SheetDragHandle`。
+- `lib/screens/settings_screen.dart`：
+  - `SettingsSection` 改为 `model / chat / appearance / market / worldBooks / help`，标题分别为
+    模型与生成 / 聊天与上下文 / 外观与显示 / 角色卡市场与翻译 / 世界书 / 帮助与关于；新增 `icon` 扩展，首页入口复用。
+  - 新增 `_modelChildren`：模型服务配置行 + 原生成参数子页内容合成「模型与生成」。
+  - 显示相关（对话排版 / 字号 / 时间戳 / 快捷回复 / 快捷回复管理 / 显示正则）从聊天子页移到外观子页顶部「排版与显示」。
+  - 新增 `_modelSummary()`（配置名 · 模型 · t/p）；`_appearanceSummary()` 补排版名（如「小说排版 · 跟随系统 …」）。
+- 测试：`test/v40_test.dart` 改 5 例（含返回箭头回一级、点空白回一级、系统返回先回一级）；
+  `test/v21_test.dart` / `test/v37_test.dart` / `test/v39_test.dart` 同步新分组；全量 **559 全过**。
