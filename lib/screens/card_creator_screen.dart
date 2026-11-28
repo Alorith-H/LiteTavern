@@ -3,62 +3,23 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
-import '../models/character_card.dart';
 import '../services/active_generations.dart';
 import '../services/api_client.dart';
-import '../services/card_creator_flow.dart';
+import '../services/card_creator_prompts.dart';
 import '../services/generated_card.dart';
 import '../services/prompt_builder.dart';
 import '../services/storage.dart';
 import '../services/stream_throttle.dart';
+import '../widgets/card_variables_dialog.dart';
 import '../widgets/common.dart';
 import 'character_edit_screen.dart';
 import 'settings_screen.dart';
 
-/// 生成角色卡的系统提示：要求返回纯 JSON，含 character_book 规范。
-const String _kCardJsonSystem = r'''
-你是角色卡生成器。根据用户与采访者的对话记录，输出一张角色卡的纯 JSON：
-只输出 JSON 本身，不要代码围栏，不要任何解释文字。
-
-JSON 字段（值均为字符串）：
-- "name"：角色名字（必填）
-- "description"：角色背景与设定（200–400 字）
-- "personality"：性格特点（100–200 字）
-- "scenario"：故事场景与相遇背景（100–200 字）
-- "first_mes"：开场白（角色对用户说的第一段话，可用 \n 换行）
-- "mes_example"：对话示例（没有合适的可给空字符串）
-- "system_prompt"：给模型的角色指令（可给空字符串）
-- "extensions"：可选，对象。角色有需要记录的数值状态时写：
-  {"mvu": {"initialVariables": {"好感度": 0, "体力": 100}}}
-  键用简短中文，值是数字或字符串；没有数值状态时省略这个字段
-- "character_book"：内嵌世界书，没有可写的词条时必须为 null
-
-character_book 规范（仅当角色涉及专有名词、地点、世界观规则时才写，
-条目 3–8 条，不许编造凑数）：
-{
-  "name": "<角色名>的世界书",
-  "entries": [
-    {
-      "keys": ["关键词1", "keyword2"],
-      "content": "不超过200字的设定说明",
-      "enabled": true,
-      "insertion_order": 0,
-      "position": 0
-    }
-  ]
-}
-- keys 为 1–4 个中英文关键词；content ≤200 字；position 固定 0
-
-要求：忠实使用对话里的信息；对话里缺失的关键设定可自行合理补全；
-用户在对话中要求修改（如"世界书里把 X 改成 Y"）要体现在输出里。
-直接输出 JSON。
-''';
-
-/// 「继续生成」追加的系统指令。
-const String _kContinueHint = '接着刚才的内容继续输出，不要重复已输出的部分，不要解释。';
-
 /// AI 角色卡创建器（v0.8.0）：采访式对话收集设定 → 一键生成纯 JSON 卡
 /// → 打开现有编辑页预览（内存卡、未保存态）→ 复用现有保存入库流程。
+///
+/// v0.46.0：去掉固定 6 步流程，改成自由节奏的采访（一次一问，
+/// 由 AI 判断还缺什么）；初始变量在生成前单独问用户要不要。
 ///
 /// 对话为内存态（不写存储文件），消息类型与后台生成管理器共用
 /// [CreatorMsg]。v0.10.0：采访流式请求交给管理器（key = [creatorKey]），
@@ -81,9 +42,6 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
   final _scrollCtrl = ScrollController();
   final _inputEmpty = ValueNotifier<bool>(true);
   final _api = ApiClient();
-
-  /// v0.45.0：逐步引导状态（6 步，一次只聊一件事）。
-  final CardCreatorFlow _flow = CardCreatorFlow();
 
   bool _generating = false; // 采访流式进行中
   bool _building = false; // 生成角色卡（一次性请求）进行中
@@ -213,10 +171,10 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
     _sendText(text);
   }
 
-  /// 把一条用户回答发出去：记进当前步骤 → 推进到下一步 → 请求 AI。
+  /// 把一条用户回答发出去，请求 AI 继续采访。
   ///
-  /// v0.45.0：步骤推进放在本地（用户答完即进入下一步），AI 的系统提示
-  /// 随步骤变化，只围绕当前这一步追问，不会一次抛一堆问题。
+  /// v0.46.0：不再有「当前第几步」，用户说什么就发什么，
+  /// 由系统提示约束 AI 一次只问一个问题。
   void _sendText(String text) {
     final trimmed = text.trim();
     if (trimmed.isEmpty || _generating || _building) return;
@@ -224,7 +182,6 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
       _promptConfigureApi();
       return;
     }
-    final advanced = _flow.record(trimmed) && _flow.advance();
     setState(() {
       // 清掉上一轮停止时一个字都没出的空占位
       if (_msgs.isNotEmpty && !_msgs.last.isUser && _msgs.last.isEmpty) {
@@ -237,7 +194,7 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
     });
     _followScroll = true;
     _followBottom();
-    _runChat(stepTransition: advanced);
+    _runChat();
   }
 
   /// 停止后继续：末条 AI 回复追加输出（复用流式管线）。
@@ -273,7 +230,7 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
   /// 一次采访流式请求（v0.10.0：交给后台生成管理器，key = creator）。
   /// 对话只走内存 + 节流刷新；页面退出请求继续跑，重进由
   /// [_adoptPendingJob] 接管显示；本页（发起方）await 任务结束收尾。
-  Future<void> _runChat({bool isContinue = false, bool stepTransition = false}) async {
+  Future<void> _runChat({bool isContinue = false}) async {
     final token = ++_genToken;
     _throttle.reset();
     final history = <PromptMessage>[
@@ -285,7 +242,9 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
           ),
     ];
     if (isContinue) {
-      history.add(const PromptMessage(role: 'system', content: _kContinueHint));
+      history.add(
+        const PromptMessage(role: 'system', content: creatorContinueHint),
+      );
     }
     // v0.9.0：统一走激活预设的完整参数集（高级字段默认不进 body）
     final sampling = AppSettings.activePreset.sampling;
@@ -299,12 +258,7 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
         apiKey: AppSettings.apiKey,
         model: AppSettings.model,
         messages: [
-          PromptMessage(role: 'system', content: creatorInterviewSystem(_flow)),
-          if (stepTransition)
-            PromptMessage(
-              role: 'system',
-              content: creatorStepTransitionHint(_flow),
-            ),
+          const PromptMessage(role: 'system', content: creatorInterviewSystem),
           ...history,
         ],
         temperature: AppSettings.temperature,
@@ -396,7 +350,6 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
     if (!mounted) return;
     setState(() {
       _msgs.clear();
-      _flow.reset();
       _generating = false;
       _stopped = false;
     });
@@ -416,6 +369,10 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
       _toast('先描述一下你想要的角色，或和 AI 聊几句');
       return;
     }
+    // v0.46.0：初始变量先问用户。不要的话，提示词里明确禁止输出
+    // extensions，解析后再兜底清一次，保证卡片里没有变量。
+    final withVariables = await showCardVariablesDialog(context);
+    if (withVariables == null || !mounted) return;
     setState(() => _building = true);
     try {
       // 生成卡需要完整 JSON：预设 max_tokens 过小会被截断，最少给 4096
@@ -425,8 +382,9 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
             baseUrl: AppSettings.baseUrl,
             apiKey: AppSettings.apiKey,
             model: AppSettings.model,
-            system: _kCardJsonSystem,
-            user: '${_flow.summaryForPrompt()}\n${_transcript()}',
+            system: buildCardJsonSystem(withVariables: withVariables),
+            user: '${_transcript()}'
+                '${cardVariablesInstruction(withVariables: withVariables)}',
             temperature: AppSettings.temperature,
             topP: AppSettings.topP,
             maxTokens: maxT,
@@ -438,12 +396,15 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
         _toast('生成未完成，可以再点一次');
         return;
       }
-      final CharacterCard? card = parseGeneratedCard(raw);
-      if (card == null) {
+      final parsed = parseGeneratedCard(raw);
+      if (parsed == null) {
         _toast('没解析出可用的角色卡，可以再点一次，'
             '或补一句「把 JSON 再输出一遍」');
         return;
       }
+      final card = withVariables
+          ? parsed
+          : parsed.copyWith(extensions: const <String, dynamic>{});
       // 打开现有编辑页预览（draft = 内存卡未保存），保存走既有入库流程
       await Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => CharacterEditScreen.draft(card: card)),
@@ -459,6 +420,7 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
       if (mounted) setState(() => _building = false);
     }
   }
+
 
   /// 采访对话转成给生成模型的纯文本记录。
   String _transcript() {
@@ -532,7 +494,6 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
       ),
       body: Column(
         children: [
-          _buildStepBar(scheme),
           Expanded(child: _buildMessages(scheme)),
           _buildBottomBar(scheme),
         ],
@@ -540,83 +501,45 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
     );
   }
 
-  /// 顶部步骤条（v0.45.0）：第 N/6 步 + 进度 + 快速选项 + 跳过/上一步。
-  Widget _buildStepBar(ColorScheme scheme) {
-    final step = _flow.step;
-    final chips = step.quickOptions;
-    return Container(
-      width: double.maxFinite,
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        border: Border(bottom: BorderSide(color: scheme.outline)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  _flow.isComplete ? '设定齐了，可以生成' : _flow.progressLabel,
-                  style: TextStyle(
-                    fontSize: AppType.caption,
-                    fontWeight: FontWeight.w600,
-                    color: scheme.onSurface,
-                  ),
-                ),
-              ),
-              if (_flow.stepNumber > 1)
-                TextButton(
-                  onPressed: (_generating || _building)
-                      ? null
-                      : () => setState(() => _flow.back()),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: const Text(
-                    '上一步',
-                    style: TextStyle(fontSize: AppType.meta),
-                  ),
-                ),
-              if (!_flow.isComplete)
-                TextButton(
-                  onPressed: (_generating || _building)
-                      ? null
-                      : () => setState(() {
-                            _flow.skip();
-                            if (_flow.isComplete) _toast('前面的步骤可以随时点「上一步」补');
-                          }),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: const Text(
-                    '跳过这步',
-                    style: TextStyle(fontSize: AppType.meta),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(2),
-            child: LinearProgressIndicator(
-              value: _flow.progress,
-              minHeight: 3,
-              backgroundColor: scheme.surfaceContainerHighest,
+  /// 空态（v0.46.0）：不再显示「第 N/6 步」，只给一句节奏说明和几个开场题材。
+  Widget _buildEmpty(ColorScheme scheme) {
+    const starters = ['都市奇幻', '校园日常', '科幻悬疑'];
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.edit_note_outlined,
+              size: 30,
+              color: scheme.onSurfaceVariant,
             ),
-          ),
-          const SizedBox(height: 8),
-          if (!_flow.isComplete)
+            const SizedBox(height: 10),
+            Text(
+              '想到什么就说什么，AI 会顺着往下问。',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: AppType.caption,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '聊得差不多了，点右下角「生成角色卡」。',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: AppType.caption,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 16),
             Wrap(
               spacing: 8,
-              runSpacing: 4,
+              runSpacing: 6,
+              alignment: WrapAlignment.center,
               children: [
-                for (final option in chips)
+                for (final option in starters)
                   ActionChip(
                     label: Text(
                       option,
@@ -629,48 +552,14 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
                   ),
               ],
             ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildMessages(ColorScheme scheme) {
-    if (_msgs.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.edit_note_outlined,
-                size: 30,
-                color: scheme.onSurfaceVariant,
-              ),
-              const SizedBox(height: 10),
-              Text(
-                '一步一步来，一次只聊一件事。',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: AppType.caption,
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                _flow.step.question,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: AppType.body,
-                  height: 1.6,
-                  color: scheme.onSurface,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
+    if (_msgs.isEmpty) return _buildEmpty(scheme);
     final fontSize = AppSettings.chatFontSize;
     return ListView.builder(
       controller: _scrollCtrl,

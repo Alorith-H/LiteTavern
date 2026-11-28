@@ -17,6 +17,14 @@ class WhatsNewEntry {
 /// 最近几次更新的说明。只保留用户能感知的变化，不写内部实现。
 const List<WhatsNewEntry> kWhatsNew = <WhatsNewEntry>[
   WhatsNewEntry(
+    version: '0.46.0',
+    title: 'AI 创建角色卡更自由',
+    bullets: <String>[
+      '去掉固定步骤：想怎么聊就怎么聊，AI 一次问一个问题，不再显示「第几步」。',
+      '生成前会问你要不要初始变量；说不加，角色卡里就不会有变量。',
+    ],
+  ),
+  WhatsNewEntry(
     version: '0.45.1',
     title: '长按菜单精简',
     bullets: <String>[

@@ -99,6 +99,7 @@ class CharacterCard {
     String? scenario,
     String? firstMes,
     String? id,
+    Map<String, dynamic>? extensions,
   }) {
     return CharacterCard(
       name: name ?? this.name,
@@ -112,7 +113,7 @@ class CharacterCard {
       tags: tags,
       creator: creator,
       characterBook: characterBook,
-      extensions: extensions,
+      extensions: extensions ?? this.extensions,
       id: id ?? this.id,
     );
   }

@@ -1,3 +1,26 @@
+## 本轮 v0.46.0 —— AI 创建角色卡去掉步骤限制 + 变量先询问（用户需求：不要步骤限制；变量与状态要先问是否加入）
+
+- **自由节奏的采访**：删除 `lib/services/card_creator_flow.dart`（`CreatorStep` / `CardCreatorFlow` / `kCreatorStepCount` / `creatorStepTransitionHint` 全部移除），新增 `lib/services/card_creator_prompts.dart`：
+  - `creatorInterviewSystem`：每次只问一个问题，心里按「名字与题材 → 性格与说话习惯 → 外貌与来历 → 相遇场景与开场白」推进，但不报编号、不显示进度、不说「第几步」；用户一次给多项就只补缺的；不追问数值 / 变量 / 世界书；用户说够了就提示点右下角「生成角色卡」。
+  - `buildCardJsonSystem({required bool withVariables})`：生成提示词按开关决定是否给出 `extensions.mvu.initialVariables` 示例；不加变量时明确写「不要输出 "extensions" 字段」。
+  - `cardVariablesInstruction({required bool withVariables})`：生成时追加在对话记录后的变量说明。
+  - `creatorContinueHint`：继续按钮的提示文案。
+- **生成前询问变量**：新增 `lib/widgets/card_variables_dialog.dart` 的 `showCardVariablesDialog(context)`——「要加初始变量吗？」说明变量用途，按钮「取消」（不生成）/「不加，直接生成」/「加上变量」。`card_creator_screen.dart` 的 `_generateCard()` 先弹它，返回 null 就中止；不加变量时即便模型输出了 extensions，也会 `copyWith(extensions: const <String, dynamic>{})` 清空，卡片保持干净。
+- **界面**：`card_creator_screen.dart` 移除步骤条（第 N/6 步、进度条、上一步、跳过这步、步骤快速选项）与 `_flow` 状态；空态改为「想到什么就说什么，AI 会顺着往下问。」+「聊得差不多了，点右下角「生成角色卡」。」+ 三个题材快捷入口（都市奇幻 / 校园日常 / 科幻悬疑），聊天区与输入栏下移占满。
+- **模型**：`CharacterCard.copyWith` 新增 `Map<String, dynamic>? extensions` 参数，便于清空。
+- **测试**：重写 `test/card_creator_test.dart`（16 例：提示词不含步骤编号、一次一问、不追问变量、收尾提示、两种生成提示词、变量说明两态、copyWith 清空、extensions 解析 5 例、空态无进度条/无「跳过这步」）；新增 `test/card_variables_dialog_test.dart`（4 例：文案与三个按钮、加变量→true、不加→false、取消→null）。
+- **版本**：`pubspec.yaml` `0.46.0+54`、`kAppVersion='0.46.0'`；CHANGELOG 新增 v0.46.0 两条；`whats_new` 新增 0.46.0「AI 创建角色卡更自由」两条；`docs/index.html` 静态版本同步 v0.46.0。
+
+### 本次运行记录（v0.46.0）
+| 项目 | 结果 |
+| --- | --- |
+| `flutter analyze` | No issues found! |
+| `flutter test` | **+667 All tests passed!** |
+| `flutter build apk --release` | 61.6MB（64,581,751 字节），versionCode 54 / 0.46.0 |
+| 模拟器装机 | `adb -s emulator-5556 install -r` Success |
+| 实机验证（模拟器 + mock 接口） | 创建页无步骤条；发一句「都市奇幻」后 AI 自由提问；点「生成角色卡」先弹「要加初始变量吗？」；选「不加，直接生成」后请求体 system 含「不要输出 "extensions" 字段」、user 含「用户不需要初始变量」，生成的角色卡字段正常 |
+
+
 ## 本轮 v0.45.1 —— 长按菜单精简（用户需求：取消「编辑 / 危险操作」分组与角色名标题，只留按钮）
 
 - **角色操作弹层**：`lib/screens/home_screen.dart` 的 `_showActions` 改为调用新文件 `lib/widgets/character_actions_sheet.dart` 的 `showCharacterActionsSheet(context, card:, onEdit:, onDelete:)`。弹层只剩「编辑角色」「删除角色」两个按钮（删除仍为危险色，副标题说明会连聊天记录与书签一起删），不再显示角色名、「角色操作」标题和「编辑 / 危险操作」分组。
