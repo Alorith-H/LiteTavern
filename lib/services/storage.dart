@@ -1589,7 +1589,23 @@ class AppSettings {
 
   /// 主题色 seed（0xFFRRGGBB）：从未设置过时用赤陶酒红默认值，
   /// 用户已选过的颜色保留在 prefs 不受影响。
-  static int get themeSeed => _sp.getInt(_kThemeSeed) ?? 0xFF9C4632;
+  /// 默认主题色（v0.46.1 起为紫色）。
+  static const int kDefaultThemeSeed = 0xFF9C27B0;
+
+  /// v0.46.1 之前的默认主题色（棕色），需要一次性迁移到紫色。
+  static const int _kOldDefaultThemeSeed = 0xFF9C4632;
+
+  static int get themeSeed {
+    final stored = _sp.getInt(_kThemeSeed);
+    if (stored == null) return kDefaultThemeSeed;
+    // 旧默认值一次性迁移；用户自己挑的其它颜色保持不动。
+    if (stored == _kOldDefaultThemeSeed) {
+      _sp.setInt(_kThemeSeed, kDefaultThemeSeed);
+      return kDefaultThemeSeed;
+    }
+    return stored;
+  }
+
   static set themeSeed(int v) => _sp.setInt(_kThemeSeed, v);
   static const _kThemeSeed = 'theme_seed';
 

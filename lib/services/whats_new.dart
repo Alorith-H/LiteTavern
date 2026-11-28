@@ -17,6 +17,14 @@ class WhatsNewEntry {
 /// 最近几次更新的说明。只保留用户能感知的变化，不写内部实现。
 const List<WhatsNewEntry> kWhatsNew = <WhatsNewEntry>[
   WhatsNewEntry(
+    version: '0.46.1',
+    title: '界面与创建流程微调',
+    bullets: <String>[
+      '默认主题色改为紫色；之前没改过颜色的会自动换成紫色。',
+      '创建角色卡时的初始变量改在对话里确认，不再单独弹窗。',
+    ],
+  ),
+  WhatsNewEntry(
     version: '0.46.0',
     title: 'AI 创建角色卡更自由',
     bullets: <String>[

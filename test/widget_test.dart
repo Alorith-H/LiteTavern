@@ -345,14 +345,22 @@ void main() {
     expect(AppSettings.showQuickReplies, isFalse);
   });
 
-  test('从未设置过主题色时默认赤陶酒红，已有选择保留', () async {
+  test('从未设置过主题色时默认紫色，老默认值迁移，已有选择保留', () async {
     TestWidgetsFlutterBinding.ensureInitialized();
     SharedPreferences.setMockInitialValues({});
     await AppSettings.init();
-    expect(AppSettings.themeSeed, 0xFF9C4632);
+    // v0.46.1：默认主题色从赤陶棕改成紫色
+    expect(AppSettings.themeSeed, 0xFF9C27B0);
+
+    // 老版本留下的默认棕色一次性迁移成紫色
+    SharedPreferences.setMockInitialValues({'theme_seed': 0xFF9C4632});
+    await AppSettings.init();
+    expect(AppSettings.themeSeed, 0xFF9C27B0);
+    expect((await SharedPreferences.getInstance()).getInt('theme_seed'), 0xFF9C27B0);
+
+    // 用户自己挑的颜色保持不动
     AppSettings.themeSeed = 0xFF2196F3;
     expect(AppSettings.themeSeed, 0xFF2196F3);
-    // 重新读取仍保留用户选择
     await AppSettings.init();
     expect(AppSettings.themeSeed, 0xFF2196F3);
   });

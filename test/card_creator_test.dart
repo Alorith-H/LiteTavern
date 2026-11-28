@@ -25,7 +25,8 @@ void main() {
     });
 
     test('不追问变量与世界书（留给生成前单独确认）', () {
-      expect(creatorInterviewSystem, contains('不要问数值、变量、世界书'));
+      expect(creatorInterviewSystem, contains('变量只在收尾时问一次'));
+      expect(creatorInterviewSystem, contains('不要问世界书'));
     });
 
     test('用户说够了就停止追问并指向生成按钮', () {
@@ -79,6 +80,47 @@ void main() {
       expect(cleaned.extensions, isEmpty);
       // 其它字段不受影响
       expect(cleaned.name, 'A');
+    });
+  });
+
+  group('从对话判断是否加初始变量（v0.46.1 不再弹窗）', () {
+    test('用户明确拒绝：不加', () {
+      const transcript = '用户：都市奇幻\n'
+          '采访者：要不要给角色加初始变量？\n'
+          '用户：不要变量，写正文就行\n';
+      expect(wantsInitialVariables(transcript), isFalse);
+    });
+
+    test('用户明确同意：加', () {
+      const transcript = '用户：都市奇幻\n'
+          '采访者：要不要加初始变量？\n'
+          '用户：加上变量吧，想要好感和体力\n';
+      expect(wantsInitialVariables(transcript), isTrue);
+    });
+
+    test('问过变量、用户只回一句「好」，算同意', () {
+      const transcript = '用户：都市奇幻\n'
+          '采访者：要加初始变量吗？\n'
+          '用户：好\n';
+      expect(wantsInitialVariables(transcript), isTrue);
+    });
+
+    test('没聊过变量时默认不加', () {
+      const transcript = '用户：都市奇幻，角色叫沈青禾\n'
+          '采访者：她平时说话是什么样的？\n'
+          '用户：话不多，偶尔刻薄\n';
+      expect(wantsInitialVariables(transcript), isFalse);
+    });
+
+    test('否定措辞优先，不会被「加」字误判', () {
+      const transcript = '用户：别加变量了\n'
+          '采访者：好的\n';
+      expect(wantsInitialVariables(transcript), isFalse);
+    });
+
+    test('对话为空时默认不加', () {
+      expect(wantsInitialVariables(''), isFalse);
+      expect(wantsInitialVariables('   '), isFalse);
     });
   });
 

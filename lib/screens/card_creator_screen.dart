@@ -10,7 +10,6 @@ import '../services/generated_card.dart';
 import '../services/prompt_builder.dart';
 import '../services/storage.dart';
 import '../services/stream_throttle.dart';
-import '../widgets/card_variables_dialog.dart';
 import '../widgets/common.dart';
 import 'character_edit_screen.dart';
 import 'settings_screen.dart';
@@ -369,10 +368,10 @@ class _CardCreatorScreenState extends State<CardCreatorScreen> {
       _toast('先描述一下你想要的角色，或和 AI 聊几句');
       return;
     }
-    // v0.46.0：初始变量先问用户。不要的话，提示词里明确禁止输出
-    // extensions，解析后再兜底清一次，保证卡片里没有变量。
-    final withVariables = await showCardVariablesDialog(context);
-    if (withVariables == null || !mounted) return;
+    // v0.46.1：不再弹窗确认。AI 在采访里问过一次，这里按对话内容判断：
+    // 用户明确说要才加；没聊过或不想要，提示词禁止输出 extensions，
+    // 解析后再兜底清一次，保证卡片里不会凭空多出变量。
+    final withVariables = wantsInitialVariables(_transcript());
     setState(() => _building = true);
     try {
       // 生成卡需要完整 JSON：预设 max_tokens 过小会被截断，最少给 4096

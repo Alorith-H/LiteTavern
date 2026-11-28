@@ -1,3 +1,23 @@
+## 本轮 v0.46.1 —— 变量改在对话里确认 + 默认主题色改为紫色（用户需求：不要弹窗；有变量就不再问；默认主题色紫色）
+
+- **变量不再弹窗**：删除 `lib/widgets/card_variables_dialog.dart` 与其测试，`card_creator_screen.dart` 的 `_generateCard()` 不再询问，改为 `wantsInitialVariables(_transcript())` 按对话内容判断。
+  - 采访提示词（`lib/services/card_creator_prompts.dart` 的 `creatorInterviewSystem`）新增一条：变量只在收尾时问一次；用户说不加就不再加；对话里已经聊过变量或用户自己提了数值，就不再问。
+  - 新增 `wantsInitialVariables(String transcript)`：只看用户说的话（避免把采访者提问里的「要不要加变量」当成同意），明确否定优先 → false；明确肯定 → true；对话里问过变量且用户最后一句是「好 / 可以 / 行 / 嗯」→ true；其余（没聊过、说不清）→ false，宁可卡片干净。
+  - 生成提示词同步：不加变量时 system 写「不要输出 "extensions" 字段：用户在对话里没有要求初始变量。」，user 追加「用户在对话里没有要求初始变量：不要输出 extensions 字段。」；解析后仍兜底清空 extensions。
+- **默认主题色改为紫色**：`lib/services/storage.dart` 新增 `kDefaultThemeSeed = 0xFF9C27B0`；`themeSeed` 默认取紫色，并把旧默认棕色 `0xFF9C4632` 一次性迁移成紫色（用户自己挑过的其它颜色不动）。
+- **测试**：`test/card_creator_test.dart` 增 6 例对话判断（明确拒绝 / 明确同意 / 问过后回「好」/ 没聊过 / 否定优先 / 空对话）+ 采访提示词断言改为「变量只在收尾时问一次」「不要问世界书」；`test/widget_test.dart` 主题色用例改为「默认紫色、老默认值迁移、用户选择保留」。全量 **669 测试通过**。
+- **版本**：`pubspec.yaml` `0.46.1+55`、`kAppVersion='0.46.1'`；CHANGELOG、`whats_new` v0.46.1 两条；`docs/index.html` 静态版本 v0.46.1。
+
+### 本次运行记录（v0.46.1）
+| 项目 | 结果 |
+| --- | --- |
+| `flutter analyze` | No issues found! |
+| `flutter test` | **+669 All tests passed!** |
+| `flutter build apk --release` | 61.6MB（64,581,751 字节），versionCode 55 / 0.46.1 |
+| 模拟器装机 | `adb -s emulator-5556 install -r` Success |
+| 实机验证 | 更新说明弹窗为紫色主题；创建角色卡点「生成角色卡」直接生成（无变量弹窗）；请求体 system/user 均为「没有要求初始变量，不要输出 extensions」 |
+
+
 ## 本轮 v0.46.0 —— AI 创建角色卡去掉步骤限制 + 变量先询问（用户需求：不要步骤限制；变量与状态要先问是否加入）
 
 - **自由节奏的采访**：删除 `lib/services/card_creator_flow.dart`（`CreatorStep` / `CardCreatorFlow` / `kCreatorStepCount` / `creatorStepTransitionHint` 全部移除），新增 `lib/services/card_creator_prompts.dart`：
